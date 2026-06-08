@@ -111,6 +111,13 @@ Participant 2: The teacher's weekly feedback made me feel supported.
 The app also accepts plain paragraphs without speaker labels, but speaker labels
 make quote evidence easier to review.
 
+## Community Guidelines
+
+See `CONTRIBUTING.md` for how to contribute changes, report issues or problems,
+and seek support. Do not paste confidential or identifiable transcript text into
+public issues. Use short synthetic examples unless a dataset license clearly
+allows redistribution.
+
 ## Output Review Workflow
 
 1. Open one transcript or multiple related transcripts.
