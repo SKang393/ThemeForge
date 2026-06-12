@@ -113,10 +113,22 @@ make quote evidence easier to review.
 
 ## Community Guidelines
 
-See `CONTRIBUTING.md` for how to contribute changes, report issues or problems,
-and seek support. Do not paste confidential or identifiable transcript text into
-public issues. Use short synthetic examples unless a dataset license clearly
-allows redistribution.
+Use GitHub issues to report problems, ask support questions, or request
+features. Include the ThemeForge version, operating system, whether you used the
+desktop app or command line, transcript file type, steps to reproduce the
+problem, and expected versus actual behavior.
+
+Do not paste confidential or identifiable transcript text into public issues.
+Use short synthetic examples unless a dataset license clearly allows
+redistribution.
+
+Contributions should stay narrowly tied to ThemeForge's qualitative-coding
+purpose. Avoid new runtime dependencies unless they are necessary for the
+workflow, and run the test suite before opening a pull request:
+
+```powershell
+python -m unittest discover -s tests -v
+```
 
 ## Output Review Workflow
 
