@@ -8,9 +8,10 @@ tags:
   - interview transcripts
 authors:
   - name: Sungwoo Kang
+    orcid: 0000-0002-6449-712X
     affiliation: 1
 affiliations:
-  - name: Independent education researcher
+  - name: Purdue University
     index: 1
 date: 7 June 2026
 bibliography: paper.bib
