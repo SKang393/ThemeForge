@@ -14,6 +14,8 @@ qualitative studies in education and related fields.
 
 v1.0.0
 
+Archive DOI: <https://doi.org/10.5281/zenodo.20653169>
+
 ## What It Does
 
 - Opens TXT, Markdown, CSV, DOCX, and RTF transcripts.

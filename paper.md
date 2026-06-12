@@ -125,9 +125,8 @@ judgment.
 
 The ThemeForge source code, tests, documentation, and Windows portable build
 script are available in the public repository [@themeforge]. The software is
-released under the Apache License 2.0. A permanent archive DOI should be added
-to this paper before final JOSE submission after depositing the release with a
-service such as Zenodo or figshare.
+released under the Apache License 2.0. The archived release is available through
+Zenodo at <https://doi.org/10.5281/zenodo.20653169>.
 
 # Acknowledgements
 
