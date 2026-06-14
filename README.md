@@ -12,7 +12,7 @@ qualitative studies in education and related fields.
 
 ## Current Version
 
-v1.1.1
+v1.1.2
 
 Archive DOI: <https://doi.org/10.5281/zenodo.20653169>
 
@@ -234,6 +234,8 @@ authors and project:
   duplicate action cleanup.
 - v1.1.1: Stabilized selected-theme transcript highlighting across tabs when a
   theme appears in one file but not another.
+- v1.1.2: Filtered interviewer, moderator, and consent or procedure text from
+  theme generation and quote evidence.
 - Later: User-editable codebooks, manual theme editing, quote reassignment,
   merge/split controls, optional local semantic embeddings, and deeper
   multilingual support.

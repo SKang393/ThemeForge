@@ -190,7 +190,11 @@ STOPWORDS = {
     "uh",
     "interviewee",
     "interviewer",
+    "interview",
+    "interviews",
     "researcher",
+    "moderator",
+    "facilitator",
     "participant",
     "soi",
     "andi",
@@ -274,6 +278,31 @@ TOKEN_RE = re.compile(r"[A-Za-z가-힣][A-Za-z0-9가-힣'-]*")
 TOKEN_NOISE_RE = re.compile(r"p\d+", re.IGNORECASE)
 SPEAKER_RE = re.compile(r"^\s*([A-Za-z가-힣][A-Za-z0-9가-힣 _.-]{0,60})\s*:\s+(.+?)\s*$")
 SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
+EXCLUDED_SPEAKER_RE = re.compile(
+    r"\b(interviewer|moderator|facilitator|researcher|host|note\s*taker|notetaker)\b",
+    re.IGNORECASE,
+)
+INTERVIEW_PROCEDURE_RE = re.compile(
+    r"\b("
+    r"thank\s+you\s+for\s+(joining|participating)"
+    r"|will\s+be\s+recorded"
+    r"|recorded\s+for\s+research"
+    r"|research\s+purpose"
+    r"|explain\s+the\s+procedure"
+    r"|before\s+we\s+start"
+    r"|right\s+or\s+wrong\s+answers"
+    r"|stop\s+at\s+any\s+time"
+    r"|withdraw\s+at\s+any\s+time"
+    r"|your\s+participation\s+is\s+voluntary"
+    r"|informed\s+consent"
+    r"|consent\s+form"
+    r"|confidentiality"
+    r"|confidential"
+    r"|audio\s+record"
+    r"|video\s+record"
+    r")\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -454,7 +483,11 @@ def extract_quote_units(
     next_id = 1
 
     for segment in segments:
+        if _is_excluded_speaker(segment.speaker):
+            continue
         for sentence in _split_sentences(segment.text):
+            if _is_interview_procedure_text(sentence):
+                continue
             word_count = len(_tokenize(sentence, keep_stopwords=True))
             if word_count < min_quote_words:
                 continue
@@ -471,6 +504,14 @@ def extract_quote_units(
             next_id += 1
 
     return quotes
+
+
+def _is_excluded_speaker(speaker: str) -> bool:
+    return bool(EXCLUDED_SPEAKER_RE.search(speaker))
+
+
+def _is_interview_procedure_text(text: str) -> bool:
+    return bool(INTERVIEW_PROCEDURE_RE.search(_normalize_space(text)))
 
 
 def analyze_transcript(text: str, settings: AnalysisSettings | None = None) -> AnalysisResult:
