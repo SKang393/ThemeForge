@@ -12,7 +12,7 @@ qualitative studies in education and related fields.
 
 ## Current Version
 
-v1.1.2
+v1.2.0
 
 Archive DOI: <https://doi.org/10.5281/zenodo.20653169>
 
@@ -42,6 +42,8 @@ Archive DOI: <https://doi.org/10.5281/zenodo.20653169>
   transcript while using one shared focus topic across the whole dataset.
 - Highlights raw transcript passages with theme colors and provides previous
   and next quote navigation for the selected theme.
+- Shows quote-selection rationale for the highlighted quote, including theme
+  signals, focus-topic alignment, and a researcher-review reminder.
 - Offers light and dark window modes and an About dialog with project contact
   information.
 - Checks release metadata so app, package, README, and portable build defaults
@@ -236,6 +238,9 @@ authors and project:
   theme appears in one file but not another.
 - v1.1.2: Filtered interviewer, moderator, and consent or procedure text from
   theme generation and quote evidence.
+- v1.2.0: Added named-interviewer filtering, merged duplicate same-label
+  themes, and added quote-selection rationale in the Evidence panel and
+  exports.
 - Later: User-editable codebooks, manual theme editing, quote reassignment,
   merge/split controls, optional local semantic embeddings, and deeper
   multilingual support.

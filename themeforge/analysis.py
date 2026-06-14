@@ -303,6 +303,22 @@ INTERVIEW_PROCEDURE_RE = re.compile(
     r")\b",
     re.IGNORECASE,
 )
+INTERVIEW_PROMPT_RE = re.compile(
+    r"\b("
+    r"can\s+you\s+(tell|describe|share|explain)"
+    r"|could\s+you\s+(tell|describe|share|explain)"
+    r"|would\s+you\s+(tell|describe|share|explain)"
+    r"|tell\s+me\s+about"
+    r"|what\s+(kinds|kind|types|type|was|were|is|are|did|do|does|makes|made)"
+    r"|how\s+(did|do|does|was|were|is|are|has|have)"
+    r"|why\s+(did|do|does|was|were|is|are)"
+    r")\b",
+    re.IGNORECASE,
+)
+PARTICIPANT_SPEAKER_RE = re.compile(
+    r"\b(participant|student|learner|teacher|parent|caregiver|youth|member|p\d+|s\d+|t\d+)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -407,6 +423,7 @@ class ThemeQuote:
     relevance: float
     source_line: int
     source_name: str = "Transcript"
+    rationale: str = "Selected as a candidate quote for researcher review."
 
 
 @dataclass(frozen=True)
@@ -481,9 +498,11 @@ def extract_quote_units(
 ) -> list[QuoteUnit]:
     quotes: list[QuoteUnit] = []
     next_id = 1
+    segment_list = list(segments)
+    excluded_speakers = _infer_excluded_speakers(segment_list)
 
-    for segment in segments:
-        if _is_excluded_speaker(segment.speaker):
+    for segment in segment_list:
+        if segment.speaker in excluded_speakers:
             continue
         for sentence in _split_sentences(segment.text):
             if _is_interview_procedure_text(sentence):
@@ -512,6 +531,34 @@ def _is_excluded_speaker(speaker: str) -> bool:
 
 def _is_interview_procedure_text(text: str) -> bool:
     return bool(INTERVIEW_PROCEDURE_RE.search(_normalize_space(text)))
+
+
+def _infer_excluded_speakers(segments: list[TranscriptSegment]) -> set[str]:
+    speaker_segments: defaultdict[str, list[TranscriptSegment]] = defaultdict(list)
+    for segment in segments:
+        speaker_segments[segment.speaker].append(segment)
+
+    excluded: set[str] = set()
+    for speaker, speaker_turns in speaker_segments.items():
+        if _is_excluded_speaker(speaker):
+            excluded.add(speaker)
+            continue
+        if PARTICIPANT_SPEAKER_RE.search(speaker):
+            continue
+
+        procedure_turns = sum(_is_interview_procedure_text(turn.text) for turn in speaker_turns)
+        question_turns = sum(_is_interview_prompt_text(turn.text) or "?" in turn.text for turn in speaker_turns)
+        turn_count = len(speaker_turns)
+        if procedure_turns:
+            excluded.add(speaker)
+        elif turn_count >= 2 and question_turns >= 2 and question_turns / turn_count >= 0.5:
+            excluded.add(speaker)
+
+    return excluded
+
+
+def _is_interview_prompt_text(text: str) -> bool:
+    return bool(INTERVIEW_PROMPT_RE.search(_normalize_space(text)))
 
 
 def analyze_transcript(text: str, settings: AnalysisSettings | None = None) -> AnalysisResult:
@@ -610,6 +657,13 @@ def _build_themes(
                     relevance=round(_cosine(vectors[index], centroid), 3),
                     source_line=quotes[index].source_line,
                     source_name=quotes[index].source_name,
+                    rationale=_quote_rationale(
+                        label,
+                        keywords,
+                        quotes[index].text,
+                        settings.central_theme,
+                        round(_cosine(vectors[index], centroid), 3),
+                    ),
                 )
                 for index in cluster
             ),
@@ -638,7 +692,7 @@ def _build_themes(
             )
         )
 
-    return sorted(themes, key=lambda theme: (-theme.quote_count, -theme.score, theme.name))
+    return _merge_themes_by_name(themes, settings)
 
 
 def _build_contextual_codebook_themes(
@@ -664,6 +718,13 @@ def _build_contextual_codebook_themes(
                     relevance=round(min(1.0, score / 6.0), 3),
                     source_line=quote.source_line,
                     source_name=quote.source_name,
+                    rationale=_quote_rationale(
+                        frame.name,
+                        list(frame.keywords),
+                        quote.text,
+                        settings.central_theme,
+                        round(min(1.0, score / 6.0), 3),
+                    ),
                 )
             )
 
@@ -694,6 +755,71 @@ def _build_contextual_codebook_themes(
         )
 
     return themes[: max(1, settings.theme_count)]
+
+
+def _merge_themes_by_name(themes: list[Theme], settings: AnalysisSettings) -> list[Theme]:
+    grouped: dict[str, list[Theme]] = defaultdict(list)
+    for theme in themes:
+        grouped[theme.name].append(theme)
+
+    merged: list[Theme] = []
+    for same_name_themes in grouped.values():
+        if len(same_name_themes) == 1:
+            merged.append(same_name_themes[0])
+            continue
+
+        primary = same_name_themes[0]
+        evidence_count = sum(theme.quote_count for theme in same_name_themes)
+        keywords = _unique_terms(keyword for theme in same_name_themes for keyword in theme.keywords)
+        quotes = _unique_quotes(quote for theme in same_name_themes for quote in theme.quotes)
+        quotes = sorted(
+            quotes,
+            key=lambda quote: (
+                -_quote_sort_score(quote, settings.central_theme),
+                quote.source_name,
+                quote.source_line,
+                quote.quote_id,
+            ),
+        )
+        quotes = _limit_theme_quotes(quotes, settings.quotes_per_theme)
+        weighted_score = sum(theme.score * theme.quote_count for theme in same_name_themes) / max(1, evidence_count)
+        merged.append(
+            Theme(
+                id=primary.id,
+                name=primary.name,
+                color=primary.color,
+                keywords=keywords[:5],
+                quote_count=evidence_count,
+                score=round(weighted_score, 3),
+                quotes=quotes,
+                validation=_theme_validation(quotes, evidence_count, settings),
+            )
+        )
+
+    return sorted(merged, key=lambda theme: (-theme.quote_count, -theme.score, theme.name))
+
+
+def _unique_terms(terms: Iterable[str]) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for term in terms:
+        if term in seen:
+            continue
+        seen.add(term)
+        unique.append(term)
+    return unique
+
+
+def _unique_quotes(quotes: Iterable[ThemeQuote]) -> list[ThemeQuote]:
+    seen: set[tuple[str, str, int, str]] = set()
+    unique: list[ThemeQuote] = []
+    for quote in quotes:
+        key = (quote.quote_id, quote.source_name, quote.source_line, quote.text)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(quote)
+    return unique
 
 
 def _has_asd_4h_context(corpus_text: str) -> bool:
@@ -1037,6 +1163,44 @@ def _theme_focus_score(theme: Theme, central_theme: str) -> float:
 
 def _quote_sort_score(quote: ThemeQuote, central_theme: str) -> float:
     return quote.relevance + _central_theme_alignment(quote.text, central_theme)
+
+
+def _quote_rationale(
+    theme_name: str,
+    keywords: Sequence[str],
+    quote_text: str,
+    central_theme: str,
+    relevance: float,
+) -> str:
+    matched_keywords = _matched_terms(quote_text, keywords)
+    focus_alignment = _central_theme_alignment(quote_text, central_theme)
+    parts = [
+        f"Theme candidate: {theme_name}.",
+        f"Similarity score: {relevance:.3f}.",
+    ]
+    if matched_keywords:
+        parts.append(f"Quote shares theme signals: {', '.join(matched_keywords[:5])}.")
+    else:
+        parts.append("Quote was grouped by contextual similarity to other quotes in this theme.")
+    if central_theme.strip():
+        parts.append(f"Shared focus alignment: {round(focus_alignment * 100):.0f}%.")
+    parts.append(
+        "Use this as an audit-trail reason for review; final coding and interpretation remain researcher decisions."
+    )
+    return " ".join(parts)
+
+
+def _matched_terms(text: str, terms: Sequence[str]) -> list[str]:
+    normalized_text = _normalize_for_match(text)
+    text_tokens = set(_tokenize(text))
+    matched: list[str] = []
+    for term in terms:
+        normalized_term = _normalize_for_match(term)
+        if not normalized_term:
+            continue
+        if normalized_term in normalized_text or normalized_term in text_tokens:
+            matched.append(term)
+    return matched
 
 
 def _central_theme_alignment(text: str, central_theme: str) -> float:

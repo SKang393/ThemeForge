@@ -64,6 +64,7 @@ def export_markdown(result: AnalysisResult) -> str:
                         f"Quote ID: {quote.quote_id} | Source: {quote.source_name} | "
                         f"Line: {quote.source_line} | Relevance: {quote.relevance:.3f}"
                     ),
+                    f"- Selection rationale: {quote.rationale}",
                     "",
                 ]
             )
@@ -109,6 +110,7 @@ def export_quotes_csv(result: AnalysisResult) -> str:
             "source_line",
             "relevance",
             "quote",
+            "selection_rationale",
             "validation_review_status",
         ]
     )
@@ -128,6 +130,7 @@ def export_quotes_csv(result: AnalysisResult) -> str:
                     quote.source_line,
                     f"{quote.relevance:.3f}",
                     quote.text,
+                    quote.rationale,
                     theme.validation.get("review_status", "Researcher review required"),
                 ]
             )

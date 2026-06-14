@@ -60,6 +60,9 @@ class ThemeForgeApp(tk.Tk):
         self.detail_title = tk.StringVar(value="Transcript evidence")
         self.quote_status = tk.StringVar(value=evidence_navigation_status(0, 0))
         self.quote_meta = tk.StringVar(value="Open transcripts, then analyze to highlight quote evidence.")
+        self.quote_reason = tk.StringVar(
+            value="Select a theme, then use Previous quote or Next quote to review why each highlighted quote was selected."
+        )
         self.theme_count = tk.IntVar(value=8)
         self.quotes_per_theme = tk.IntVar(value=0)
         self.central_theme = tk.StringVar(value="")
@@ -172,7 +175,7 @@ class ThemeForgeApp(tk.Tk):
         evidence = ttk.Labelframe(workspace, text="Evidence", style="Panel.TLabelframe", padding=(14, 12))
         evidence.grid(row=0, column=2, sticky="nsew")
         evidence.columnconfigure(0, weight=1)
-        evidence.rowconfigure(3, weight=1)
+        evidence.rowconfigure(4, weight=1)
         self._build_evidence_panel(evidence)
 
         footer = ttk.Frame(self, style="Footer.TFrame", padding=(20, 0, 20, 14))
@@ -248,8 +251,13 @@ class ThemeForgeApp(tk.Tk):
 
         ttk.Label(parent, textvariable=self.quote_meta, style="Muted.TLabel", wraplength=520).grid(row=2, column=0, sticky="ew", pady=(0, 8))
 
+        reason_frame = ttk.Labelframe(parent, text="Quote rationale", style="Panel.TLabelframe", padding=(10, 8))
+        reason_frame.grid(row=3, column=0, sticky="ew", pady=(0, 8))
+        reason_frame.columnconfigure(0, weight=1)
+        ttk.Label(reason_frame, textvariable=self.quote_reason, style="Muted.TLabel", wraplength=520).grid(row=0, column=0, sticky="ew")
+
         self.transcript_notebook = ttk.Notebook(parent)
-        self.transcript_notebook.grid(row=3, column=0, sticky="nsew")
+        self.transcript_notebook.grid(row=4, column=0, sticky="nsew")
 
     def open_transcript(self) -> None:
         paths = filedialog.askopenfilenames(
@@ -280,6 +288,7 @@ class ThemeForgeApp(tk.Tk):
         self.detail_title.set("Transcript evidence")
         self.quote_status.set(evidence_navigation_status(0, 0))
         self.quote_meta.set("Analyze to highlight quote evidence across the uploaded transcripts.")
+        self.quote_reason.set("Select a theme after analysis to review quote-selection rationale.")
         self.file_summary.set(file_selection_summary(self.input_paths))
         self._render_transcript_tabs()
         self.status_text.set("Files loaded")
@@ -309,6 +318,7 @@ class ThemeForgeApp(tk.Tk):
             self.detail_title.set("No themes found")
             self.quote_status.set(evidence_navigation_status(0, 0))
             self.quote_meta.set("No quote-length transcript units were found.")
+            self.quote_reason.set("No quote rationale is available because no quote-length transcript units were found.")
 
         status = analysis_status_text(
             document_count=self.result.document_count,
@@ -400,6 +410,7 @@ class ThemeForgeApp(tk.Tk):
         self.quote_meta.set(
             f"{format_validation_summary(theme.validation)} | Keywords: {', '.join(theme.keywords) if theme.keywords else 'None'}"
         )
+        self.quote_reason.set("Use Previous quote or Next quote to inspect why each highlighted quote was selected.")
         self._highlight_all_quotes(index)
         self.current_quote_matches = self._quote_matches_for_theme(index)
         self.current_quote_index = 0 if self.current_quote_matches else -1
@@ -582,6 +593,7 @@ class ThemeForgeApp(tk.Tk):
             self.quote_status.set(evidence_navigation_status(0, 0))
             if self.current_theme_index is not None and self.result is not None:
                 self.quote_meta.set("No exact quote text was found in the raw transcript tabs.")
+                self.quote_reason.set("No quote rationale is available because the selected quote text was not found in the raw transcript.")
             return
 
         match = self.current_quote_matches[self.current_quote_index]
@@ -607,6 +619,7 @@ class ThemeForgeApp(tk.Tk):
             )
             + overlap_text
         )
+        self.quote_reason.set(match.quote.rationale)
 
     def _overlap_text(self, quote: ThemeQuote) -> str:
         if self.result is None:
