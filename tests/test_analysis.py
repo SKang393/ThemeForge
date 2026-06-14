@@ -53,6 +53,27 @@ class TranscriptParsingTests(unittest.TestCase):
         ])
         self.assertEqual({quote.speaker for quote in quotes}, {"P1"})
 
+    def test_unlabeled_transcript_keeps_quotes_after_procedure_text(self):
+        transcript = (
+            "Thank you for participating in this interview. "
+            "This interview will be recorded for research purpose. "
+            "Students said online tutoring helped them ask questions after class. "
+            "Families needed translation support because school messages were difficult to understand. "
+            "Teachers built trust when they gave examples and followed up after meetings."
+        )
+
+        quotes = extract_quote_units(parse_transcript(transcript))
+
+        self.assertEqual(
+            [quote.text for quote in quotes],
+            [
+                "Students said online tutoring helped them ask questions after class.",
+                "Families needed translation support because school messages were difficult to understand.",
+                "Teachers built trust when they gave examples and followed up after meetings.",
+            ],
+        )
+        self.assertEqual({quote.speaker for quote in quotes}, {"Unknown"})
+
 
 class ThematicAnalysisTests(unittest.TestCase):
     def test_analyze_transcript_discovers_themes_with_ranked_quotes(self):

@@ -12,7 +12,7 @@ qualitative studies in education and related fields.
 
 ## Current Version
 
-v1.2.0
+v1.2.1
 
 Archive DOI: <https://doi.org/10.5281/zenodo.20653169>
 
@@ -241,6 +241,8 @@ authors and project:
 - v1.2.0: Added named-interviewer filtering, merged duplicate same-label
   themes, and added quote-selection rationale in the Evidence panel and
   exports.
+- v1.2.1: Fixed unlabeled transcript handling so procedure or consent text at
+  the start of an imported file does not prevent theme generation.
 - Later: User-editable codebooks, manual theme editing, quote reassignment,
   merge/split controls, optional local semantic embeddings, and deeper
   multilingual support.

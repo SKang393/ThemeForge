@@ -319,6 +319,10 @@ PARTICIPANT_SPEAKER_RE = re.compile(
     r"\b(participant|student|learner|teacher|parent|caregiver|youth|member|p\d+|s\d+|t\d+)\b",
     re.IGNORECASE,
 )
+GENERIC_IMPORT_SPEAKER_RE = re.compile(
+    r"^(unknown|transcript|document|page\s+\d+|page\d+)$",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -543,15 +547,14 @@ def _infer_excluded_speakers(segments: list[TranscriptSegment]) -> set[str]:
         if _is_excluded_speaker(speaker):
             excluded.add(speaker)
             continue
+        if _is_generic_import_speaker(speaker):
+            continue
         if PARTICIPANT_SPEAKER_RE.search(speaker):
             continue
 
-        procedure_turns = sum(_is_interview_procedure_text(turn.text) for turn in speaker_turns)
         question_turns = sum(_is_interview_prompt_text(turn.text) or "?" in turn.text for turn in speaker_turns)
         turn_count = len(speaker_turns)
-        if procedure_turns:
-            excluded.add(speaker)
-        elif turn_count >= 2 and question_turns >= 2 and question_turns / turn_count >= 0.5:
+        if turn_count >= 2 and question_turns >= 2 and question_turns / turn_count >= 0.5:
             excluded.add(speaker)
 
     return excluded
@@ -559,6 +562,10 @@ def _infer_excluded_speakers(segments: list[TranscriptSegment]) -> set[str]:
 
 def _is_interview_prompt_text(text: str) -> bool:
     return bool(INTERVIEW_PROMPT_RE.search(_normalize_space(text)))
+
+
+def _is_generic_import_speaker(speaker: str) -> bool:
+    return bool(GENERIC_IMPORT_SPEAKER_RE.match(_normalize_space(speaker)))
 
 
 def analyze_transcript(text: str, settings: AnalysisSettings | None = None) -> AnalysisResult:
