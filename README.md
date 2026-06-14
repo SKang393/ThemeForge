@@ -12,7 +12,7 @@ qualitative studies in education and related fields.
 
 ## Current Version
 
-v1.1.0
+v1.1.1
 
 Archive DOI: <https://doi.org/10.5281/zenodo.20653169>
 
@@ -232,6 +232,8 @@ authors and project:
 - v1.1.0: Multi-file transcript tabs, raw transcript theme highlighting,
   selected-theme quote navigation, light/dark modes, About dialog, and
   duplicate action cleanup.
+- v1.1.1: Stabilized selected-theme transcript highlighting across tabs when a
+  theme appears in one file but not another.
 - Later: User-editable codebooks, manual theme editing, quote reassignment,
   merge/split controls, optional local semantic embeddings, and deeper
   multilingual support.

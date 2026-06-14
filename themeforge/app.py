@@ -502,7 +502,8 @@ class ThemeForgeApp(tk.Tk):
         if selected_theme_index is not None and selected_theme_index < len(self.result.themes):
             selected_tag = self._theme_tag(self.result.themes[selected_theme_index])
             for widget in self.transcript_widgets.values():
-                widget.tag_raise(selected_tag)
+                if selected_tag in widget.tag_names():
+                    widget.tag_raise(selected_tag)
 
     def _clear_quote_tags(self) -> None:
         for widget in self.transcript_widgets.values():
