@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "themeforge"
-version = "1.0.0"
+version = "1.1.0"
 description = "Windows-friendly qualitative thematic coding and quote evidence tool"
 readme = "README.md"
 requires-python = ">=3.10"

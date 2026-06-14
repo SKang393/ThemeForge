@@ -12,7 +12,7 @@ qualitative studies in education and related fields.
 
 ## Current Version
 
-v1.0.0
+v1.1.0
 
 Archive DOI: <https://doi.org/10.5281/zenodo.20653169>
 
@@ -38,6 +38,12 @@ Archive DOI: <https://doi.org/10.5281/zenodo.20653169>
 - Uses a neutral, professional desktop style for researcher-facing review.
 - Provides a minimal three-panel desktop workspace for input controls, theme
   review, and quote evidence.
+- Shows uploaded transcripts in file tabs so researchers can review each raw
+  transcript while using one shared focus topic across the whole dataset.
+- Highlights raw transcript passages with theme colors and provides previous
+  and next quote navigation for the selected theme.
+- Offers light and dark window modes and an About dialog with project contact
+  information.
 - Checks release metadata so app, package, README, and portable build defaults
   stay on the same version.
 - Adds validation metadata for evidence count, source coverage, speaker
@@ -223,6 +229,9 @@ authors and project:
   Windows portable build defaults.
 - v1.0.0: Minimal professional desktop workspace, 1.0 release metadata, and
   portable Windows release checks.
+- v1.1.0: Multi-file transcript tabs, raw transcript theme highlighting,
+  selected-theme quote navigation, light/dark modes, About dialog, and
+  duplicate action cleanup.
 - Later: User-editable codebooks, manual theme editing, quote reassignment,
   merge/split controls, optional local semantic embeddings, and deeper
   multilingual support.
