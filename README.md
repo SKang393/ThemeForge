@@ -12,7 +12,7 @@ qualitative studies in education and related fields.
 
 ## Current Version
 
-v1.2.1
+v1.2.2
 
 Archive DOI: <https://doi.org/10.5281/zenodo.20653169>
 
@@ -26,6 +26,9 @@ Archive DOI: <https://doi.org/10.5281/zenodo.20653169>
   teacher perspective, parent burden, autism, or a short research focus.
 - Suggests theme groups using embedded local lexical and contextual coding
   logic. No online service receives transcript text.
+- Uses local BM25-style focus relevance and transcript-level related terms so
+  indirect curriculum, training, lesson, assessment, and planning connections
+  can be ranked for review without requiring an online model.
 - Lists quote evidence for each suggested theme, including indirect matches
   where the quote supports the same focus area without repeating the exact
   theme label.
@@ -182,6 +185,11 @@ central-theme alignment, and review status. These are review aids, not proof
 that a theme is valid. The researcher still owns interpretation, memo writing,
 literature connection, and final reporting.
 
+Focus percentages are review signals, not confidence scores. A higher value
+means the theme contains direct focus-topic wording or transcript-learned
+related terms. Lower nonzero values mean the theme is indirectly connected and
+should be checked by the researcher rather than treated as a final code.
+
 ## Public Education Data for Testing
 
 Candidate public datasets for external QA are listed in
@@ -243,6 +251,8 @@ authors and project:
   exports.
 - v1.2.1: Fixed unlabeled transcript handling so procedure or consent text at
   the start of an imported file does not prevent theme generation.
+- v1.2.2: Improved embedded interviewer-prompt filtering, contextual focus
+  alignment, and richer phrase-based theme labels.
 - Later: User-editable codebooks, manual theme editing, quote reassignment,
   merge/split controls, optional local semantic embeddings, and deeper
   multilingual support.

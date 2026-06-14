@@ -224,7 +224,41 @@ KOREAN_STOPWORDS = {
 
 STOPWORDS.update(KOREAN_STOPWORDS)
 
+GENERIC_THEME_TERMS = {
+    "ask",
+    "asked",
+    "bit",
+    "else",
+    "finding",
+    "gave",
+    "give",
+    "help",
+    "helped",
+    "little",
+    "made",
+    "mean",
+    "means",
+    "need",
+    "needed",
+    "needs",
+    "people",
+    "say",
+    "said",
+    "share",
+    "talk",
+    "tell",
+    "useful",
+    "work",
+}
+
+STOPWORDS.update(GENERIC_THEME_TERMS)
+
 THEME_HINTS = {
+    "admin": "Administrative Support and Scheduling",
+    "administration": "Administrative Support and Scheduling",
+    "administrative": "Administrative Support and Scheduling",
+    "alignment": "Curriculum Alignment and Assessment",
+    "assessment": "Curriculum Alignment and Assessment",
     "peer": "Peer Collaboration",
     "peers": "Peer Collaboration",
     "classmate": "Peer Collaboration",
@@ -239,17 +273,60 @@ THEME_HINTS = {
     "feedback": "Instructor Support",
     "support": "Instructor Support",
     "supported": "Instructor Support",
+    "curriculum": "Curriculum Development",
+    "lesson": "Lesson Design",
+    "lessons": "Lesson Design",
+    "planning": "Planning and Implementation",
+    "standards": "Curriculum Alignment and Assessment",
+    "training": "Training and Capacity Building",
+    "train": "Training and Capacity Building",
     "confidence": "Confidence and Self-Efficacy",
     "confident": "Confidence and Self-Efficacy",
     "isolated": "Isolation and Disconnection",
     "isolation": "Isolation and Disconnection",
     "deadline": "Course Structure and Clarity",
     "deadlines": "Course Structure and Clarity",
+    "scheduling": "Administrative Support and Scheduling",
     "platform": "Technology and Access Barriers",
     "online": "Online Learning Experience",
     "autonomy": "Learner Autonomy",
     "independent": "Learner Autonomy",
     "motivation": "Motivation and Persistence",
+}
+
+FOCUS_RELATED_TERMS = {
+    "curriculum": {
+        "activities": 0.35,
+        "alignment": 0.55,
+        "assessment": 0.55,
+        "design": 0.55,
+        "instruction": 0.45,
+        "lesson": 0.55,
+        "lessons": 0.55,
+        "materials": 0.45,
+        "outcomes": 0.45,
+        "planning": 0.55,
+        "standards": 0.55,
+        "training": 0.50,
+        "unit": 0.45,
+        "units": 0.45,
+    }
+}
+
+STRONG_LABEL_HINTS = {
+    "admin",
+    "administration",
+    "administrative",
+    "instructor",
+    "instructors",
+    "peer",
+    "peers",
+    "scheduling",
+    "support",
+    "teacher",
+    "teachers",
+    "train",
+    "training",
 }
 
 ASD_PROFILE_TERMS = {
@@ -277,6 +354,9 @@ THEME_COLORS = (
 TOKEN_RE = re.compile(r"[A-Za-z가-힣][A-Za-z0-9가-힣'-]*")
 TOKEN_NOISE_RE = re.compile(r"p\d+", re.IGNORECASE)
 SPEAKER_RE = re.compile(r"^\s*([A-Za-z가-힣][A-Za-z0-9가-힣 _.-]{0,60})\s*:\s+(.+?)\s*$")
+EMBEDDED_SPEAKER_LABEL_RE = re.compile(
+    r"(?<=[.!?])\s+(?=[A-Za-z가-힣][A-Za-z0-9가-힣 _.-]{0,60}\s*:\s+)"
+)
 SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 EXCLUDED_SPEAKER_RE = re.compile(
     r"\b(interviewer|moderator|facilitator|researcher|host|note\s*taker|notetaker)\b",
@@ -306,9 +386,12 @@ INTERVIEW_PROCEDURE_RE = re.compile(
 INTERVIEW_PROMPT_RE = re.compile(
     r"\b("
     r"can\s+you\s+(tell|describe|share|explain)"
+    r"|can\s+you\s+(talk|say)"
     r"|could\s+you\s+(tell|describe|share|explain)"
     r"|would\s+you\s+(tell|describe|share|explain)"
+    r"|talk\s+a\s+little\s+bit\s+more"
     r"|tell\s+me\s+about"
+    r"|what\s+else"
     r"|what\s+(kinds|kind|types|type|was|were|is|are|did|do|does|makes|made)"
     r"|how\s+(did|do|does|was|were|is|are|has|have)"
     r"|why\s+(did|do|does|was|were|is|are)"
@@ -323,6 +406,10 @@ GENERIC_IMPORT_SPEAKER_RE = re.compile(
     r"^(unknown|transcript|document|page\s+\d+|page\d+)$",
     re.IGNORECASE,
 )
+NAMED_INTERVIEW_PROMPT_RE = re.compile(
+    r"^[A-Z][A-Za-z'-]+(?:\s+[A-Z][A-Za-z'-]+){1,3}\s+"
+    r"(can|could|would|what|how|why|tell|talk)\b",
+)
 
 
 @dataclass(frozen=True)
@@ -333,6 +420,16 @@ class AnalysisSettings:
     min_quote_words: int = 4
     agglomerative_limit: int = 120
     central_theme: str = ""
+
+
+@dataclass(frozen=True)
+class FocusProfile:
+    central_theme: str
+    direct_terms: tuple[str, ...]
+    related_weights: dict[str, float]
+    document_frequency: dict[str, int]
+    document_count: int
+    average_document_length: float
 
 
 @dataclass(frozen=True)
@@ -472,7 +569,7 @@ def parse_transcript(text: str, source_name: str = "Transcript") -> list[Transcr
                     )
                 )
 
-    for line_number, raw_line in enumerate(text.splitlines(), start=1):
+    for line_number, raw_line in enumerate(_prepare_transcript_text(text).splitlines(), start=1):
         line = raw_line.strip()
         if not line:
             flush()
@@ -496,6 +593,10 @@ def parse_transcript(text: str, source_name: str = "Transcript") -> list[Transcr
     return segments
 
 
+def _prepare_transcript_text(text: str) -> str:
+    return EMBEDDED_SPEAKER_LABEL_RE.sub("\n", text)
+
+
 def extract_quote_units(
     segments: Iterable[TranscriptSegment],
     min_quote_words: int = 4,
@@ -509,7 +610,7 @@ def extract_quote_units(
         if segment.speaker in excluded_speakers:
             continue
         for sentence in _split_sentences(segment.text):
-            if _is_interview_procedure_text(sentence):
+            if _is_excluded_interview_sentence(sentence, segment.speaker):
                 continue
             word_count = len(_tokenize(sentence, keep_stopwords=True))
             if word_count < min_quote_words:
@@ -535,6 +636,16 @@ def _is_excluded_speaker(speaker: str) -> bool:
 
 def _is_interview_procedure_text(text: str) -> bool:
     return bool(INTERVIEW_PROCEDURE_RE.search(_normalize_space(text)))
+
+
+def _is_excluded_interview_sentence(text: str, speaker: str) -> bool:
+    if _is_interview_procedure_text(text):
+        return True
+    if _looks_like_named_interview_prompt(text):
+        return True
+    if _is_generic_import_speaker(speaker) and _is_interview_prompt_text(text):
+        return True
+    return False
 
 
 def _infer_excluded_speakers(segments: list[TranscriptSegment]) -> set[str]:
@@ -566,6 +677,10 @@ def _is_interview_prompt_text(text: str) -> bool:
 
 def _is_generic_import_speaker(speaker: str) -> bool:
     return bool(GENERIC_IMPORT_SPEAKER_RE.match(_normalize_space(speaker)))
+
+
+def _looks_like_named_interview_prompt(text: str) -> bool:
+    return bool(NAMED_INTERVIEW_PROMPT_RE.match(_normalize_space(text)))
 
 
 def analyze_transcript(text: str, settings: AnalysisSettings | None = None) -> AnalysisResult:
@@ -604,7 +719,8 @@ def analyze_documents(
             validation_summary=validation_summary,
         )
 
-    codebook_themes = _build_contextual_codebook_themes(quotes, settings)
+    focus_profile = _build_focus_profile(quotes, settings.central_theme)
+    codebook_themes = _build_contextual_codebook_themes(quotes, settings, focus_profile)
     if codebook_themes:
         return AnalysisResult(
             version=__version__,
@@ -619,7 +735,7 @@ def analyze_documents(
             validation_summary=validation_summary,
         )
 
-    vectors, idf = _tfidf_vectors([_focus_augmented_text(quote.text, settings) for quote in quotes])
+    vectors, idf = _tfidf_vectors([_focus_augmented_text(quote.text, settings, focus_profile) for quote in quotes])
     clusters, clustering_note = _cluster_quotes(
         vectors,
         settings.theme_count,
@@ -628,7 +744,7 @@ def analyze_documents(
     )
     if clustering_note:
         notes.append(clustering_note)
-    themes = _build_themes(quotes, vectors, clusters, idf, settings)
+    themes = _build_themes(quotes, vectors, clusters, idf, settings, focus_profile)
 
     return AnalysisResult(
         version=__version__,
@@ -646,6 +762,7 @@ def _build_themes(
     clusters: list[list[int]],
     idf: dict[str, float],
     settings: AnalysisSettings,
+    focus_profile: FocusProfile,
 ) -> list[Theme]:
     themes: list[Theme] = []
 
@@ -654,7 +771,7 @@ def _build_themes(
         cluster_text = " ".join(quotes[index].text for index in cluster)
         keywords = _keywords_for_cluster(quotes, cluster, idf, limit=5)
         keywords = _prioritize_keywords(keywords, settings.central_theme, cluster_text)
-        label = _label_theme(keywords)
+        label = _label_theme(keywords, settings.central_theme)
         ranked_quotes = sorted(
             (
                 ThemeQuote(
@@ -670,12 +787,13 @@ def _build_themes(
                         quotes[index].text,
                         settings.central_theme,
                         round(_cosine(vectors[index], centroid), 3),
+                        focus_profile,
                     ),
                 )
                 for index in cluster
             ),
             key=lambda quote: (
-                -_quote_sort_score(quote, settings.central_theme),
+                -_quote_sort_score(quote, settings.central_theme, focus_profile),
                 quote.source_name,
                 quote.source_line,
                 quote.quote_id,
@@ -685,7 +803,7 @@ def _build_themes(
 
         cohesion_scores = [_cosine(vectors[index], centroid) for index in cluster]
         cohesion = mean(cohesion_scores) if cohesion_scores else 0.0
-        validation = _theme_validation(ranked_quotes, len(cluster), settings)
+        validation = _theme_validation(ranked_quotes, len(cluster), settings, focus_profile)
         themes.append(
             Theme(
                 id=f"T{theme_number:02d}",
@@ -699,12 +817,13 @@ def _build_themes(
             )
         )
 
-    return _merge_themes_by_name(themes, settings)
+    return _merge_themes_by_name(themes, settings, focus_profile)
 
 
 def _build_contextual_codebook_themes(
     quotes: list[QuoteUnit],
     settings: AnalysisSettings,
+    focus_profile: FocusProfile,
 ) -> list[Theme]:
     corpus_text = " ".join(quote.text for quote in quotes).lower()
     if not _has_asd_4h_context(corpus_text):
@@ -731,6 +850,7 @@ def _build_contextual_codebook_themes(
                         quote.text,
                         settings.central_theme,
                         round(min(1.0, score / 6.0), 3),
+                        focus_profile,
                     ),
                 )
             )
@@ -741,7 +861,7 @@ def _build_contextual_codebook_themes(
         ranked_quotes = sorted(
             matches,
             key=lambda quote: (
-                -_quote_sort_score(quote, settings.central_theme),
+                -_quote_sort_score(quote, settings.central_theme, focus_profile),
                 quote.source_name,
                 quote.source_line,
                 quote.quote_id,
@@ -757,14 +877,18 @@ def _build_contextual_codebook_themes(
                 quote_count=len(ranked_quotes),
                 score=round(mean(quote.relevance for quote in ranked_quotes), 3),
                 quotes=limited_quotes,
-                validation=_theme_validation(limited_quotes, len(ranked_quotes), settings),
+                validation=_theme_validation(limited_quotes, len(ranked_quotes), settings, focus_profile),
             )
         )
 
     return themes[: max(1, settings.theme_count)]
 
 
-def _merge_themes_by_name(themes: list[Theme], settings: AnalysisSettings) -> list[Theme]:
+def _merge_themes_by_name(
+    themes: list[Theme],
+    settings: AnalysisSettings,
+    focus_profile: FocusProfile,
+) -> list[Theme]:
     grouped: dict[str, list[Theme]] = defaultdict(list)
     for theme in themes:
         grouped[theme.name].append(theme)
@@ -782,7 +906,7 @@ def _merge_themes_by_name(themes: list[Theme], settings: AnalysisSettings) -> li
         quotes = sorted(
             quotes,
             key=lambda quote: (
-                -_quote_sort_score(quote, settings.central_theme),
+                -_quote_sort_score(quote, settings.central_theme, focus_profile),
                 quote.source_name,
                 quote.source_line,
                 quote.quote_id,
@@ -799,7 +923,7 @@ def _merge_themes_by_name(themes: list[Theme], settings: AnalysisSettings) -> li
                 quote_count=evidence_count,
                 score=round(weighted_score, 3),
                 quotes=quotes,
-                validation=_theme_validation(quotes, evidence_count, settings),
+                validation=_theme_validation(quotes, evidence_count, settings, focus_profile),
             )
         )
 
@@ -838,7 +962,7 @@ def _has_asd_4h_context(corpus_text: str) -> bool:
 
 def _score_code_frame_quote(frame: CodeFrame, text: str) -> float:
     normalized = _normalize_for_match(text)
-    tokens = set(_tokenize(text))
+    tokens = set(_tokenize(text, keep_stopwords=True))
     score = 0.0
 
     for phrase in frame.phrases:
@@ -1046,18 +1170,22 @@ def _keywords_for_cluster(
     tokens = _tokenize(cluster_text)
 
     for token, count in Counter(tokens).items():
+        if _is_low_value_term(token):
+            continue
         scores[token] += count * idf.get(token, 1.0)
         if token in THEME_HINTS:
             scores[token] += 4.0 * count
 
     for phrase in _candidate_phrases(tokens):
+        if _is_low_value_term(phrase):
+            continue
         scores[phrase] += 1.75 * idf.get(phrase.replace(" ", "_"), 1.0)
 
     ranked = sorted(scores.items(), key=lambda item: (-item[1], item[0]))
     keywords: list[str] = []
     for term, _ in ranked:
         display = term.replace("_", " ")
-        if len(display) < 3 or display in keywords:
+        if len(display) < 3 or display in keywords or _is_low_value_term(display):
             continue
         keywords.append(display)
         if len(keywords) >= limit:
@@ -1071,14 +1199,10 @@ def _prioritize_keywords(keywords: list[str], central_theme: str, text: str) -> 
     if not focus_terms or _central_theme_alignment(text, central_theme) <= 0:
         return keywords
 
-    prioritized: list[str] = []
+    prioritized: list[str] = list(keywords)
     for term in focus_terms:
-        if term not in prioritized:
+        if term not in prioritized and not _is_low_value_term(term):
             prioritized.append(term)
-
-    for keyword in keywords:
-        if keyword not in prioritized:
-            prioritized.append(keyword)
 
     return prioritized[:5]
 
@@ -1088,13 +1212,26 @@ def _candidate_phrases(tokens: list[str]) -> list[str]:
     for n in (2, 3):
         for index in range(0, max(0, len(tokens) - n + 1)):
             window = tokens[index : index + n]
-            if any(token in STOPWORDS for token in window):
+            if any(token in STOPWORDS or _is_low_value_term(token) for token in window):
                 continue
             phrases.append(" ".join(window))
     return phrases
 
 
-def _label_theme(keywords: list[str]) -> str:
+def _label_theme(keywords: list[str], central_theme: str = "") -> str:
+    focus_terms = set(_focus_terms(central_theme))
+    if focus_terms:
+        for keyword in keywords[:2]:
+            for token in keyword.split():
+                if token in STRONG_LABEL_HINTS and token not in focus_terms:
+                    return THEME_HINTS[token]
+
+    if focus_terms:
+        for keyword in keywords:
+            words = [word for word in keyword.replace("_", " ").split() if word not in STOPWORDS]
+            if len(words) >= 2 and focus_terms.intersection(words) and not _is_low_value_term(keyword):
+                return " ".join(word.capitalize() for word in words[:5])
+
     for keyword in keywords:
         for token in keyword.split():
             if token in THEME_HINTS:
@@ -1103,12 +1240,155 @@ def _label_theme(keywords: list[str]) -> str:
     if not keywords:
         return "Emerging Theme"
 
+    for keyword in keywords:
+        words = [word for word in keyword.replace("_", " ").split() if word not in STOPWORDS]
+        if len(words) >= 2 and not _is_low_value_term(keyword):
+            return " ".join(word.capitalize() for word in words[:5])
+
     title_words = []
     for word in keywords[0].replace("_", " ").split():
         if word not in STOPWORDS:
             title_words.append(word.capitalize())
 
     return " ".join(title_words[:5]) or "Emerging Theme"
+
+
+def _is_low_value_term(term: str) -> bool:
+    normalized = term.replace("_", " ").lower().strip()
+    if not normalized or len(normalized) < 3:
+        return True
+    words = [word for word in normalized.split() if word]
+    if not words:
+        return True
+    if all(word in STOPWORDS or word in GENERIC_THEME_TERMS for word in words):
+        return True
+    if len(words) == 1 and words[0] in GENERIC_THEME_TERMS:
+        return True
+    return False
+
+
+def _build_focus_profile(quotes: list[QuoteUnit], central_theme: str) -> FocusProfile:
+    direct_terms = tuple(_focus_terms(central_theme))
+    term_documents = [_terms_for_vector(quote.text) for quote in quotes]
+    document_frequency: Counter[str] = Counter()
+    for terms in term_documents:
+        document_frequency.update(set(terms))
+
+    document_count = len(term_documents)
+    average_document_length = mean(len(terms) for terms in term_documents) if term_documents else 1.0
+    if not direct_terms:
+        return FocusProfile(
+            central_theme=central_theme,
+            direct_terms=(),
+            related_weights={},
+            document_frequency=dict(document_frequency),
+            document_count=document_count,
+            average_document_length=max(1.0, average_document_length),
+        )
+
+    focus_indexes = [
+        index
+        for index, quote in enumerate(quotes)
+        if _direct_focus_match(quote.text, direct_terms)
+    ]
+    related_scores: defaultdict[str, float] = defaultdict(float)
+    for index in focus_indexes:
+        counts = Counter(term_documents[index])
+        for term, count in counts.items():
+            if term in direct_terms or _is_low_value_term(term):
+                continue
+            phrase_boost = 1.35 if "_" in term else 1.0
+            related_scores[term] += math.sqrt(count) * _bm25_idf(
+                document_frequency.get(term, 0),
+                document_count,
+            ) * phrase_boost
+
+    ranked_tokens = [
+        item
+        for item in sorted(related_scores.items(), key=lambda item: (-item[1], item[0]))
+        if "_" not in item[0]
+    ][:14]
+    ranked_phrases = [
+        item
+        for item in sorted(related_scores.items(), key=lambda item: (-item[1], item[0]))
+        if "_" in item[0]
+    ][:12]
+    ranked_related = ranked_tokens + ranked_phrases
+    max_score = max((score for _term, score in ranked_related), default=1.0)
+    related_weights = {
+        term: round(0.65 * (score / max_score), 4)
+        for term, score in ranked_related
+        if score > 0
+    }
+    for focus_term in direct_terms:
+        for related_term, weight in FOCUS_RELATED_TERMS.get(focus_term, {}).items():
+            if related_term in direct_terms or _is_low_value_term(related_term):
+                continue
+            related_weights[related_term] = max(related_weights.get(related_term, 0.0), weight)
+    return FocusProfile(
+        central_theme=central_theme,
+        direct_terms=direct_terms,
+        related_weights=related_weights,
+        document_frequency=dict(document_frequency),
+        document_count=document_count,
+        average_document_length=max(1.0, average_document_length),
+    )
+
+
+def _direct_focus_match(text: str, direct_terms: Sequence[str]) -> bool:
+    normalized_text = _normalize_for_match(text)
+    text_terms = set(_terms_for_vector(text))
+    for term in direct_terms:
+        normalized_term = _normalize_for_match(term)
+        if normalized_term and (normalized_term in normalized_text or term in text_terms):
+            return True
+    return False
+
+
+def _contextual_focus_alignment(text: str, focus_profile: FocusProfile) -> float:
+    terms = _terms_for_vector(text)
+    if not terms:
+        return 0.0
+    counts = Counter(terms)
+    direct_weights = {term: 1.0 for term in focus_profile.direct_terms}
+    direct_score = _weighted_bm25_score(counts, len(terms), focus_profile, direct_weights)
+    related_score = _weighted_bm25_score(counts, len(terms), focus_profile, focus_profile.related_weights)
+    direct_hits = sum(1 for term in focus_profile.direct_terms if counts.get(term, 0) > 0)
+    direct_alignment = max(
+        1.0 - math.exp(-direct_score),
+        direct_hits / max(1, len(focus_profile.direct_terms)),
+    )
+    related_alignment = 1.0 - math.exp(-related_score / 0.65)
+    return round(min(1.0, (direct_alignment * 0.72) + (related_alignment * 0.55)), 3)
+
+
+def _weighted_bm25_score(
+    counts: Counter[str],
+    document_length: int,
+    focus_profile: FocusProfile,
+    query_weights: dict[str, float],
+) -> float:
+    if not query_weights:
+        return 0.0
+    k1 = 1.2
+    b = 0.75
+    average_length = max(1.0, focus_profile.average_document_length)
+    length_norm = k1 * (1 - b + b * (document_length / average_length))
+    score = 0.0
+    for term, weight in query_weights.items():
+        frequency = counts.get(term, 0)
+        if frequency <= 0:
+            continue
+        idf = _bm25_idf(
+            focus_profile.document_frequency.get(term, 0),
+            focus_profile.document_count,
+        )
+        score += weight * idf * ((frequency * (k1 + 1)) / (frequency + length_norm))
+    return score
+
+
+def _bm25_idf(document_frequency: int, document_count: int) -> float:
+    return max(0.0, math.log(1 + ((document_count - document_frequency + 0.5) / (document_frequency + 0.5))))
 
 
 def _validation_summary(settings: AnalysisSettings) -> list[str]:
@@ -1128,6 +1408,7 @@ def _theme_validation(
     quotes: list[ThemeQuote],
     evidence_count: int,
     settings: AnalysisSettings,
+    focus_profile: FocusProfile | None = None,
 ) -> dict[str, object]:
     sources = {quote.source_name for quote in quotes}
     speakers = {quote.speaker for quote in quotes}
@@ -1140,6 +1421,7 @@ def _theme_validation(
             _central_theme_alignment(
                 " ".join(quote.text for quote in quotes),
                 settings.central_theme,
+                focus_profile,
             ),
             3,
         ),
@@ -1162,14 +1444,23 @@ def _sort_themes(themes: list[Theme], settings: AnalysisSettings) -> list[Theme]
 
 
 def _theme_focus_score(theme: Theme, central_theme: str) -> float:
+    if central_theme.strip() and "central_theme_alignment" in theme.validation:
+        try:
+            return float(theme.validation.get("central_theme_alignment", 0))
+        except (TypeError, ValueError):
+            return 0.0
     text = " ".join(
         [theme.name, *theme.keywords, *(quote.text for quote in theme.quotes)]
     )
     return _central_theme_alignment(text, central_theme)
 
 
-def _quote_sort_score(quote: ThemeQuote, central_theme: str) -> float:
-    return quote.relevance + _central_theme_alignment(quote.text, central_theme)
+def _quote_sort_score(
+    quote: ThemeQuote,
+    central_theme: str,
+    focus_profile: FocusProfile | None = None,
+) -> float:
+    return quote.relevance + _central_theme_alignment(quote.text, central_theme, focus_profile)
 
 
 def _quote_rationale(
@@ -1178,9 +1469,10 @@ def _quote_rationale(
     quote_text: str,
     central_theme: str,
     relevance: float,
+    focus_profile: FocusProfile | None = None,
 ) -> str:
     matched_keywords = _matched_terms(quote_text, keywords)
-    focus_alignment = _central_theme_alignment(quote_text, central_theme)
+    focus_alignment = _central_theme_alignment(quote_text, central_theme, focus_profile)
     parts = [
         f"Theme candidate: {theme_name}.",
         f"Similarity score: {relevance:.3f}.",
@@ -1210,10 +1502,17 @@ def _matched_terms(text: str, terms: Sequence[str]) -> list[str]:
     return matched
 
 
-def _central_theme_alignment(text: str, central_theme: str) -> float:
+def _central_theme_alignment(
+    text: str,
+    central_theme: str,
+    focus_profile: FocusProfile | None = None,
+) -> float:
     focus_terms = _focus_terms(central_theme)
     if not focus_terms:
         return 0.0
+
+    if focus_profile is not None and focus_profile.direct_terms:
+        return _contextual_focus_alignment(text, focus_profile)
 
     normalized_text = _normalize_for_match(text)
     text_tokens = set(_tokenize(text))
@@ -1229,11 +1528,15 @@ def _central_theme_alignment(text: str, central_theme: str) -> float:
     return min(1.0, score / max(1, len(focus_terms)))
 
 
-def _focus_augmented_text(text: str, settings: AnalysisSettings) -> str:
+def _focus_augmented_text(
+    text: str,
+    settings: AnalysisSettings,
+    focus_profile: FocusProfile | None = None,
+) -> str:
     central_theme = settings.central_theme.strip()
     if not central_theme:
         return text
-    alignment = _central_theme_alignment(text, central_theme)
+    alignment = _central_theme_alignment(text, central_theme, focus_profile)
     if alignment <= 0:
         return text
     return " ".join([text, central_theme, central_theme])

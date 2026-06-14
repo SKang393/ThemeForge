@@ -162,6 +162,92 @@ class ThematicAnalysisTests(unittest.TestCase):
         self.assertNotIn("get", keywords)
         self.assertTrue(any("student" in label or "loan" in label or "support" in label for label in labels))
 
+    def test_embedded_interviewer_prompts_do_not_become_themes_or_quotes(self):
+        transcript = " ".join(
+            [
+                "Marie David can you talk a little bit more about training?",
+                "Participant: Training helped us design curriculum lessons with peer collaboration.",
+                "Marie David what else would help?",
+                "Participant: Teachers needed protected planning time to adapt curriculum materials.",
+                "Admin: Scheduling support made curriculum development easier for teachers.",
+            ]
+        )
+
+        result = analyze_transcript(
+            transcript,
+            AnalysisSettings(theme_count=5, quotes_per_theme=2, min_theme_size=1, central_theme="curriculum"),
+        )
+
+        generated_text = " ".join(
+            [
+                *(theme.name for theme in result.themes),
+                *(keyword for theme in result.themes for keyword in theme.keywords),
+                *(quote.text for theme in result.themes for quote in theme.quotes),
+            ]
+        ).lower()
+        self.assertGreater(result.quote_count, 0)
+        self.assertNotIn("marie", generated_text)
+        self.assertNotIn("david", generated_text)
+        self.assertNotIn("little bit", generated_text)
+        self.assertTrue(any("training" in theme.name.lower() or "training" in " ".join(theme.keywords).lower() for theme in result.themes))
+
+    def test_focus_alignment_uses_contextual_relationships_not_only_exact_overlap(self):
+        transcript = "\n".join(
+            [
+                "Participant 1: Curriculum development required shared lesson design, assessment planning, and standards alignment.",
+                "Participant 2: Training gave teachers practical examples, planning routines, and design time.",
+                "Participant 3: Peer collaboration helped teachers revise activities and share lesson materials.",
+                "Participant 4: Admin scheduling gave teachers protected time for planning and revision.",
+            ]
+        )
+
+        result = analyze_transcript(
+            transcript,
+            AnalysisSettings(theme_count=4, quotes_per_theme=1, min_theme_size=1, central_theme="curriculum"),
+        )
+
+        by_name = {theme.name.lower(): theme for theme in result.themes}
+        training_theme = next(theme for name, theme in by_name.items() if "training" in name)
+        peer_theme = next(theme for name, theme in by_name.items() if "peer" in name or "collaboration" in name)
+        admin_theme = next(theme for name, theme in by_name.items() if "admin" in name or "scheduling" in name)
+
+        self.assertGreater(training_theme.validation["central_theme_alignment"], 0.0)
+        self.assertGreater(peer_theme.validation["central_theme_alignment"], 0.0)
+        self.assertGreater(
+            training_theme.validation["central_theme_alignment"],
+            admin_theme.validation["central_theme_alignment"],
+        )
+
+    def test_theme_labels_prefer_contextual_phrases_over_generic_words(self):
+        transcript = "\n".join(
+            [
+                "Participant 1: I was a little bit nervous about curriculum planning before we had examples.",
+                "Participant 2: We did a little bit of lesson design, but standards alignment made the work useful.",
+                "Participant 3: People need training time to build curriculum activities together.",
+                "Participant 4: The useful finding was that shared planning helped teachers revise lesson materials.",
+            ]
+        )
+
+        result = analyze_transcript(
+            transcript,
+            AnalysisSettings(theme_count=4, quotes_per_theme=1, min_theme_size=1, central_theme="curriculum"),
+        )
+
+        labels = {theme.name.lower() for theme in result.themes}
+        keywords = {keyword.lower() for theme in result.themes for keyword in theme.keywords}
+        self.assertFalse({"little bit", "people", "need", "finding"} & labels)
+        self.assertFalse(any(keyword.startswith("little bit") for keyword in keywords))
+        self.assertTrue(
+            any(
+                "curriculum planning" in label
+                or "lesson design" in label
+                or "standards alignment" in label
+                or "training time" in label
+                or "shared planning" in label
+                for label in labels
+            )
+        )
+
     def test_pdf_extraction_artifacts_do_not_become_theme_labels(self):
         transcript = "\n".join(
             [
