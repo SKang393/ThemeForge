@@ -21,6 +21,7 @@ from .codebook import load_codebook_entries
 from .exports import export_json, export_markdown, export_quotes_csv
 from .io import load_transcript_text
 from .manual_editing import merge_theme, reassign_quote, rename_theme, split_quote_to_theme
+from .project_io import ProjectState, load_project, save_project
 from .ui_model import (
     APP_THEMES,
     about_text,
@@ -53,6 +54,7 @@ class ThemeForgeApp(tk.Tk):
         self.display_mode = tk.StringVar(value="Light")
         self.palette = APP_THEMES["Light"]
         self.input_paths: list[Path] = []
+        self.project_path: Path | None = None
         self.codebook_path: Path | None = None
         self.codebook_entries = ()
         self.documents: list[TranscriptDocument] = []
@@ -168,7 +170,9 @@ class ThemeForgeApp(tk.Tk):
         )
         mode.grid(row=0, column=1, sticky="e", padx=(0, 8))
         mode.bind("<<ComboboxSelected>>", self.change_display_mode)
-        ttk.Button(header_actions, text="About", style="Secondary.TButton", command=self.show_about).grid(row=0, column=2)
+        ttk.Button(header_actions, text="Open project", style="Secondary.TButton", command=self.open_project).grid(row=0, column=2, padx=(0, 8))
+        ttk.Button(header_actions, text="Save project", style="Secondary.TButton", command=self.save_project).grid(row=0, column=3, padx=(0, 8))
+        ttk.Button(header_actions, text="About", style="Secondary.TButton", command=self.show_about).grid(row=0, column=4)
 
         workspace = ttk.Frame(self, style="App.TFrame", padding=(18, 18, 18, 12))
         workspace.grid(row=1, column=0, sticky="nsew")
@@ -493,6 +497,91 @@ class ThemeForgeApp(tk.Tk):
         self._render_themes()
         self._select_theme(len(self.result.themes) - 1)
         self.status_text.set("Quote split into a new theme")
+
+    def open_project(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Open ThemeForge project",
+            filetypes=[
+                ("ThemeForge project", "*.tfproj"),
+                ("All files", "*.*"),
+            ],
+        )
+        if not path:
+            return
+        try:
+            self._restore_project(load_project(Path(path)), Path(path))
+        except (OSError, ValueError, KeyError, zipfile.BadZipFile) as exc:
+            messagebox.showerror("Open project failed", str(exc))
+
+    def save_project(self) -> None:
+        path = self.project_path
+        if path is None:
+            chosen = filedialog.asksaveasfilename(
+                title="Save ThemeForge project",
+                defaultextension=".tfproj",
+                filetypes=[
+                    ("ThemeForge project", "*.tfproj"),
+                    ("All files", "*.*"),
+                ],
+            )
+            if not chosen:
+                return
+            path = Path(chosen)
+        try:
+            save_project(path, self._project_state())
+        except OSError as exc:
+            messagebox.showerror("Save project failed", str(exc))
+            return
+        self.project_path = path
+        self.status_text.set(f"Saved project {path.name}")
+
+    def _project_state(self) -> ProjectState:
+        return ProjectState(
+            transcript_paths=tuple(self.input_paths),
+            codebook_path=self.codebook_path,
+            documents=tuple(self.documents),
+            settings=AnalysisSettings(
+                theme_count=max(1, int(self.theme_count.get())),
+                quotes_per_theme=max(0, int(self.quotes_per_theme.get())),
+                central_theme=self.central_theme.get().strip(),
+                codebook_entries=self.codebook_entries,
+            ),
+            result=self.result,
+        )
+
+    def _restore_project(self, state: ProjectState, path: Path) -> None:
+        self.project_path = path
+        self.input_paths = list(state.transcript_paths)
+        self.codebook_path = state.codebook_path
+        self.codebook_entries = state.settings.codebook_entries
+        self.documents = list(state.documents)
+        self.result = state.result
+        self.theme_count.set(state.settings.theme_count)
+        self.quotes_per_theme.set(state.settings.quotes_per_theme)
+        self.central_theme.set(state.settings.central_theme)
+        self.file_summary.set(file_selection_summary(self.input_paths))
+        self.codebook_summary.set(codebook_selection_summary(self.codebook_path, len(self.codebook_entries)))
+        self._render_themes()
+        self._render_transcript_tabs()
+        if self.result is not None and self.result.themes:
+            self._select_theme(0)
+            status = analysis_status_text(
+                document_count=self.result.document_count,
+                quote_count=self.result.quote_count,
+                theme_count=len(self.result.themes),
+            )
+            self.theme_summary.set(status)
+        else:
+            self.current_theme_index = None
+            self.current_quote_matches = []
+            self.current_quote_index = -1
+            self.theme_summary.set("No analysis yet")
+            self.detail_title.set("Transcript evidence")
+            self.quote_status.set(evidence_navigation_status(0, 0))
+            self.quote_meta.set("Project opened. Analyze to highlight quote evidence.")
+            self.quote_reason.set("Select a theme after analysis to review quote-selection rationale.")
+            self._refresh_editor()
+        self.status_text.set(f"Opened project {path.name}")
 
     def _load_documents(self, paths: list[Path]) -> list[TranscriptDocument]:
         name_counts: dict[str, int] = {}
