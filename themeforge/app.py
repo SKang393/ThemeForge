@@ -2,6 +2,7 @@ from __future__ import annotations
 
 # noqa: SIZE_OK - one Tkinter window class; splitting callbacks adds UI indirection.
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 import tkinter as tk
@@ -78,6 +79,7 @@ class ThemeForgeApp(tk.Tk):
         self.transcript_widgets: dict[str, tk.Text] = {}
         self.transcript_frames: dict[str, ttk.Frame] = {}
         self.transcript_frame_sources: dict[str, str] = {}
+        self.stripe_canvases: dict[str, tk.Canvas] = {}
         self.current_theme_index: int | None = None
         self.current_quote_matches: list[QuoteMatch] = []
         self.current_quote_index = -1
@@ -1006,12 +1008,22 @@ class ThemeForgeApp(tk.Tk):
         self.transcript_widgets = {}
         self.transcript_frames = {}
         self.transcript_frame_sources = {}
+        self.stripe_canvases = {}
 
         documents = self.documents or [TranscriptDocument(name="Transcript", text="Open one or more transcripts to view raw content here.")]
         for document in documents:
             frame = ttk.Frame(self.transcript_notebook, style="Surface.TFrame")
-            frame.columnconfigure(0, weight=1)
+            frame.columnconfigure(1, weight=1)
             frame.rowconfigure(0, weight=1)
+
+            stripes = tk.Canvas(
+                frame,
+                width=12,
+                borderwidth=0,
+                highlightthickness=0,
+                background=self.palette["transcript_background"],
+            )
+            stripes.grid(row=0, column=0, sticky="ns")
 
             text = tk.Text(
                 frame,
@@ -1024,17 +1036,18 @@ class ThemeForgeApp(tk.Tk):
                 font=("Segoe UI", 10),
                 relief="flat",
             )
-            text.grid(row=0, column=0, sticky="nsew")
+            text.grid(row=0, column=1, sticky="nsew")
             self._set_text_content(text, document.text)
 
             scrollbar = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=text.yview)
-            scrollbar.grid(row=0, column=1, sticky="ns")
-            text.configure(yscrollcommand=scrollbar.set)
+            scrollbar.grid(row=0, column=2, sticky="ns")
+            text.configure(yscrollcommand=self._scroll_command(document.name, scrollbar))
 
             self.transcript_notebook.add(frame, text=transcript_tab_label(document.name))
             self.transcript_widgets[document.name] = text
             self.transcript_frames[document.name] = frame
             self.transcript_frame_sources[str(frame)] = document.name
+            self.stripe_canvases[document.name] = stripes
 
         self._apply_display_colors()
         if self.result is not None:
@@ -1161,6 +1174,8 @@ class ThemeForgeApp(tk.Tk):
                 insertbackground=self.palette["transcript_text"],
                 highlightbackground=self.palette["border"],
             )
+        for canvas in self.stripe_canvases.values():
+            canvas.configure(background=self.palette["transcript_background"])
 
     def _highlight_all_quotes(self, selected_theme_index: int | None) -> None:
         self._clear_quote_tags()
@@ -1179,6 +1194,7 @@ class ThemeForgeApp(tk.Tk):
                 widget.tag_add(tag, start, end)
                 widget.configure(state="disabled")
 
+        self._draw_coding_stripes()
         if selected_theme_index is not None and selected_theme_index < len(self.result.themes):
             selected_tag = self._theme_tag(self.result.themes[selected_theme_index])
             for widget in self.transcript_widgets.values():
@@ -1192,6 +1208,8 @@ class ThemeForgeApp(tk.Tk):
                 if tag.startswith("theme_") or tag == "selected_quote":
                     widget.tag_delete(tag)
             widget.configure(state="disabled")
+        for canvas in self.stripe_canvases.values():
+            canvas.delete("stripe")
 
     def _configure_theme_tag(self, widget: tk.Text, theme: Theme, selected: bool) -> None:
         background_alpha = 0.30 if selected else 0.18
@@ -1208,6 +1226,52 @@ class ThemeForgeApp(tk.Tk):
             font=("Segoe UI Semibold", 10),
             underline=1,
         )
+
+    def _scroll_command(self, source_name: str, scrollbar: ttk.Scrollbar) -> Callable[[str, str], None]:
+        def update_scrollbar(first: str, last: str) -> None:
+            scrollbar.set(first, last)
+            self._draw_coding_stripes_for_source(source_name)
+
+        return update_scrollbar
+
+    def _draw_coding_stripes(self) -> None:
+        for source_name in self.transcript_widgets:
+            self._draw_coding_stripes_for_source(source_name)
+
+    def _draw_coding_stripes_for_source(self, source_name: str) -> None:
+        canvas = self.stripe_canvases.get(source_name)
+        widget = self.transcript_widgets.get(source_name)
+        if canvas is None or widget is None or self.result is None:
+            return
+        canvas.delete("stripe")
+        canvas_height = max(1, canvas.winfo_height())
+        for theme in self.result.themes:
+            for quote in theme.quotes:
+                if quote.source_name != source_name:
+                    continue
+                location = self._locate_quote(quote)
+                if location is None:
+                    continue
+                _widget, start, end = location
+                start_line = int(widget.index(start).split(".", 1)[0])
+                end_line = int(widget.index(end).split(".", 1)[0])
+                for line in range(start_line, end_line + 1):
+                    info = widget.dlineinfo(f"{line}.0")
+                    if info is None:
+                        continue
+                    y = max(0, info[1])
+                    height = max(2, info[3])
+                    if y > canvas_height:
+                        continue
+                    canvas.create_rectangle(
+                        2,
+                        y,
+                        10,
+                        min(canvas_height, y + height),
+                        fill=theme.color,
+                        outline="",
+                        tags="stripe",
+                    )
 
     def _quote_matches_for_theme(self, theme_index: int) -> list[QuoteMatch]:
         if self.result is None or theme_index >= len(self.result.themes):
