@@ -30,6 +30,7 @@ from .manual_editing import (
     rename_theme,
     split_quote_to_theme,
     uncode_quote,
+    update_quote_boundary,
 )
 from .project_io import ProjectState, load_project, save_project
 from .ui_model import (
@@ -348,7 +349,8 @@ class ThemeForgeApp(tk.Tk):
         ttk.Button(navigation, text="Previous quote", style="Secondary.TButton", command=self.previous_quote).grid(row=0, column=0, sticky="w", padx=(0, 8))
         ttk.Button(navigation, text="Next quote", style="Secondary.TButton", command=self.next_quote).grid(row=0, column=1, sticky="w", padx=(0, 10))
         ttk.Button(navigation, text="Uncode quote", style="Secondary.TButton", command=self.uncode_current_quote).grid(row=0, column=2, sticky="w", padx=(0, 10))
-        ttk.Label(navigation, textvariable=self.quote_status, style="Muted.TLabel").grid(row=0, column=3, sticky="w")
+        ttk.Button(navigation, text="Update boundary", style="Secondary.TButton", command=self.update_current_quote_boundary).grid(row=0, column=3, sticky="w", padx=(0, 10))
+        ttk.Label(navigation, textvariable=self.quote_status, style="Muted.TLabel").grid(row=0, column=4, sticky="w")
 
         ttk.Label(parent, textvariable=self.quote_meta, style="Muted.TLabel", wraplength=520).grid(row=2, column=0, sticky="ew", pady=(0, 8))
 
@@ -596,6 +598,24 @@ class ThemeForgeApp(tk.Tk):
         self._render_themes()
         self._select_theme(min(self.current_theme_index, len(self.result.themes) - 1))
         self._set_manual_status("Quote uncoded")
+
+    def update_current_quote_boundary(self) -> None:
+        if self.result is None or self.current_theme_index is None:
+            return
+        match = self._current_quote_match()
+        selection = self._selected_transcript_text()
+        if match is None or selection is None:
+            self.status_text.set("Select a quote and transcript text first")
+            return
+        theme_id = self.result.themes[self.current_theme_index].id
+        updated = update_quote_boundary(self.result, theme_id, match.quote.quote_id, selection)
+        if updated == self.result:
+            return
+        self.edit_history = self.edit_history.record(self.result)
+        self.result = updated
+        self._render_themes()
+        self._select_theme(self.current_theme_index)
+        self._set_manual_status("Quote boundary updated")
 
     def undo_manual_edit(self) -> None:
         if self.result is None:

@@ -11,6 +11,7 @@ from themeforge.manual_editing import (
     rename_theme,
     split_quote_to_theme,
     uncode_quote,
+    update_quote_boundary,
 )
 
 
@@ -173,6 +174,25 @@ class ManualEditingTests(unittest.TestCase):
 
         self.assertEqual([item.quote_id for item in updated.themes[0].quotes], ["Q1"])
         self.assertEqual(updated.themes[0].quote_count, 1)
+        self.assertEqual(updated.themes[0].validation["review_status"], "Researcher edited")
+
+    def test_update_quote_boundary_replaces_text_and_offsets(self):
+        result = AnalysisResult("1.3.0", 1, 1, [
+            theme("T01", "Curriculum", [quote("Q1", "Old selection")]),
+        ], [])
+
+        updated = update_quote_boundary(
+            result,
+            "T01",
+            "Q1",
+            ManualSelection("interview.txt", "Expanded selected passage.", 4, 20, 46),
+        )
+
+        self.assertEqual(updated.themes[0].quotes[0].text, "Expanded selected passage.")
+        self.assertEqual(updated.themes[0].quotes[0].source_name, "interview.txt")
+        self.assertEqual(updated.themes[0].quotes[0].source_line, 4)
+        self.assertEqual(updated.themes[0].quotes[0].source_start, 20)
+        self.assertEqual(updated.themes[0].quotes[0].source_end, 46)
         self.assertEqual(updated.themes[0].validation["review_status"], "Researcher edited")
 
 

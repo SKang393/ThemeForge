@@ -180,6 +180,32 @@ def uncode_quote(result: AnalysisResult, theme_id: str, quote_id: str) -> Analys
     return replace(result, themes=themes)
 
 
+def update_quote_boundary(
+    result: AnalysisResult,
+    theme_id: str,
+    quote_id: str,
+    selection: ManualSelection,
+) -> AnalysisResult:
+    text = selection.text.strip()
+    if not text or _find_quote(result, theme_id, quote_id) is None:
+        return result
+    themes = [
+        _refresh_theme(
+            replace(
+                theme,
+                quotes=[
+                    _replace_quote_boundary(quote, selection, text) if quote.quote_id == quote_id else quote
+                    for quote in theme.quotes
+                ],
+            )
+        )
+        if theme.id == theme_id
+        else theme
+        for theme in result.themes
+    ]
+    return replace(result, themes=themes)
+
+
 def preserve_manual_themes(previous: AnalysisResult | None, generated: AnalysisResult) -> AnalysisResult:
     if previous is None:
         return generated
@@ -268,6 +294,18 @@ def _add_manual_theme(result: AnalysisResult, quote: ThemeQuote, name: str) -> A
         validation=_manual_validation([quote]),
     )
     return replace(result, themes=[*result.themes, theme])
+
+
+def _replace_quote_boundary(quote: ThemeQuote, selection: ManualSelection, text: str) -> ThemeQuote:
+    return replace(
+        quote,
+        text=text,
+        source_name=selection.source_name,
+        source_line=selection.source_line,
+        source_start=selection.source_start,
+        source_end=selection.source_end,
+        rationale="Researcher updated this quote boundary from selected transcript text.",
+    )
 
 
 def _refresh_theme(theme: Theme) -> Theme:
