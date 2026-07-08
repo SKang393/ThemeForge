@@ -129,6 +129,7 @@ def _result_from_json(payload: dict[str, object] | None) -> AnalysisResult | Non
             quotes=[_quote_from_json(item) for item in theme.get("quotes", [])],
             validation=_validation_from_json(theme.get("validation", {})),
             memo=str(theme.get("memo", "")),
+            parent_theme_id=str(theme.get("parent_theme_id", "")),
         )
         for theme in payload.get("themes", [])
         if isinstance(theme, dict)

@@ -86,6 +86,7 @@ class Theme:
     quotes: list[ThemeQuote] = field(default_factory=list)
     validation: dict[str, ValidationValue] = field(default_factory=dict)
     memo: str = ""
+    parent_theme_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)

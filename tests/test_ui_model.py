@@ -48,6 +48,11 @@ class UiModelTests(unittest.TestCase):
             "Evidence 12 | Sources 3 | Speakers 7 | Focus 72% | Researcher review required",
         )
 
+    def test_theme_label_indents_subthemes(self):
+        label = theme_list_label("Peer support", "#2563eb", 4, 0.5, depth=1)
+
+        self.assertEqual(label, "  > Peer support  |  4 quotes  |  50% focus")
+
     def test_professional_theme_uses_minimal_neutral_surface(self):
         self.assertEqual(PROFESSIONAL_THEME["background"], "#f7f8fa")
         self.assertEqual(PROFESSIONAL_THEME["surface"], "#ffffff")

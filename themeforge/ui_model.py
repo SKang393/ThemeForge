@@ -65,9 +65,10 @@ def analysis_status_text(document_count: int, quote_count: int, theme_count: int
     return f"{document_count} documents | {quote_count} quote units | {theme_count} themes"
 
 
-def theme_list_label(name: str, color: str, quote_count: int, focus_alignment: float) -> str:
+def theme_list_label(name: str, color: str, quote_count: int, focus_alignment: float, depth: int = 0) -> str:
     del color
-    return f"{name}  |  {quote_count} quotes  |  {_percent(focus_alignment)} focus"
+    prefix = "  > " * max(0, depth)
+    return f"{prefix}{name}  |  {quote_count} quotes  |  {_percent(focus_alignment)} focus"
 
 
 def format_validation_summary(validation: Mapping[str, ValidationValue]) -> str:

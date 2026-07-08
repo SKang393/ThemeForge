@@ -9,6 +9,7 @@ from themeforge.manual_editing import (
     preserve_manual_themes,
     reassign_quote,
     rename_theme,
+    set_theme_parent,
     split_quote_to_theme,
     uncode_quote,
     update_document_memo,
@@ -80,6 +81,22 @@ class ManualEditingTests(unittest.TestCase):
 
         self.assertEqual([item.id for item in updated.themes], ["T01"])
         self.assertEqual([item.quote_id for item in updated.themes[0].quotes], ["Q1", "Q2"])
+
+    def test_merge_theme_reparents_source_children(self):
+        result = set_theme_parent(
+            AnalysisResult("1.3.0", 1, 2, [
+                theme("T01", "One", [quote("Q1", "First")]),
+                theme("T02", "Two", [quote("Q2", "Second")]),
+                theme("T03", "Child", []),
+            ], []),
+            "T03",
+            "T02",
+        )
+
+        updated = merge_theme(result, "T01", "T02")
+
+        self.assertEqual([item.id for item in updated.themes], ["T01", "T03"])
+        self.assertEqual(updated.themes[1].parent_theme_id, "T01")
 
     def test_split_quote_to_theme_creates_new_theme(self):
         result = AnalysisResult("1.3.0", 1, 2, [
@@ -228,6 +245,28 @@ class ManualEditingTests(unittest.TestCase):
 
         self.assertEqual(updated[0].memo, "")
         self.assertEqual(updated[1].memo, "Participant context note.")
+
+    def test_set_theme_parent_assigns_subtheme(self):
+        result = AnalysisResult("1.3.0", 1, 0, [
+            theme("T01", "Parent", []),
+            theme("T02", "Child", []),
+        ], [])
+
+        updated = set_theme_parent(result, "T02", "T01")
+
+        self.assertEqual(updated.themes[1].parent_theme_id, "T01")
+        self.assertEqual(updated.themes[1].validation["review_status"], "Researcher edited")
+
+    def test_set_theme_parent_rejects_descendant_cycle(self):
+        result = AnalysisResult("1.3.0", 1, 0, [
+            theme("T01", "Parent", []),
+            theme("T02", "Child", []),
+        ], [])
+        child = set_theme_parent(result, "T02", "T01")
+
+        updated = set_theme_parent(child, "T01", "T02")
+
+        self.assertEqual(updated, child)
 
 
 if __name__ == "__main__":

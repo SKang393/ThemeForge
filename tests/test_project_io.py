@@ -42,6 +42,7 @@ class ProjectIoTests(unittest.TestCase):
                     quotes=[quote],
                     validation={"evidence_count": 1, "review_status": "Researcher edited"},
                     memo="Theme memo",
+                    parent_theme_id="T00",
                 )
             ],
             notes=["saved project"],
@@ -75,6 +76,7 @@ class ProjectIoTests(unittest.TestCase):
         self.assertIsNotNone(loaded.result)
         self.assertEqual(loaded.result.themes[0].name, "Manual Theme")
         self.assertEqual(loaded.result.themes[0].memo, "Theme memo")
+        self.assertEqual(loaded.result.themes[0].parent_theme_id, "T00")
         self.assertEqual(loaded.result.themes[0].quotes[0].source_start, 12)
         self.assertEqual(loaded.result.themes[0].quotes[0].memo, "Quote memo")
 

@@ -28,6 +28,7 @@ from .manual_editing import (
     preserve_manual_themes,
     reassign_quote,
     rename_theme,
+    set_theme_parent,
     split_quote_to_theme,
     uncode_quote,
     update_document_memo,
@@ -96,6 +97,7 @@ class ThemeForgeApp(tk.Tk):
         self.theme_name = tk.StringVar(value="")
         self.theme_keywords = tk.StringVar(value="")
         self.target_theme = tk.StringVar(value="")
+        self.parent_theme = tk.StringVar(value="")
         self.semantic_mode = tk.StringVar(value="TF-IDF")
         self.language_mode = tk.StringVar(value="Auto")
 
@@ -325,24 +327,34 @@ class ThemeForgeApp(tk.Tk):
         self.theme_memo_text.grid(row=6, column=0, sticky="ew", pady=(4, 8))
         ttk.Button(editor, text="Save theme memo", style="Secondary.TButton", command=self.save_theme_memo).grid(row=7, column=0, sticky="ew")
 
-        ttk.Label(editor, text="Target theme", style="Panel.TLabel").grid(row=8, column=0, sticky="w", pady=(10, 0))
+        ttk.Label(editor, text="Parent theme", style="Panel.TLabel").grid(row=8, column=0, sticky="w", pady=(10, 0))
+        self.parent_theme_box = ttk.Combobox(editor, textvariable=self.parent_theme, state="readonly")
+        self.parent_theme_box.grid(row=9, column=0, sticky="ew", pady=(4, 8))
+        ttk.Button(
+            editor,
+            text="Save hierarchy",
+            style="Secondary.TButton",
+            command=self.save_theme_hierarchy,
+        ).grid(row=10, column=0, sticky="ew")
+
+        ttk.Label(editor, text="Target theme", style="Panel.TLabel").grid(row=11, column=0, sticky="w", pady=(10, 0))
         self.target_theme_box = ttk.Combobox(editor, textvariable=self.target_theme, state="readonly")
-        self.target_theme_box.grid(row=9, column=0, sticky="ew", pady=(4, 8))
+        self.target_theme_box.grid(row=12, column=0, sticky="ew", pady=(4, 8))
         action_row = ttk.Frame(editor, style="Surface.TFrame")
-        action_row.grid(row=10, column=0, sticky="ew")
+        action_row.grid(row=13, column=0, sticky="ew")
         action_row.columnconfigure(0, weight=1)
         action_row.columnconfigure(1, weight=1)
         ttk.Button(action_row, text="Move quote", style="Secondary.TButton", command=self.move_current_quote).grid(row=0, column=0, sticky="ew", padx=(0, 6))
         ttk.Button(action_row, text="Merge theme", style="Secondary.TButton", command=self.merge_current_theme).grid(row=0, column=1, sticky="ew")
-        ttk.Button(editor, text="Split quote to new theme", style="Secondary.TButton", command=self.split_current_quote).grid(row=11, column=0, sticky="ew", pady=(8, 0))
+        ttk.Button(editor, text="Split quote to new theme", style="Secondary.TButton", command=self.split_current_quote).grid(row=14, column=0, sticky="ew", pady=(8, 0))
         coding_row = ttk.Frame(editor, style="Surface.TFrame")
-        coding_row.grid(row=12, column=0, sticky="ew", pady=(8, 0))
+        coding_row.grid(row=15, column=0, sticky="ew", pady=(8, 0))
         coding_row.columnconfigure(0, weight=1)
         coding_row.columnconfigure(1, weight=1)
         ttk.Button(coding_row, text="Code selection", style="Secondary.TButton", command=self.code_selection_to_theme).grid(row=0, column=0, sticky="ew", padx=(0, 6))
         ttk.Button(coding_row, text="New code from selection", style="Secondary.TButton", command=self.code_selection_to_new_theme).grid(row=0, column=1, sticky="ew")
         history_row = ttk.Frame(editor, style="Surface.TFrame")
-        history_row.grid(row=13, column=0, sticky="ew", pady=(8, 0))
+        history_row.grid(row=16, column=0, sticky="ew", pady=(8, 0))
         history_row.columnconfigure(0, weight=1)
         history_row.columnconfigure(1, weight=1)
         ttk.Button(history_row, text="Undo", style="Secondary.TButton", command=self.undo_manual_edit).grid(row=0, column=0, sticky="ew", padx=(0, 6))
@@ -536,6 +548,22 @@ class ThemeForgeApp(tk.Tk):
         self._render_themes()
         self._select_theme_by_id(theme.id)
         self._set_manual_status("Theme memo saved")
+
+    def save_theme_hierarchy(self) -> None:
+        theme = self._current_theme()
+        if self.result is None or theme is None:
+            return
+        parent_id = self._parent_theme_id()
+        if parent_id is None:
+            return
+        updated = set_theme_parent(self.result, theme.id, parent_id)
+        if updated == self.result:
+            return
+        self.edit_history = self.edit_history.record(self.result)
+        self.result = updated
+        self._render_themes()
+        self._select_theme_by_id(theme.id)
+        self._set_manual_status("Theme hierarchy saved")
 
     def save_quote_memo(self) -> None:
         if self.result is None or self.current_theme_index is None:
@@ -848,6 +876,7 @@ class ThemeForgeApp(tk.Tk):
                 theme.color,
                 theme.quote_count,
                 float(theme.validation.get("central_theme_alignment", 0)),
+                depth=1 if theme.parent_theme_id else 0,
             )
             self.theme_list.insert(tk.END, label)
             self.theme_list.itemconfig(tk.END, foreground=theme.color)
@@ -873,9 +902,12 @@ class ThemeForgeApp(tk.Tk):
         if theme is None:
             self.theme_name.set("")
             self.theme_keywords.set("")
+            self.parent_theme.set("")
             self.target_theme.set("")
             if hasattr(self, "theme_memo_text"):
                 self._set_editable_text_content(self.theme_memo_text, "")
+            if hasattr(self, "parent_theme_box"):
+                self.parent_theme_box.configure(values=())
             if hasattr(self, "target_theme_box"):
                 self.target_theme_box.configure(values=())
             return
@@ -889,6 +921,11 @@ class ThemeForgeApp(tk.Tk):
             for item in self.result.themes
             if item.id != theme.id
         ] if self.result is not None else []
+        parent_values = ("Top-level", *target_values)
+        if hasattr(self, "parent_theme_box"):
+            self.parent_theme_box.configure(values=parent_values)
+        parent_label = self._theme_label(theme.parent_theme_id)
+        self.parent_theme.set(parent_label if parent_label in parent_values else "Top-level")
         if hasattr(self, "target_theme_box"):
             self.target_theme_box.configure(values=tuple(target_values))
         if target_values and self.target_theme.get() not in target_values:
@@ -913,6 +950,20 @@ class ThemeForgeApp(tk.Tk):
         if ": " not in value:
             return None
         return value.split(": ", 1)[0]
+
+    def _parent_theme_id(self) -> str | None:
+        value = self.parent_theme.get()
+        if value == "Top-level":
+            return ""
+        if ": " not in value:
+            return None
+        return value.split(": ", 1)[0]
+
+    def _theme_label(self, theme_id: str) -> str:
+        if self.result is None or not theme_id:
+            return ""
+        theme = next((item for item in self.result.themes if item.id == theme_id), None)
+        return f"{theme.id}: {theme.name}" if theme else ""
 
     def _selected_transcript_text(self) -> ManualSelection | None:
         for source_name, widget in self.transcript_widgets.items():

@@ -98,9 +98,23 @@ def merge_theme(result: AnalysisResult, target_theme_id: str, source_theme_id: s
     themes: list[Theme] = []
     for theme in result.themes:
         if theme.id == target_theme_id:
-            themes.append(_refresh_theme(replace(theme, quotes=_unique_quotes([*theme.quotes, *source.quotes]))))
+            parent_id = "" if theme.parent_theme_id == source_theme_id else theme.parent_theme_id
+            themes.append(
+                _refresh_theme(
+                    replace(
+                        theme,
+                        parent_theme_id=parent_id,
+                        quotes=_unique_quotes([*theme.quotes, *source.quotes]),
+                    )
+                )
+            )
         elif theme.id != source_theme_id:
-            themes.append(theme)
+            parent_id = target_theme_id if theme.parent_theme_id == source_theme_id else theme.parent_theme_id
+            themes.append(
+                _refresh_theme(replace(theme, parent_theme_id=parent_id))
+                if parent_id != theme.parent_theme_id
+                else theme
+            )
     return replace(result, themes=themes)
 
 
@@ -251,6 +265,23 @@ def update_document_memo(
     )
 
 
+def set_theme_parent(result: AnalysisResult, theme_id: str, parent_theme_id: str) -> AnalysisResult:
+    parent_id = parent_theme_id.strip()
+    if _find_theme(result, theme_id) is None:
+        return result
+    if parent_id and _find_theme(result, parent_id) is None:
+        return result
+    if parent_id == theme_id or _has_ancestor(result, parent_id, theme_id):
+        return result
+    themes = [
+        _refresh_theme(replace(theme, parent_theme_id=parent_id))
+        if theme.id == theme_id
+        else theme
+        for theme in result.themes
+    ]
+    return replace(result, themes=themes)
+
+
 def preserve_manual_themes(previous: AnalysisResult | None, generated: AnalysisResult) -> AnalysisResult:
     if previous is None:
         return generated
@@ -282,6 +313,19 @@ def preserve_manual_themes(previous: AnalysisResult | None, generated: AnalysisR
 
 def _find_theme(result: AnalysisResult, theme_id: str) -> Theme | None:
     return next((theme for theme in result.themes if theme.id == theme_id), None)
+
+
+def _has_ancestor(result: AnalysisResult, theme_id: str, ancestor_id: str) -> bool:
+    current = _find_theme(result, theme_id)
+    seen: set[str] = set()
+    while current is not None and current.parent_theme_id:
+        if current.parent_theme_id == ancestor_id:
+            return True
+        if current.parent_theme_id in seen:
+            return False
+        seen.add(current.parent_theme_id)
+        current = _find_theme(result, current.parent_theme_id)
+    return False
 
 
 def _find_quote(result: AnalysisResult, theme_id: str, quote_id: str) -> ThemeQuote | None:
