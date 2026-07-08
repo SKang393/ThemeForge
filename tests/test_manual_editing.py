@@ -10,6 +10,7 @@ from themeforge.manual_editing import (
     reassign_quote,
     rename_theme,
     split_quote_to_theme,
+    uncode_quote,
 )
 
 
@@ -162,6 +163,17 @@ class ManualEditingTests(unittest.TestCase):
         self.assertEqual(updated.themes[1].id, "M02")
         self.assertEqual(updated.themes[1].name, "New Finding")
         self.assertEqual(updated.themes[1].quotes[0].quote_id, "MQ01")
+
+    def test_uncode_quote_removes_quote_from_theme(self):
+        result = AnalysisResult("1.3.0", 1, 2, [
+            theme("T01", "Curriculum", [quote("Q1", "Keep"), quote("Q2", "Remove")]),
+        ], [])
+
+        updated = uncode_quote(result, "T01", "Q2")
+
+        self.assertEqual([item.quote_id for item in updated.themes[0].quotes], ["Q1"])
+        self.assertEqual(updated.themes[0].quote_count, 1)
+        self.assertEqual(updated.themes[0].validation["review_status"], "Researcher edited")
 
 
 if __name__ == "__main__":

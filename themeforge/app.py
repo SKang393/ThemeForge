@@ -29,6 +29,7 @@ from .manual_editing import (
     reassign_quote,
     rename_theme,
     split_quote_to_theme,
+    uncode_quote,
 )
 from .project_io import ProjectState, load_project, save_project
 from .ui_model import (
@@ -346,7 +347,8 @@ class ThemeForgeApp(tk.Tk):
         navigation.columnconfigure(2, weight=1)
         ttk.Button(navigation, text="Previous quote", style="Secondary.TButton", command=self.previous_quote).grid(row=0, column=0, sticky="w", padx=(0, 8))
         ttk.Button(navigation, text="Next quote", style="Secondary.TButton", command=self.next_quote).grid(row=0, column=1, sticky="w", padx=(0, 10))
-        ttk.Label(navigation, textvariable=self.quote_status, style="Muted.TLabel").grid(row=0, column=2, sticky="w")
+        ttk.Button(navigation, text="Uncode quote", style="Secondary.TButton", command=self.uncode_current_quote).grid(row=0, column=2, sticky="w", padx=(0, 10))
+        ttk.Label(navigation, textvariable=self.quote_status, style="Muted.TLabel").grid(row=0, column=3, sticky="w")
 
         ttk.Label(parent, textvariable=self.quote_meta, style="Muted.TLabel", wraplength=520).grid(row=2, column=0, sticky="ew", pady=(0, 8))
 
@@ -577,6 +579,23 @@ class ThemeForgeApp(tk.Tk):
         else:
             self._select_theme(len(self.result.themes) - 1)
         self._set_manual_status("Selected text coded")
+
+    def uncode_current_quote(self) -> None:
+        if self.result is None or self.current_theme_index is None:
+            return
+        match = self._current_quote_match()
+        if match is None:
+            self.status_text.set("No quote selected to uncode")
+            return
+        theme_id = self.result.themes[self.current_theme_index].id
+        updated = uncode_quote(self.result, theme_id, match.quote.quote_id)
+        if updated == self.result:
+            return
+        self.edit_history = self.edit_history.record(self.result)
+        self.result = updated
+        self._render_themes()
+        self._select_theme(min(self.current_theme_index, len(self.result.themes) - 1))
+        self._set_manual_status("Quote uncoded")
 
     def undo_manual_edit(self) -> None:
         if self.result is None:

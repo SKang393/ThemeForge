@@ -168,6 +168,18 @@ def code_selected_text(
     return replace(result, themes=themes)
 
 
+def uncode_quote(result: AnalysisResult, theme_id: str, quote_id: str) -> AnalysisResult:
+    if _find_quote(result, theme_id, quote_id) is None:
+        return result
+    themes = [
+        _refresh_theme(replace(theme, quotes=[quote for quote in theme.quotes if quote.quote_id != quote_id]))
+        if theme.id == theme_id
+        else theme
+        for theme in result.themes
+    ]
+    return replace(result, themes=themes)
+
+
 def preserve_manual_themes(previous: AnalysisResult | None, generated: AnalysisResult) -> AnalysisResult:
     if previous is None:
         return generated
