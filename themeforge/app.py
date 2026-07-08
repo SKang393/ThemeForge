@@ -30,7 +30,9 @@ from .manual_editing import (
     rename_theme,
     split_quote_to_theme,
     uncode_quote,
+    update_quote_memo,
     update_quote_boundary,
+    update_theme_memo,
 )
 from .project_io import ProjectState, load_project, save_project
 from .ui_model import (
@@ -207,7 +209,7 @@ class ThemeForgeApp(tk.Tk):
         evidence = ttk.Labelframe(workspace, text="Evidence", style="Panel.TLabelframe", padding=(14, 12))
         evidence.grid(row=0, column=2, sticky="nsew")
         evidence.columnconfigure(0, weight=1)
-        evidence.rowconfigure(4, weight=1)
+        evidence.rowconfigure(5, weight=1)
         self._build_evidence_panel(evidence)
 
         footer = ttk.Frame(self, style="Footer.TFrame", padding=(20, 0, 20, 14))
@@ -316,25 +318,29 @@ class ThemeForgeApp(tk.Tk):
         ttk.Label(editor, text="Keywords", style="Panel.TLabel").grid(row=2, column=0, sticky="w")
         ttk.Entry(editor, textvariable=self.theme_keywords).grid(row=3, column=0, sticky="ew", pady=(4, 8))
         ttk.Button(editor, text="Save theme edits", style="Secondary.TButton", command=self.save_theme_edits).grid(row=4, column=0, sticky="ew")
+        ttk.Label(editor, text="Theme memo", style="Panel.TLabel").grid(row=5, column=0, sticky="w", pady=(10, 0))
+        self.theme_memo_text = tk.Text(editor, height=3, wrap="word", font=("Segoe UI", 9), borderwidth=1, relief="solid")
+        self.theme_memo_text.grid(row=6, column=0, sticky="ew", pady=(4, 8))
+        ttk.Button(editor, text="Save theme memo", style="Secondary.TButton", command=self.save_theme_memo).grid(row=7, column=0, sticky="ew")
 
-        ttk.Label(editor, text="Target theme", style="Panel.TLabel").grid(row=5, column=0, sticky="w", pady=(10, 0))
+        ttk.Label(editor, text="Target theme", style="Panel.TLabel").grid(row=8, column=0, sticky="w", pady=(10, 0))
         self.target_theme_box = ttk.Combobox(editor, textvariable=self.target_theme, state="readonly")
-        self.target_theme_box.grid(row=6, column=0, sticky="ew", pady=(4, 8))
+        self.target_theme_box.grid(row=9, column=0, sticky="ew", pady=(4, 8))
         action_row = ttk.Frame(editor, style="Surface.TFrame")
-        action_row.grid(row=7, column=0, sticky="ew")
+        action_row.grid(row=10, column=0, sticky="ew")
         action_row.columnconfigure(0, weight=1)
         action_row.columnconfigure(1, weight=1)
         ttk.Button(action_row, text="Move quote", style="Secondary.TButton", command=self.move_current_quote).grid(row=0, column=0, sticky="ew", padx=(0, 6))
         ttk.Button(action_row, text="Merge theme", style="Secondary.TButton", command=self.merge_current_theme).grid(row=0, column=1, sticky="ew")
-        ttk.Button(editor, text="Split quote to new theme", style="Secondary.TButton", command=self.split_current_quote).grid(row=8, column=0, sticky="ew", pady=(8, 0))
+        ttk.Button(editor, text="Split quote to new theme", style="Secondary.TButton", command=self.split_current_quote).grid(row=11, column=0, sticky="ew", pady=(8, 0))
         coding_row = ttk.Frame(editor, style="Surface.TFrame")
-        coding_row.grid(row=9, column=0, sticky="ew", pady=(8, 0))
+        coding_row.grid(row=12, column=0, sticky="ew", pady=(8, 0))
         coding_row.columnconfigure(0, weight=1)
         coding_row.columnconfigure(1, weight=1)
         ttk.Button(coding_row, text="Code selection", style="Secondary.TButton", command=self.code_selection_to_theme).grid(row=0, column=0, sticky="ew", padx=(0, 6))
         ttk.Button(coding_row, text="New code from selection", style="Secondary.TButton", command=self.code_selection_to_new_theme).grid(row=0, column=1, sticky="ew")
         history_row = ttk.Frame(editor, style="Surface.TFrame")
-        history_row.grid(row=10, column=0, sticky="ew", pady=(8, 0))
+        history_row.grid(row=13, column=0, sticky="ew", pady=(8, 0))
         history_row.columnconfigure(0, weight=1)
         history_row.columnconfigure(1, weight=1)
         ttk.Button(history_row, text="Undo", style="Secondary.TButton", command=self.undo_manual_edit).grid(row=0, column=0, sticky="ew", padx=(0, 6))
@@ -359,8 +365,15 @@ class ThemeForgeApp(tk.Tk):
         reason_frame.columnconfigure(0, weight=1)
         ttk.Label(reason_frame, textvariable=self.quote_reason, style="Muted.TLabel", wraplength=520).grid(row=0, column=0, sticky="ew")
 
+        quote_memo = ttk.Labelframe(parent, text="Quote memo", style="Panel.TLabelframe", padding=(10, 8))
+        quote_memo.grid(row=4, column=0, sticky="ew", pady=(0, 8))
+        quote_memo.columnconfigure(0, weight=1)
+        self.quote_memo_text = tk.Text(quote_memo, height=3, wrap="word", font=("Segoe UI", 9), borderwidth=1, relief="solid")
+        self.quote_memo_text.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        ttk.Button(quote_memo, text="Save quote memo", style="Secondary.TButton", command=self.save_quote_memo).grid(row=1, column=0, sticky="ew")
+
         self.transcript_notebook = ttk.Notebook(parent)
-        self.transcript_notebook.grid(row=4, column=0, sticky="nsew")
+        self.transcript_notebook.grid(row=5, column=0, sticky="nsew")
 
     def open_transcript(self) -> None:
         paths = filedialog.askopenfilenames(
@@ -488,6 +501,36 @@ class ThemeForgeApp(tk.Tk):
         self._render_themes()
         self._select_theme(self.current_theme_index)
         self._set_manual_status("Theme edits saved")
+
+    def save_theme_memo(self) -> None:
+        theme = self._current_theme()
+        if self.result is None or theme is None:
+            return
+        updated = update_theme_memo(self.result, theme.id, self.theme_memo_text.get("1.0", tk.END))
+        if updated == self.result:
+            return
+        self.edit_history = self.edit_history.record(self.result)
+        self.result = updated
+        self._render_themes()
+        self._select_theme_by_id(theme.id)
+        self._set_manual_status("Theme memo saved")
+
+    def save_quote_memo(self) -> None:
+        if self.result is None or self.current_theme_index is None:
+            return
+        match = self._current_quote_match()
+        if match is None:
+            self.status_text.set("No quote selected for memo")
+            return
+        theme_id = self.result.themes[self.current_theme_index].id
+        updated = update_quote_memo(self.result, theme_id, match.quote.quote_id, self.quote_memo_text.get("1.0", tk.END))
+        if updated == self.result:
+            return
+        self.edit_history = self.edit_history.record(self.result)
+        self.result = updated
+        self._render_themes()
+        self._select_theme(self.current_theme_index)
+        self._set_manual_status("Quote memo saved")
 
     def move_current_quote(self) -> None:
         if self.result is None or self.current_theme_index is None:
@@ -794,12 +837,16 @@ class ThemeForgeApp(tk.Tk):
             self.theme_name.set("")
             self.theme_keywords.set("")
             self.target_theme.set("")
+            if hasattr(self, "theme_memo_text"):
+                self._set_editable_text_content(self.theme_memo_text, "")
             if hasattr(self, "target_theme_box"):
                 self.target_theme_box.configure(values=())
             return
 
         self.theme_name.set(theme.name)
         self.theme_keywords.set(", ".join(theme.keywords))
+        if hasattr(self, "theme_memo_text"):
+            self._set_editable_text_content(self.theme_memo_text, theme.memo)
         target_values = [
             f"{item.id}: {item.name}"
             for item in self.result.themes
@@ -986,6 +1033,11 @@ class ThemeForgeApp(tk.Tk):
         widget.insert(tk.END, text)
         widget.configure(state="disabled")
 
+    def _set_editable_text_content(self, widget: tk.Text, text: str) -> None:
+        widget.configure(state="normal")
+        widget.delete("1.0", tk.END)
+        widget.insert(tk.END, text)
+
     def _apply_display_colors(self) -> None:
         if hasattr(self, "theme_list"):
             self.theme_list.configure(
@@ -1107,6 +1159,8 @@ class ThemeForgeApp(tk.Tk):
 
         if not self.current_quote_matches or self.current_quote_index < 0:
             self.quote_status.set(evidence_navigation_status(0, 0))
+            if hasattr(self, "quote_memo_text"):
+                self._set_editable_text_content(self.quote_memo_text, "")
             if self.current_theme_index is not None and self.result is not None:
                 self.quote_meta.set("No exact quote text was found in the raw transcript tabs.")
                 self.quote_reason.set("No quote rationale is available because the selected quote text was not found in the raw transcript.")
@@ -1136,6 +1190,8 @@ class ThemeForgeApp(tk.Tk):
             + overlap_text
         )
         self.quote_reason.set(match.quote.rationale)
+        if hasattr(self, "quote_memo_text"):
+            self._set_editable_text_content(self.quote_memo_text, match.quote.memo)
 
     def _overlap_text(self, quote: ThemeQuote) -> str:
         if self.result is None:

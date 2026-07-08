@@ -11,7 +11,9 @@ from themeforge.manual_editing import (
     rename_theme,
     split_quote_to_theme,
     uncode_quote,
+    update_quote_memo,
     update_quote_boundary,
+    update_theme_memo,
 )
 
 
@@ -193,6 +195,26 @@ class ManualEditingTests(unittest.TestCase):
         self.assertEqual(updated.themes[0].quotes[0].source_line, 4)
         self.assertEqual(updated.themes[0].quotes[0].source_start, 20)
         self.assertEqual(updated.themes[0].quotes[0].source_end, 46)
+        self.assertEqual(updated.themes[0].validation["review_status"], "Researcher edited")
+
+    def test_update_theme_memo_stores_researcher_note(self):
+        result = AnalysisResult("1.3.0", 1, 1, [
+            theme("T01", "Curriculum", [quote("Q1", "Evidence")]),
+        ], [])
+
+        updated = update_theme_memo(result, "T01", "Connects to teacher agency.")
+
+        self.assertEqual(updated.themes[0].memo, "Connects to teacher agency.")
+        self.assertEqual(updated.themes[0].validation["review_status"], "Researcher edited")
+
+    def test_update_quote_memo_stores_researcher_note(self):
+        result = AnalysisResult("1.3.0", 1, 1, [
+            theme("T01", "Curriculum", [quote("Q1", "Evidence")]),
+        ], [])
+
+        updated = update_quote_memo(result, "T01", "Q1", "Useful contrast quote.")
+
+        self.assertEqual(updated.themes[0].quotes[0].memo, "Useful contrast quote.")
         self.assertEqual(updated.themes[0].validation["review_status"], "Researcher edited")
 
 

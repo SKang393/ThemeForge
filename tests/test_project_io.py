@@ -25,6 +25,7 @@ class ProjectIoTests(unittest.TestCase):
             rationale="Researcher edited.",
             source_start=12,
             source_end=43,
+            memo="Quote memo",
         )
         result = AnalysisResult(
             version="1.3.0",
@@ -40,6 +41,7 @@ class ProjectIoTests(unittest.TestCase):
                     score=0.9,
                     quotes=[quote],
                     validation={"evidence_count": 1, "review_status": "Researcher edited"},
+                    memo="Theme memo",
                 )
             ],
             notes=["saved project"],
@@ -71,7 +73,9 @@ class ProjectIoTests(unittest.TestCase):
         self.assertEqual(loaded.settings.codebook_entries[0].examples, ("example",))
         self.assertIsNotNone(loaded.result)
         self.assertEqual(loaded.result.themes[0].name, "Manual Theme")
+        self.assertEqual(loaded.result.themes[0].memo, "Theme memo")
         self.assertEqual(loaded.result.themes[0].quotes[0].source_start, 12)
+        self.assertEqual(loaded.result.themes[0].quotes[0].memo, "Quote memo")
 
 
 if __name__ == "__main__":

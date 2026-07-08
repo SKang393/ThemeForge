@@ -48,7 +48,7 @@ def load_project(path: Path) -> ProjectState:
     return ProjectState(
         transcript_paths=tuple(Path(item) for item in payload.get("transcript_paths", [])),
         codebook_path=_optional_path(payload.get("codebook_path")),
-        documents=tuple(TranscriptDocument(**item) for item in payload.get("documents", [])),
+        documents=tuple(_document_from_json(item) for item in payload.get("documents", []) if isinstance(item, dict)),
         settings=_settings_from_json(payload.get("settings", {})),
         result=_result_from_json(payload.get("result")),
     )
@@ -101,6 +101,14 @@ def _codebook_entry_from_json(payload: dict[str, str | list[str]]) -> CodebookEn
     )
 
 
+def _document_from_json(payload: dict[str, object]) -> TranscriptDocument:  # noqa: OBJECT_OK - JSON boundary.
+    return TranscriptDocument(
+        name=str(payload.get("name", "")),
+        text=str(payload.get("text", "")),
+        memo=str(payload.get("memo", "")),
+    )
+
+
 def _result_to_json(result: AnalysisResult | None) -> dict[str, object] | None:  # noqa: OBJECT_OK - JSON boundary.
     if result is None:
         return None
@@ -120,6 +128,7 @@ def _result_from_json(payload: dict[str, object] | None) -> AnalysisResult | Non
             score=float(theme.get("score", 0.0)),
             quotes=[_quote_from_json(item) for item in theme.get("quotes", [])],
             validation=_validation_from_json(theme.get("validation", {})),
+            memo=str(theme.get("memo", "")),
         )
         for theme in payload.get("themes", [])
         if isinstance(theme, dict)
@@ -145,6 +154,7 @@ def _quote_from_json(payload: dict[str, object]) -> ThemeQuote:  # noqa: OBJECT_
         rationale=str(payload.get("rationale", "Selected as a candidate quote for researcher review.")),
         source_start=int(payload.get("source_start", 0)),
         source_end=int(payload.get("source_end", 0)),
+        memo=str(payload.get("memo", "")),
     )
 
 

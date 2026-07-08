@@ -206,6 +206,38 @@ def update_quote_boundary(
     return replace(result, themes=themes)
 
 
+def update_theme_memo(result: AnalysisResult, theme_id: str, memo: str) -> AnalysisResult:
+    if _find_theme(result, theme_id) is None:
+        return result
+    themes = [
+        _refresh_theme(replace(theme, memo=memo.strip()))
+        if theme.id == theme_id
+        else theme
+        for theme in result.themes
+    ]
+    return replace(result, themes=themes)
+
+
+def update_quote_memo(result: AnalysisResult, theme_id: str, quote_id: str, memo: str) -> AnalysisResult:
+    if _find_quote(result, theme_id, quote_id) is None:
+        return result
+    themes = [
+        _refresh_theme(
+            replace(
+                theme,
+                quotes=[
+                    replace(quote, memo=memo.strip()) if quote.quote_id == quote_id else quote
+                    for quote in theme.quotes
+                ],
+            )
+        )
+        if theme.id == theme_id
+        else theme
+        for theme in result.themes
+    ]
+    return replace(result, themes=themes)
+
+
 def preserve_manual_themes(previous: AnalysisResult | None, generated: AnalysisResult) -> AnalysisResult:
     if previous is None:
         return generated

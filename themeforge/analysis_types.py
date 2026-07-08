@@ -36,6 +36,7 @@ class FocusProfile:
 class TranscriptDocument:
     name: str
     text: str
+    memo: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +72,7 @@ class ThemeQuote:
     rationale: str = "Selected as a candidate quote for researcher review."
     source_start: int = 0
     source_end: int = 0
+    memo: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +85,7 @@ class Theme:
     score: float
     quotes: list[ThemeQuote] = field(default_factory=list)
     validation: dict[str, ValidationValue] = field(default_factory=dict)
+    memo: str = ""
 
 
 @dataclass(frozen=True, slots=True)
