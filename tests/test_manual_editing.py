@@ -3,6 +3,8 @@ import unittest
 from themeforge.analysis import AnalysisResult, Theme, ThemeQuote
 from themeforge.manual_editing import (
     EditHistory,
+    ManualSelection,
+    code_selected_text,
     merge_theme,
     preserve_manual_themes,
     reassign_quote,
@@ -125,6 +127,41 @@ class ManualEditingTests(unittest.TestCase):
         self.assertEqual([item.quote_id for item in preserved.themes[0].quotes], ["Q1"])
         self.assertEqual([item.quote_id for item in preserved.themes[1].quotes], ["Q4"])
         self.assertEqual(preserved.themes[0].validation["review_status"], "Researcher edited")
+
+    def test_code_selected_text_adds_arbitrary_passage_to_existing_theme(self):
+        result = AnalysisResult("1.3.0", 1, 0, [
+            theme("T01", "Curriculum", []),
+        ], [])
+
+        updated = code_selected_text(
+            result,
+            "T01",
+            ManualSelection("interview.txt", "Selected participant words.", 2, 10, 38),
+        )
+
+        self.assertEqual(updated.themes[0].quote_count, 1)
+        self.assertEqual(updated.themes[0].quotes[0].text, "Selected participant words.")
+        self.assertEqual(updated.themes[0].quotes[0].source_name, "interview.txt")
+        self.assertEqual(updated.themes[0].quotes[0].source_line, 2)
+        self.assertEqual(updated.themes[0].quotes[0].source_start, 10)
+        self.assertEqual(updated.themes[0].quotes[0].source_end, 38)
+        self.assertEqual(updated.themes[0].validation["review_status"], "Researcher edited")
+
+    def test_code_selected_text_creates_new_manual_theme(self):
+        result = AnalysisResult("1.3.0", 1, 0, [
+            theme("T01", "Curriculum", []),
+        ], [])
+
+        updated = code_selected_text(
+            result,
+            "",
+            ManualSelection("interview.txt", "A new selected quote.", 3, 15, 36),
+            "New Finding",
+        )
+
+        self.assertEqual(updated.themes[1].id, "M02")
+        self.assertEqual(updated.themes[1].name, "New Finding")
+        self.assertEqual(updated.themes[1].quotes[0].quote_id, "MQ01")
 
 
 if __name__ == "__main__":

@@ -48,6 +48,15 @@ class EditHistory:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class ManualSelection:
+    source_name: str
+    text: str
+    source_line: int
+    source_start: int
+    source_end: int
+
+
 def rename_theme(theme: Theme, name: str, keywords_text: str) -> Theme:
     clean_name = name.strip() or theme.name
     keywords = [item.strip() for item in keywords_text.replace(";", ",").split(",") if item.strip()]
@@ -126,6 +135,39 @@ def split_quote_to_theme(
     return replace(result, themes=[*themes, new_theme])
 
 
+def code_selected_text(
+    result: AnalysisResult,
+    target_theme_id: str,
+    selection: ManualSelection,
+    new_theme_name: str = "",
+) -> AnalysisResult:
+    text = selection.text.strip()
+    if not text:
+        return result
+
+    quote = ThemeQuote(
+        quote_id=_next_manual_quote_id(result),
+        speaker="Researcher selection",
+        text=text,
+        relevance=1.0,
+        source_line=selection.source_line,
+        source_name=selection.source_name,
+        rationale="Researcher manually coded this selected transcript passage.",
+        source_start=selection.source_start,
+        source_end=selection.source_end,
+    )
+    target = _find_theme(result, target_theme_id)
+    if target is None:
+        return _add_manual_theme(result, quote, new_theme_name)
+    themes = [
+        _refresh_theme(replace(theme, quotes=_unique_quotes([*theme.quotes, quote])))
+        if theme.id == target_theme_id
+        else theme
+        for theme in result.themes
+    ]
+    return replace(result, themes=themes)
+
+
 def preserve_manual_themes(previous: AnalysisResult | None, generated: AnalysisResult) -> AnalysisResult:
     if previous is None:
         return generated
@@ -187,6 +229,33 @@ def _next_manual_theme_number(result: AnalysisResult) -> int:
     while number in used:
         number += 1
     return number
+
+
+def _next_manual_quote_id(result: AnalysisResult) -> str:
+    used = {
+        int(quote.quote_id[2:])
+        for theme in result.themes
+        for quote in theme.quotes
+        if quote.quote_id.startswith("MQ") and quote.quote_id[2:].isdigit()
+    }
+    number = 1
+    while number in used:
+        number += 1
+    return f"MQ{number:02d}"
+
+
+def _add_manual_theme(result: AnalysisResult, quote: ThemeQuote, name: str) -> AnalysisResult:
+    theme = Theme(
+        id=f"M{_next_manual_theme_number(result):02d}",
+        name=name.strip() or "Manual Theme",
+        color="#2563eb",
+        keywords=[],
+        quote_count=1,
+        score=quote.relevance,
+        quotes=[quote],
+        validation=_manual_validation([quote]),
+    )
+    return replace(result, themes=[*result.themes, theme])
 
 
 def _refresh_theme(theme: Theme) -> Theme:

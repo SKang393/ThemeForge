@@ -22,6 +22,8 @@ from .exports import export_json, export_markdown, export_quotes_csv
 from .io import load_transcript_text
 from .manual_editing import (
     EditHistory,
+    ManualSelection,
+    code_selected_text,
     merge_theme,
     preserve_manual_themes,
     reassign_quote,
@@ -323,8 +325,14 @@ class ThemeForgeApp(tk.Tk):
         ttk.Button(action_row, text="Move quote", style="Secondary.TButton", command=self.move_current_quote).grid(row=0, column=0, sticky="ew", padx=(0, 6))
         ttk.Button(action_row, text="Merge theme", style="Secondary.TButton", command=self.merge_current_theme).grid(row=0, column=1, sticky="ew")
         ttk.Button(editor, text="Split quote to new theme", style="Secondary.TButton", command=self.split_current_quote).grid(row=8, column=0, sticky="ew", pady=(8, 0))
+        coding_row = ttk.Frame(editor, style="Surface.TFrame")
+        coding_row.grid(row=9, column=0, sticky="ew", pady=(8, 0))
+        coding_row.columnconfigure(0, weight=1)
+        coding_row.columnconfigure(1, weight=1)
+        ttk.Button(coding_row, text="Code selection", style="Secondary.TButton", command=self.code_selection_to_theme).grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        ttk.Button(coding_row, text="New code from selection", style="Secondary.TButton", command=self.code_selection_to_new_theme).grid(row=0, column=1, sticky="ew")
         history_row = ttk.Frame(editor, style="Surface.TFrame")
-        history_row.grid(row=9, column=0, sticky="ew", pady=(8, 0))
+        history_row.grid(row=10, column=0, sticky="ew", pady=(8, 0))
         history_row.columnconfigure(0, weight=1)
         history_row.columnconfigure(1, weight=1)
         ttk.Button(history_row, text="Undo", style="Secondary.TButton", command=self.undo_manual_edit).grid(row=0, column=0, sticky="ew", padx=(0, 6))
@@ -530,6 +538,45 @@ class ThemeForgeApp(tk.Tk):
         self._render_themes()
         self._select_theme(len(self.result.themes) - 1)
         self._set_manual_status("Quote split into a new theme")
+
+    def code_selection_to_theme(self) -> None:
+        if self.result is None:
+            return
+        selection = self._selected_transcript_text()
+        theme = self._current_theme()
+        if selection is None or theme is None:
+            self.status_text.set("Select transcript text and a theme first")
+            return
+        self._apply_selection_coding(selection, theme.id, "")
+
+    def code_selection_to_new_theme(self) -> None:
+        if self.result is None:
+            return
+        selection = self._selected_transcript_text()
+        if selection is None:
+            self.status_text.set("Select transcript text first")
+            return
+        self._apply_selection_coding(selection, "", self.theme_name.get())
+
+    def _apply_selection_coding(self, selection: ManualSelection, target_theme_id: str, new_theme_name: str) -> None:
+        if self.result is None:
+            return
+        updated = code_selected_text(
+            self.result,
+            target_theme_id,
+            selection,
+            new_theme_name,
+        )
+        if updated == self.result:
+            return
+        self.edit_history = self.edit_history.record(self.result)
+        self.result = updated
+        self._render_themes()
+        if target_theme_id:
+            self._select_theme_by_id(target_theme_id)
+        else:
+            self._select_theme(len(self.result.themes) - 1)
+        self._set_manual_status("Selected text coded")
 
     def undo_manual_edit(self) -> None:
         if self.result is None:
@@ -743,6 +790,25 @@ class ThemeForgeApp(tk.Tk):
         if ": " not in value:
             return None
         return value.split(": ", 1)[0]
+
+    def _selected_transcript_text(self) -> ManualSelection | None:
+        for source_name, widget in self.transcript_widgets.items():
+            try:
+                start = widget.index(tk.SEL_FIRST)
+                end = widget.index(tk.SEL_LAST)
+            except tk.TclError:
+                continue
+            text = widget.get(start, end).strip()
+            if not text:
+                return None
+            return ManualSelection(
+                source_name=source_name,
+                text=text,
+                source_line=int(start.split(".", 1)[0]),
+                source_start=int(widget.count("1.0", start, "chars")[0]),
+                source_end=int(widget.count("1.0", end, "chars")[0]),
+            )
+        return None
 
     def _select_theme_by_id(self, theme_id: str) -> None:
         if self.result is None:
