@@ -2,7 +2,7 @@ from __future__ import annotations
 
 # noqa: SIZE_OK - one Tkinter window class; splitting callbacks adds UI indirection.
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -20,7 +20,7 @@ from .analysis import (
 from .codebook import load_codebook_entries
 from .exports import export_json, export_markdown, export_quotes_csv
 from .io import load_transcript_text
-from .manual_editing import merge_theme, reassign_quote, rename_theme, split_quote_to_theme
+from .manual_editing import EditHistory, merge_theme, reassign_quote, rename_theme, split_quote_to_theme
 from .project_io import ProjectState, load_project, save_project
 from .ui_model import (
     APP_THEMES,
@@ -59,6 +59,7 @@ class ThemeForgeApp(tk.Tk):
         self.codebook_entries = ()
         self.documents: list[TranscriptDocument] = []
         self.result: AnalysisResult | None = None
+        self.edit_history = EditHistory()
         self.transcript_widgets: dict[str, tk.Text] = {}
         self.transcript_frames: dict[str, ttk.Frame] = {}
         self.current_theme_index: int | None = None
@@ -315,6 +316,12 @@ class ThemeForgeApp(tk.Tk):
         ttk.Button(action_row, text="Move quote", style="Secondary.TButton", command=self.move_current_quote).grid(row=0, column=0, sticky="ew", padx=(0, 6))
         ttk.Button(action_row, text="Merge theme", style="Secondary.TButton", command=self.merge_current_theme).grid(row=0, column=1, sticky="ew")
         ttk.Button(editor, text="Split quote to new theme", style="Secondary.TButton", command=self.split_current_quote).grid(row=8, column=0, sticky="ew", pady=(8, 0))
+        history_row = ttk.Frame(editor, style="Surface.TFrame")
+        history_row.grid(row=9, column=0, sticky="ew", pady=(8, 0))
+        history_row.columnconfigure(0, weight=1)
+        history_row.columnconfigure(1, weight=1)
+        ttk.Button(history_row, text="Undo", style="Secondary.TButton", command=self.undo_manual_edit).grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        ttk.Button(history_row, text="Redo", style="Secondary.TButton", command=self.redo_manual_edit).grid(row=0, column=1, sticky="ew")
 
     def _build_evidence_panel(self, parent: ttk.Frame) -> None:
         ttk.Label(parent, textvariable=self.detail_title, style="Panel.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 8))
@@ -413,6 +420,7 @@ class ThemeForgeApp(tk.Tk):
                 codebook_entries=self.codebook_entries,
             )
             self.result = analyze_documents(self.documents, settings)
+            self.edit_history = EditHistory()
         except (tk.TclError, ValueError) as exc:
             messagebox.showerror("Analysis failed", str(exc))
             return
@@ -451,10 +459,14 @@ class ThemeForgeApp(tk.Tk):
             self.theme_name.get(),
             self.theme_keywords.get(),
         )
-        self.result.themes[:] = themes
+        updated = replace(self.result, themes=themes)
+        if updated == self.result:
+            return
+        self.edit_history = self.edit_history.record(self.result)
+        self.result = updated
         self._render_themes()
         self._select_theme(self.current_theme_index)
-        self.status_text.set("Theme edits saved")
+        self._set_manual_status("Theme edits saved")
 
     def move_current_quote(self) -> None:
         if self.result is None or self.current_theme_index is None:
@@ -464,10 +476,14 @@ class ThemeForgeApp(tk.Tk):
         if match is None or target_id is None:
             return
         source_id = self.result.themes[self.current_theme_index].id
-        self.result = reassign_quote(self.result, source_id, match.quote.quote_id, target_id)
+        updated = reassign_quote(self.result, source_id, match.quote.quote_id, target_id)
+        if updated == self.result:
+            return
+        self.edit_history = self.edit_history.record(self.result)
+        self.result = updated
         self._render_themes()
         self._select_theme_by_id(target_id)
-        self.status_text.set("Quote moved")
+        self._set_manual_status("Quote moved")
 
     def merge_current_theme(self) -> None:
         if self.result is None or self.current_theme_index is None:
@@ -476,10 +492,14 @@ class ThemeForgeApp(tk.Tk):
         if target_id is None:
             return
         source_id = self.result.themes[self.current_theme_index].id
-        self.result = merge_theme(self.result, target_id, source_id)
+        updated = merge_theme(self.result, target_id, source_id)
+        if updated == self.result:
+            return
+        self.edit_history = self.edit_history.record(self.result)
+        self.result = updated
         self._render_themes()
         self._select_theme_by_id(target_id)
-        self.status_text.set("Themes merged")
+        self._set_manual_status("Themes merged")
 
     def split_current_quote(self) -> None:
         if self.result is None or self.current_theme_index is None:
@@ -488,15 +508,47 @@ class ThemeForgeApp(tk.Tk):
         if match is None:
             return
         source = self.result.themes[self.current_theme_index]
-        self.result = split_quote_to_theme(
+        updated = split_quote_to_theme(
             self.result,
             source.id,
             match.quote.quote_id,
             self.theme_name.get() or f"Split from {source.name}",
         )
+        if updated == self.result:
+            return
+        self.edit_history = self.edit_history.record(self.result)
+        self.result = updated
         self._render_themes()
         self._select_theme(len(self.result.themes) - 1)
-        self.status_text.set("Quote split into a new theme")
+        self._set_manual_status("Quote split into a new theme")
+
+    def undo_manual_edit(self) -> None:
+        if self.result is None:
+            return
+        change = self.edit_history.undo(self.result)
+        if change is None:
+            self.status_text.set("No manual edit to undo")
+            return
+        self.result = change.result
+        self.edit_history = change.history
+        self._render_themes()
+        if self.result.themes:
+            self._select_theme(min(self.current_theme_index or 0, len(self.result.themes) - 1))
+        self._set_manual_status("Manual edit undone")
+
+    def redo_manual_edit(self) -> None:
+        if self.result is None:
+            return
+        change = self.edit_history.redo(self.result)
+        if change is None:
+            self.status_text.set("No manual edit to redo")
+            return
+        self.result = change.result
+        self.edit_history = change.history
+        self._render_themes()
+        if self.result.themes:
+            self._select_theme(min(self.current_theme_index or 0, len(self.result.themes) - 1))
+        self._set_manual_status("Manual edit redone")
 
     def open_project(self) -> None:
         path = filedialog.askopenfilename(
@@ -535,6 +587,22 @@ class ThemeForgeApp(tk.Tk):
         self.project_path = path
         self.status_text.set(f"Saved project {path.name}")
 
+    def _set_manual_status(self, action: str) -> None:
+        autosave_status = self._autosave_project()
+        if autosave_status:
+            self.status_text.set(f"{action}; {autosave_status}")
+            return
+        self.status_text.set(action)
+
+    def _autosave_project(self) -> str | None:
+        if self.project_path is None:
+            return None
+        try:
+            save_project(self.project_path, self._project_state())
+        except OSError as exc:
+            return f"autosave failed: {exc}"
+        return f"autosaved {self.project_path.name}"
+
     def _project_state(self) -> ProjectState:
         return ProjectState(
             transcript_paths=tuple(self.input_paths),
@@ -556,6 +624,7 @@ class ThemeForgeApp(tk.Tk):
         self.codebook_entries = state.settings.codebook_entries
         self.documents = list(state.documents)
         self.result = state.result
+        self.edit_history = EditHistory()
         self.theme_count.set(state.settings.theme_count)
         self.quotes_per_theme.set(state.settings.quotes_per_theme)
         self.central_theme.set(state.settings.central_theme)
@@ -612,6 +681,7 @@ class ThemeForgeApp(tk.Tk):
 
     def _reset_analysis_view(self, quote_meta: str) -> None:
         self.result = None
+        self.edit_history = EditHistory()
         self.current_theme_index = None
         self.current_quote_matches = []
         self.current_quote_index = -1

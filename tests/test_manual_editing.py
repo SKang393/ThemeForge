@@ -2,6 +2,7 @@ import unittest
 
 from themeforge.analysis import AnalysisResult, Theme, ThemeQuote
 from themeforge.manual_editing import (
+    EditHistory,
     merge_theme,
     reassign_quote,
     rename_theme,
@@ -82,6 +83,30 @@ class ManualEditingTests(unittest.TestCase):
         self.assertEqual([item.quote_id for item in updated.themes[0].quotes], ["Q1"])
         self.assertEqual(updated.themes[1].name, "Manual split")
         self.assertEqual([item.quote_id for item in updated.themes[1].quotes], ["Q2"])
+
+    def test_edit_history_undo_and_redo_restore_manual_result_snapshots(self):
+        initial = AnalysisResult("1.3.0", 1, 1, [
+            theme("T01", "Generated", [quote("Q1", "Text")]),
+        ], [])
+        renamed = AnalysisResult("1.3.0", 1, 1, [
+            theme("T01", "Researcher Theme", [quote("Q1", "Text")]),
+        ], [])
+        history = EditHistory().record(initial)
+        renamed.themes[0].keywords.append("late")
+
+        undo = history.undo(renamed)
+
+        if undo is None:
+            self.fail("Undo should restore the recorded result")
+        self.assertEqual(undo.result.themes[0].name, "Generated")
+        self.assertEqual(undo.result.themes[0].keywords, ["generated"])
+
+        redo = undo.history.redo(undo.result)
+
+        if redo is None:
+            self.fail("Redo should restore the undone result")
+        self.assertEqual(redo.result.themes[0].name, "Researcher Theme")
+        self.assertEqual(redo.result.themes[0].keywords, ["researcher theme", "late"])
 
 
 if __name__ == "__main__":

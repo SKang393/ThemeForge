@@ -1,8 +1,51 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from copy import deepcopy
+from dataclasses import dataclass, replace
 
 from .analysis_types import AnalysisResult, Theme, ThemeQuote, ValidationValue
+
+
+@dataclass(frozen=True, slots=True)
+class EditHistoryChange:
+    result: AnalysisResult
+    history: EditHistory
+
+
+@dataclass(frozen=True, slots=True)
+class EditHistory:
+    undo_stack: tuple[AnalysisResult, ...] = ()
+    redo_stack: tuple[AnalysisResult, ...] = ()
+
+    def record(self, current: AnalysisResult) -> EditHistory:
+        return EditHistory(
+            undo_stack=(*self.undo_stack, deepcopy(current)),
+            redo_stack=(),
+        )
+
+    def undo(self, current: AnalysisResult) -> EditHistoryChange | None:
+        if not self.undo_stack:
+            return None
+        previous = deepcopy(self.undo_stack[-1])
+        return EditHistoryChange(
+            result=previous,
+            history=EditHistory(
+                undo_stack=self.undo_stack[:-1],
+                redo_stack=(deepcopy(current), *self.redo_stack),
+            ),
+        )
+
+    def redo(self, current: AnalysisResult) -> EditHistoryChange | None:
+        if not self.redo_stack:
+            return None
+        next_result = deepcopy(self.redo_stack[0])
+        return EditHistoryChange(
+            result=next_result,
+            history=EditHistory(
+                undo_stack=(*self.undo_stack, deepcopy(current)),
+                redo_stack=self.redo_stack[1:],
+            ),
+        )
 
 
 def rename_theme(theme: Theme, name: str, keywords_text: str) -> Theme:
