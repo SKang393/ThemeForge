@@ -1,7 +1,9 @@
 import tempfile
+import types
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 from themeforge.io import load_transcript_text
 
@@ -53,6 +55,29 @@ class TranscriptInputTests(unittest.TestCase):
         self.assertIn("Participant 1: Accessibility support helped.", text)
         self.assertNotIn("Times New Roman", text)
         self.assertNotIn("red0", text)
+
+    def test_pdf_input_extracts_text_with_pypdf_reader(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "transcript.pdf"
+            path.write_bytes(b"%PDF-1.7\ntext transcript data")
+            fake_page = types.SimpleNamespace(
+                extract_text=lambda: "Participant 1: PDF transcript text helped analysis."
+            )
+            fake_module = types.SimpleNamespace(PdfReader=lambda source: types.SimpleNamespace(pages=[fake_page]))
+            fake_errors = types.SimpleNamespace(PdfReadError=ValueError)
+
+            with mock.patch.dict("sys.modules", {"pypdf": fake_module, "pypdf.errors": fake_errors}):
+                text = load_transcript_text(path)
+
+        self.assertIn("Participant 1: PDF transcript text helped analysis.", text)
+
+    def test_pdf_input_without_extractable_text_raises_clear_error(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "transcript.pdf"
+            path.write_bytes(b"%PDF-1.7\nbinary transcript data")
+
+            with self.assertRaisesRegex(ValueError, "PDF text could not be extracted"):
+                load_transcript_text(path)
 
 
 if __name__ == "__main__":

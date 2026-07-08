@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Mapping, Sequence
 
+ValidationValue = str | int | float
+
 
 APP_THEMES = {
     "Light": {
@@ -51,6 +53,14 @@ def file_selection_summary(paths: Sequence[Path]) -> str:
     return f"{len(paths)} transcripts selected"
 
 
+def codebook_selection_summary(path: Path | None, entry_count: int = 0) -> str:
+    if path is None:
+        return "No codebook selected"
+    if entry_count > 0:
+        return f"{path.name} | {entry_count} themes"
+    return path.name
+
+
 def analysis_status_text(document_count: int, quote_count: int, theme_count: int) -> str:
     return f"{document_count} documents | {quote_count} quote units | {theme_count} themes"
 
@@ -60,7 +70,7 @@ def theme_list_label(name: str, color: str, quote_count: int, focus_alignment: f
     return f"{name}  |  {quote_count} quotes  |  {_percent(focus_alignment)} focus"
 
 
-def format_validation_summary(validation: Mapping[str, object]) -> str:
+def format_validation_summary(validation: Mapping[str, ValidationValue]) -> str:
     if not validation:
         return "Researcher review required"
     return (
@@ -100,7 +110,7 @@ def about_text(version: str) -> str:
     )
 
 
-def _percent(value: object) -> str:
+def _percent(value: ValidationValue) -> str:
     try:
         numeric = float(value)
     except (TypeError, ValueError):

@@ -12,20 +12,23 @@ qualitative studies in education and related fields.
 
 ## Current Version
 
-v1.2.2
+v1.3.0
 
 Archive DOI: <https://doi.org/10.5281/zenodo.20653169>
 
 ## What It Does
 
-- Opens TXT, Markdown, CSV, DOCX, and RTF transcripts.
+- Opens TXT, Markdown, CSV, DOCX, RTF, and text-based PDF transcripts.
 - Accepts one transcript or multiple related transcripts in the same analysis.
-- Preserves speaker labels when transcript lines use `Speaker: text`.
+- Imports optional researcher codebooks from CSV or text documents for
+  deductive theme matching against quote evidence.
+- Preserves speaker labels when transcript lines use `Speaker: text`,
+  Otter/Zoom-style `Speaker  0:03`, or Word-style `Speaker 0:03` turns.
 - Preserves source file names and transcript line numbers for quote review.
 - Lets the researcher enter an optional central theme, such as accessibility,
   teacher perspective, parent burden, autism, or a short research focus.
-- Suggests theme groups using embedded local lexical and contextual coding
-  logic. No online service receives transcript text.
+- Suggests theme groups using local TF-IDF clustering and c-TF-IDF phrase
+  labels. No online service receives transcript text.
 - Uses local BM25-style focus relevance and transcript-level related terms so
   indirect curriculum, training, lesson, assessment, and planning connections
   can be ranked for review without requiring an online model.
@@ -78,6 +81,9 @@ Run the desktop app:
 python -m themeforge.app
 ```
 
+In the desktop app, use **Choose files** for transcripts and **Choose codebook**
+for optional deductive matching against researcher-defined themes.
+
 Run the command-line analyzer with one transcript:
 
 ```powershell
@@ -89,6 +95,17 @@ Run the command-line analyzer with multiple transcripts and a central theme:
 ```powershell
 python -m themeforge.cli focus_group_1.docx focus_group_2.rtf --central-theme "accessibility parent burden" --out analysis_report.md
 ```
+
+Run deductive quote matching with a researcher codebook:
+
+```powershell
+python -m themeforge.cli interview_1.docx --codebook codebook.csv --quotes 3 --out codebook_report.md
+```
+
+CSV codebooks should include a `theme`, `code`, `name`, or `category` column.
+Optional `description` and `example` or `quote` columns improve quote matching.
+TXT, DOCX, RTF, and text-based PDF codebooks can also use labeled lines such as
+`Theme:`, `Description:`, and `Example:`.
 
 Run tests:
 
@@ -119,6 +136,16 @@ Use plain text with one speaker turn per line:
 Participant 1: I felt isolated when online classes started.
 Participant 1: Small group meetings helped because peers explained assignments.
 Participant 2: The teacher's weekly feedback made me feel supported.
+```
+
+Timestamped transcript exports are also supported:
+
+```text
+Moderator 0:03
+Before we start, this interview will be recorded for research purpose.
+
+Participant 1 1:04
+Small group meetings helped because peers explained assignments.
 ```
 
 The app also accepts plain paragraphs without speaker labels, but speaker labels
@@ -223,7 +250,7 @@ authors and project:
 
 - v0.1.0: Basic thematic grouping and quote evidence export.
 - v0.2.0: DOCX/RTF import and bounded clustering for realistic transcript lengths.
-- v0.3.0: Contextual coding model, all-quote evidence by default, and theme colors.
+- v0.3.0: Researcher-review notes, all-quote evidence by default, and theme colors.
 - v0.4.0: Multi-file analysis, central-theme priority, validation metadata,
   color-coded transcript evidence, source-aware exports, and initial Korean
   tokenization.
@@ -253,6 +280,8 @@ authors and project:
   the start of an imported file does not prevent theme generation.
 - v1.2.2: Improved embedded interviewer-prompt filtering, contextual focus
   alignment, and richer phrase-based theme labels.
-- Later: User-editable codebooks, manual theme editing, quote reassignment,
+- v1.3.0: Added text-based PDF input, optional codebook matching, stronger
+  transcript parsing, quote offsets, and validation harness checks.
+- Later: Manual theme editing, quote reassignment,
   merge/split controls, optional local semantic embeddings, and deeper
   multilingual support.

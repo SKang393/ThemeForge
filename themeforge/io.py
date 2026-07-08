@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 import re
 import zipfile
@@ -10,6 +11,8 @@ HEX_ESCAPE_RE = re.compile(r"\\'([0-9a-fA-F]{2})")
 CONTROL_WORD_RE = re.compile(r"\\[a-zA-Z]+-?\d* ?")
 DESTINATION_RE = re.compile(r"{\\\*[^{}]*(?:{[^{}]*}[^{}]*)*}")
 RTF_GROUPS_TO_DROP = {"fonttbl", "colortbl", "stylesheet", "info"}
+PDF_DEPENDENCY_MESSAGE = "PDF input requires pypdf. Install the package dependency or use DOCX, RTF, or TXT."
+PDF_EXTRACTION_MESSAGE = "PDF text could not be extracted. Export the transcript to DOCX, RTF, or TXT before analysis."
 
 
 def load_transcript_text(path: str | Path) -> str:
@@ -19,14 +22,46 @@ def load_transcript_text(path: str | Path) -> str:
         return _load_docx(source)
     if suffix == ".rtf":
         return _load_rtf(source)
+    if suffix == ".pdf":
+        return _load_pdf(source)
     return _load_plain_text(source)
 
 
 def _load_plain_text(path: Path) -> str:
+    if _has_pdf_header(path):
+        return _load_pdf(path)
     try:
         return path.read_text(encoding="utf-8-sig")
     except UnicodeDecodeError:
         return path.read_text(encoding="cp1252", errors="replace")
+
+
+def _has_pdf_header(path: Path) -> bool:
+    with path.open("rb") as source:
+        return source.read(5) == b"%PDF"
+
+
+def _load_pdf(path: Path) -> str:
+    try:
+        from pypdf import PdfReader
+        from pypdf.errors import PdfReadError
+    except ImportError as exc:
+        raise ValueError(PDF_DEPENDENCY_MESSAGE) from exc
+
+    previous_logging_threshold = logging.root.manager.disable
+    logging.disable(logging.CRITICAL)
+    try:
+        try:
+            reader = PdfReader(str(path))
+        except PdfReadError as exc:
+            raise ValueError(PDF_EXTRACTION_MESSAGE) from exc
+    finally:
+        logging.disable(previous_logging_threshold)
+    pages = [_normalize_spaces(page.extract_text() or "") for page in reader.pages]
+    text = "\n".join(page for page in pages if page)
+    if not text.strip():
+        raise ValueError(PDF_EXTRACTION_MESSAGE)
+    return text
 
 
 def _load_docx(path: Path) -> str:

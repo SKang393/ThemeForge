@@ -21,10 +21,11 @@ bibliography: paper.bib
 
 ThemeForge is an open-source desktop and command-line tool for first-pass
 organization of qualitative transcript data in education research. It supports
-plain-text, Markdown, CSV, DOCX, and RTF files; accepts single or multi-file
-interview and focus-group datasets; preserves speaker labels, source file
-names, and transcript line numbers; and exports suggested themes with linked
-quote evidence. ThemeForge is designed for researchers who conduct open-ended
+plain-text, Markdown, CSV, DOCX, RTF, and text-based PDF files; accepts single or multi-file
+interview and focus-group datasets; preserves speaker labels from colon and
+timestamped transcript formats, source file names, and transcript line numbers;
+and exports suggested themes with linked quote evidence. ThemeForge is designed
+for researchers who conduct open-ended
 interviews, structured interviews, focus groups, or related qualitative studies
 and need a local, reviewable way to move from long transcript files to candidate
 theme categories and supporting participant quotations.
@@ -52,13 +53,12 @@ workflows that are hard to adopt in small education teams.
 
 ThemeForge addresses a narrower need: a local, low-friction tool for organizing
 transcripts into candidate themes and traceable quote evidence before final
-human coding. This contribution fits JOSE as open educational software because
-it makes an education research process easier to teach, demonstrate, and
-practice. Instructors can use ThemeForge to show how computational assistance
-can support qualitative analysis without treating the computer output as a
-finding. Students can compare suggested themes against full transcript context,
-revise labels, reject weak groupings, and discuss how evidence should be used
-in a trustworthy thematic analysis.
+human coding. It makes an education research process easier to teach,
+demonstrate, and practice. Instructors can use ThemeForge to show how
+computational assistance can support qualitative analysis without treating the
+computer output as a finding. Students can compare suggested themes against
+full transcript context, revise labels, reject weak groupings, and discuss how
+evidence should be used in a trustworthy thematic analysis.
 
 # Design and Implementation
 
@@ -69,14 +69,16 @@ changes the purpose: rather than optimize phrase mining as an NLP benchmark, it
 supports practical thematic coding for qualitative education studies.
 
 The analysis pipeline begins by converting transcript files into consistent
-quote units. Speaker labels are preserved when turns follow a `Speaker: text`
-format, long turns are split into sentence-level evidence units, and multi-file
-inputs retain source names and line references. The system then builds local
-term and phrase representations, including unigram and short phrase features,
-and groups quote units using bounded clustering so longer transcripts remain
-usable on ordinary computers. Researchers may enter an optional central theme,
-which acts as a deductive priority during ranking while still allowing
-data-driven groupings to emerge.
+meaning units. Speaker labels are preserved when turns follow `Speaker: text`,
+Otter/Zoom-style `Speaker  0:03`, or Word-style `Speaker 0:03` formats.
+Transcript boilerplate, timestamp rows, and table-export noise are removed
+before coding units are built. The system then builds local term and phrase
+representations, clusters meaning units with bounded TF-IDF clustering, and
+labels clusters with class-based TF-IDF phrase scores so longer transcripts
+remain usable on ordinary computers. Researchers may enter an optional central
+theme, which acts as a deductive priority during ranking while still allowing
+data-driven groupings to emerge, or import a codebook so quotes are ranked
+against researcher-defined theme names, descriptions, and examples.
 
 The implementation translates qualitative rigor into visible review aids rather
 than hidden scores. Each suggested theme includes evidence count, displayed
@@ -90,13 +92,14 @@ transparent analytic steps, an audit trail, and enough detail for readers or
 team members to judge the credibility of interpretations [@nowell2017].
 
 ThemeForge also supports hybrid inductive and deductive analysis. The optional
-central theme helps prioritize research-question-relevant evidence, while the
-clustering and keyword steps still surface repeated transcript patterns. This
-matches applied approaches in which theory-informed codes and data-driven
-codes are developed together [@fereday2006]. The tool additionally keeps quote
-units explicit because semistructured interview coding depends on consistent
-unitization and careful review of how coded units support a code or theme
-[@campbell2013].
+central theme helps prioritize research-question-relevant evidence, and an
+imported codebook can rank transcript quotes against researcher-defined codes.
+Without a codebook, the clustering and keyword steps still surface repeated
+transcript patterns. This matches applied approaches in which theory-informed
+codes and data-driven codes are developed together [@fereday2006]. The tool
+additionally keeps quote units explicit because semistructured interview coding
+depends on consistent unitization and careful review of how coded units support
+a code or theme [@campbell2013].
 
 # Use in Teaching and Research
 

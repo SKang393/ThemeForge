@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+# noqa: SIZE_OK - one Tkinter window class; splitting callbacks adds UI indirection.
+
 from dataclasses import dataclass
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+import zipfile
 
 from . import __version__
 from .analysis import (
@@ -14,12 +17,14 @@ from .analysis import (
     TranscriptDocument,
     analyze_documents,
 )
+from .codebook import load_codebook_entries
 from .exports import export_json, export_markdown, export_quotes_csv
 from .io import load_transcript_text
 from .ui_model import (
     APP_THEMES,
     about_text,
     analysis_status_text,
+    codebook_selection_summary,
     evidence_navigation_status,
     file_selection_summary,
     format_validation_summary,
@@ -28,7 +33,7 @@ from .ui_model import (
 )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class QuoteMatch:
     theme_index: int
     quote_index: int
@@ -47,6 +52,8 @@ class ThemeForgeApp(tk.Tk):
         self.display_mode = tk.StringVar(value="Light")
         self.palette = APP_THEMES["Light"]
         self.input_paths: list[Path] = []
+        self.codebook_path: Path | None = None
+        self.codebook_entries = ()
         self.documents: list[TranscriptDocument] = []
         self.result: AnalysisResult | None = None
         self.transcript_widgets: dict[str, tk.Text] = {}
@@ -56,6 +63,7 @@ class ThemeForgeApp(tk.Tk):
         self.current_quote_index = -1
 
         self.file_summary = tk.StringVar(value=file_selection_summary([]))
+        self.codebook_summary = tk.StringVar(value=codebook_selection_summary(None))
         self.status_text = tk.StringVar(value="Ready")
         self.detail_title = tk.StringVar(value="Transcript evidence")
         self.quote_status = tk.StringVar(value=evidence_navigation_status(0, 0))
@@ -77,7 +85,9 @@ class ThemeForgeApp(tk.Tk):
         try:
             style.theme_use("clam")
         except tk.TclError:
-            pass
+            themes = style.theme_names()
+            if themes:
+                style.theme_use(themes[0])
 
         style.configure(
             ".",
@@ -191,11 +201,17 @@ class ThemeForgeApp(tk.Tk):
 
         ttk.Separator(parent).grid(row=3, column=0, sticky="ew", pady=16)
 
-        ttk.Label(parent, text="Shared focus topic", style="Panel.TLabel").grid(row=4, column=0, sticky="w")
-        ttk.Entry(parent, textvariable=self.central_theme).grid(row=5, column=0, sticky="ew", pady=(4, 14))
+        ttk.Label(parent, text="Codebook", style="Panel.TLabel").grid(row=4, column=0, sticky="w")
+        ttk.Label(parent, textvariable=self.codebook_summary, style="Muted.TLabel", wraplength=220).grid(row=5, column=0, sticky="ew", pady=(4, 8))
+        ttk.Button(parent, text="Choose codebook", style="Secondary.TButton", command=self.open_codebook).grid(row=6, column=0, sticky="ew")
+
+        ttk.Separator(parent).grid(row=7, column=0, sticky="ew", pady=16)
+
+        ttk.Label(parent, text="Shared focus topic", style="Panel.TLabel").grid(row=8, column=0, sticky="w")
+        ttk.Entry(parent, textvariable=self.central_theme).grid(row=9, column=0, sticky="ew", pady=(4, 14))
 
         count_row = ttk.Frame(parent, style="Surface.TFrame")
-        count_row.grid(row=6, column=0, sticky="ew")
+        count_row.grid(row=10, column=0, sticky="ew")
         count_row.columnconfigure(0, weight=1)
         count_row.columnconfigure(1, weight=1)
 
@@ -204,15 +220,15 @@ class ThemeForgeApp(tk.Tk):
         ttk.Spinbox(count_row, from_=1, to=20, width=6, textvariable=self.theme_count).grid(row=1, column=0, sticky="ew", pady=(4, 0))
         ttk.Spinbox(count_row, from_=0, to=200, width=6, textvariable=self.quotes_per_theme).grid(row=1, column=1, sticky="ew", padx=(10, 0), pady=(4, 0))
 
-        ttk.Button(parent, text="Analyze", style="Primary.TButton", command=self.analyze).grid(row=7, column=0, sticky="ew", pady=(18, 8))
-        ttk.Button(parent, text="Export report", style="Secondary.TButton", command=self.save_report).grid(row=8, column=0, sticky="ew")
+        ttk.Button(parent, text="Analyze", style="Primary.TButton", command=self.analyze).grid(row=11, column=0, sticky="ew", pady=(18, 8))
+        ttk.Button(parent, text="Export report", style="Secondary.TButton", command=self.save_report).grid(row=12, column=0, sticky="ew")
 
         ttk.Label(
             parent,
             text="Suggestions need researcher review before reporting.",
             style="Muted.TLabel",
             wraplength=220,
-        ).grid(row=9, column=0, sticky="ew", pady=(18, 0))
+        ).grid(row=13, column=0, sticky="ew", pady=(18, 0))
 
     def _build_theme_panel(self, parent: ttk.Frame) -> None:
         self.theme_summary = tk.StringVar(value="No analysis yet")
@@ -263,9 +279,10 @@ class ThemeForgeApp(tk.Tk):
         paths = filedialog.askopenfilenames(
             title="Open transcripts",
             filetypes=[
-                ("Transcript files", "*.txt *.md *.csv *.docx *.rtf"),
+                ("Transcript files", "*.txt *.md *.csv *.docx *.rtf *.pdf"),
                 ("Text files", "*.txt *.md *.csv"),
                 ("Word documents", "*.docx *.rtf"),
+                ("PDF files", "*.pdf"),
                 ("All files", "*.*"),
             ],
         )
@@ -275,7 +292,7 @@ class ThemeForgeApp(tk.Tk):
         try:
             self.input_paths = [Path(path) for path in paths]
             self.documents = self._load_documents(self.input_paths)
-        except Exception as exc:
+        except (OSError, ValueError, zipfile.BadZipFile) as exc:
             messagebox.showerror("Open transcripts failed", str(exc))
             return
 
@@ -293,6 +310,30 @@ class ThemeForgeApp(tk.Tk):
         self._render_transcript_tabs()
         self.status_text.set("Files loaded")
 
+    def open_codebook(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Open codebook",
+            filetypes=[
+                ("Codebook files", "*.csv *.txt *.md *.docx *.rtf *.pdf"),
+                ("CSV files", "*.csv"),
+                ("Text and Word files", "*.txt *.md *.docx *.rtf"),
+                ("PDF files", "*.pdf"),
+                ("All files", "*.*"),
+            ],
+        )
+        if not path:
+            return
+
+        try:
+            self.codebook_path = Path(path)
+            self.codebook_entries = load_codebook_entries(self.codebook_path)
+        except (OSError, ValueError, zipfile.BadZipFile) as exc:
+            messagebox.showerror("Open codebook failed", str(exc))
+            return
+
+        self.codebook_summary.set(codebook_selection_summary(self.codebook_path, len(self.codebook_entries)))
+        self.status_text.set("Codebook loaded")
+
     def analyze(self) -> None:
         if not self.documents:
             messagebox.showinfo("Open transcripts", "Choose one or more transcript files first.")
@@ -303,9 +344,10 @@ class ThemeForgeApp(tk.Tk):
                 theme_count=max(1, int(self.theme_count.get())),
                 quotes_per_theme=max(0, int(self.quotes_per_theme.get())),
                 central_theme=self.central_theme.get().strip(),
+                codebook_entries=self.codebook_entries,
             )
             self.result = analyze_documents(self.documents, settings)
-        except Exception as exc:
+        except (tk.TclError, ValueError) as exc:
             messagebox.showerror("Analysis failed", str(exc))
             return
 
@@ -394,7 +436,7 @@ class ThemeForgeApp(tk.Tk):
         if self.result is not None:
             self._highlight_all_quotes(self.current_theme_index)
 
-    def show_selected_theme(self, _event: object | None = None) -> None:
+    def show_selected_theme(self, _event: tk.Event | None = None) -> None:
         selection = self.theme_list.curselection()
         if not selection:
             return
@@ -462,7 +504,7 @@ class ThemeForgeApp(tk.Tk):
     def show_about(self) -> None:
         messagebox.showinfo("About ThemeForge", about_text(__version__))
 
-    def change_display_mode(self, _event: object | None = None) -> None:
+    def change_display_mode(self, _event: tk.Event | None = None) -> None:
         self.palette = APP_THEMES.get(self.display_mode.get(), APP_THEMES["Light"])
         self._configure_styles()
         self._apply_display_colors()
@@ -568,7 +610,13 @@ class ThemeForgeApp(tk.Tk):
         if widget is None:
             return None
 
-        starts = [f"{max(1, quote.source_line)}.0", "1.0"]
+        offset_start = f"1.0 + {quote.source_start} chars"
+        if quote.source_end > quote.source_start:
+            offset_end = f"1.0 + {quote.source_end} chars"
+            if widget.get(offset_start, offset_end) == quote.text:
+                return widget, offset_start, offset_end
+
+        starts = [offset_start, f"{max(1, quote.source_line)}.0", "1.0"]
         snippets = [quote.text]
         if len(quote.text) > 80:
             snippets.append(quote.text[:80].strip())

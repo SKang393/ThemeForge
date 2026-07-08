@@ -4,6 +4,7 @@ from pathlib import Path
 from themeforge.ui_model import (
     PROFESSIONAL_THEME,
     analysis_status_text,
+    codebook_selection_summary,
     file_selection_summary,
     format_validation_summary,
     theme_list_label,
@@ -18,6 +19,10 @@ class UiModelTests(unittest.TestCase):
             file_selection_summary([Path("teacher.txt"), Path("parent.txt"), Path("student.txt")]),
             "3 transcripts selected",
         )
+
+    def test_codebook_selection_summary_is_compact(self):
+        self.assertEqual(codebook_selection_summary(None), "No codebook selected")
+        self.assertEqual(codebook_selection_summary(Path("codebook.csv"), 2), "codebook.csv | 2 themes")
 
     def test_analysis_status_text_is_short_and_scannable(self):
         status = analysis_status_text(document_count=3, quote_count=42, theme_count=6)

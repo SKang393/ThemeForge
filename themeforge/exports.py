@@ -5,7 +5,7 @@ import io
 import json
 from dataclasses import asdict
 
-from .analysis import AnalysisResult
+from .analysis import AnalysisResult, ValidationValue
 
 
 def export_markdown(result: AnalysisResult) -> str:
@@ -138,7 +138,7 @@ def export_quotes_csv(result: AnalysisResult) -> str:
     return buffer.getvalue()
 
 
-def _format_validation(validation: dict[str, object]) -> str:
+def _format_validation(validation: dict[str, ValidationValue]) -> str:
     if not validation:
         return "Researcher review required"
     return (

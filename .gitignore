@@ -6,6 +6,8 @@ tmp/
 build/
 dist/
 release/
+validation/
+docs/*_FIX_GUIDE.md
 *.spec
 __pycache__/
 .pytest_cache/
