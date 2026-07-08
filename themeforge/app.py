@@ -20,6 +20,7 @@ from .analysis import (
 from .codebook import load_codebook_entries
 from .exports import export_json, export_markdown, export_quotes_csv
 from .io import load_transcript_text
+from .manual_editing import merge_theme, reassign_quote, rename_theme, split_quote_to_theme
 from .ui_model import (
     APP_THEMES,
     about_text,
@@ -74,6 +75,11 @@ class ThemeForgeApp(tk.Tk):
         self.theme_count = tk.IntVar(value=8)
         self.quotes_per_theme = tk.IntVar(value=0)
         self.central_theme = tk.StringVar(value="")
+        self.theme_name = tk.StringVar(value="")
+        self.theme_keywords = tk.StringVar(value="")
+        self.target_theme = tk.StringVar(value="")
+        self.semantic_mode = tk.StringVar(value="TF-IDF")
+        self.language_mode = tk.StringVar(value="Auto")
 
         self._configure_styles()
         self._build_layout()
@@ -197,21 +203,52 @@ class ThemeForgeApp(tk.Tk):
         ttk.Label(parent, text="Transcripts", style="Panel.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(parent, textvariable=self.file_summary, style="Muted.TLabel", wraplength=220).grid(row=1, column=0, sticky="ew", pady=(4, 14))
 
-        ttk.Button(parent, text="Choose files", style="Secondary.TButton", command=self.open_transcript).grid(row=2, column=0, sticky="ew")
+        file_buttons = ttk.Frame(parent, style="Surface.TFrame")
+        file_buttons.grid(row=2, column=0, sticky="ew")
+        file_buttons.columnconfigure(0, weight=1)
+        file_buttons.columnconfigure(1, weight=1)
+        ttk.Button(file_buttons, text="Choose files", style="Secondary.TButton", command=self.open_transcript).grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        ttk.Button(file_buttons, text="Remove files", style="Secondary.TButton", command=self.remove_transcripts).grid(row=0, column=1, sticky="ew")
 
         ttk.Separator(parent).grid(row=3, column=0, sticky="ew", pady=16)
 
         ttk.Label(parent, text="Codebook", style="Panel.TLabel").grid(row=4, column=0, sticky="w")
         ttk.Label(parent, textvariable=self.codebook_summary, style="Muted.TLabel", wraplength=220).grid(row=5, column=0, sticky="ew", pady=(4, 8))
-        ttk.Button(parent, text="Choose codebook", style="Secondary.TButton", command=self.open_codebook).grid(row=6, column=0, sticky="ew")
+        codebook_buttons = ttk.Frame(parent, style="Surface.TFrame")
+        codebook_buttons.grid(row=6, column=0, sticky="ew")
+        codebook_buttons.columnconfigure(0, weight=1)
+        codebook_buttons.columnconfigure(1, weight=1)
+        ttk.Button(codebook_buttons, text="Choose codebook", style="Secondary.TButton", command=self.open_codebook).grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        ttk.Button(codebook_buttons, text="Remove", style="Secondary.TButton", command=self.remove_codebook).grid(row=0, column=1, sticky="ew")
 
         ttk.Separator(parent).grid(row=7, column=0, sticky="ew", pady=16)
 
         ttk.Label(parent, text="Shared focus topic", style="Panel.TLabel").grid(row=8, column=0, sticky="w")
         ttk.Entry(parent, textvariable=self.central_theme).grid(row=9, column=0, sticky="ew", pady=(4, 14))
 
+        option_row = ttk.Frame(parent, style="Surface.TFrame")
+        option_row.grid(row=10, column=0, sticky="ew", pady=(0, 14))
+        option_row.columnconfigure(0, weight=1)
+        option_row.columnconfigure(1, weight=1)
+        ttk.Label(option_row, text="Theme model", style="Panel.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(option_row, text="Language", style="Panel.TLabel").grid(row=0, column=1, sticky="w", padx=(10, 0))
+        ttk.Combobox(
+            option_row,
+            textvariable=self.semantic_mode,
+            values=("TF-IDF", "Local embeddings"),
+            state="readonly",
+            width=14,
+        ).grid(row=1, column=0, sticky="ew", pady=(4, 0))
+        ttk.Combobox(
+            option_row,
+            textvariable=self.language_mode,
+            values=("Auto", "English", "Korean", "Multilingual"),
+            state="readonly",
+            width=14,
+        ).grid(row=1, column=1, sticky="ew", padx=(10, 0), pady=(4, 0))
+
         count_row = ttk.Frame(parent, style="Surface.TFrame")
-        count_row.grid(row=10, column=0, sticky="ew")
+        count_row.grid(row=11, column=0, sticky="ew")
         count_row.columnconfigure(0, weight=1)
         count_row.columnconfigure(1, weight=1)
 
@@ -220,15 +257,15 @@ class ThemeForgeApp(tk.Tk):
         ttk.Spinbox(count_row, from_=1, to=20, width=6, textvariable=self.theme_count).grid(row=1, column=0, sticky="ew", pady=(4, 0))
         ttk.Spinbox(count_row, from_=0, to=200, width=6, textvariable=self.quotes_per_theme).grid(row=1, column=1, sticky="ew", padx=(10, 0), pady=(4, 0))
 
-        ttk.Button(parent, text="Analyze", style="Primary.TButton", command=self.analyze).grid(row=11, column=0, sticky="ew", pady=(18, 8))
-        ttk.Button(parent, text="Export report", style="Secondary.TButton", command=self.save_report).grid(row=12, column=0, sticky="ew")
+        ttk.Button(parent, text="Analyze", style="Primary.TButton", command=self.analyze).grid(row=12, column=0, sticky="ew", pady=(18, 8))
+        ttk.Button(parent, text="Export report", style="Secondary.TButton", command=self.save_report).grid(row=13, column=0, sticky="ew")
 
         ttk.Label(
             parent,
             text="Suggestions need researcher review before reporting.",
             style="Muted.TLabel",
             wraplength=220,
-        ).grid(row=13, column=0, sticky="ew", pady=(18, 0))
+        ).grid(row=14, column=0, sticky="ew", pady=(18, 0))
 
     def _build_theme_panel(self, parent: ttk.Frame) -> None:
         self.theme_summary = tk.StringVar(value="No analysis yet")
@@ -254,6 +291,26 @@ class ThemeForgeApp(tk.Tk):
         scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.theme_list.yview)
         scrollbar.grid(row=0, column=1, sticky="ns")
         self.theme_list.configure(yscrollcommand=scrollbar.set)
+
+        editor = ttk.Labelframe(parent, text="Manual editing", style="Panel.TLabelframe", padding=(10, 8))
+        editor.grid(row=2, column=0, sticky="ew", pady=(10, 0))
+        editor.columnconfigure(0, weight=1)
+        ttk.Label(editor, text="Theme name", style="Panel.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Entry(editor, textvariable=self.theme_name).grid(row=1, column=0, sticky="ew", pady=(4, 8))
+        ttk.Label(editor, text="Keywords", style="Panel.TLabel").grid(row=2, column=0, sticky="w")
+        ttk.Entry(editor, textvariable=self.theme_keywords).grid(row=3, column=0, sticky="ew", pady=(4, 8))
+        ttk.Button(editor, text="Save theme edits", style="Secondary.TButton", command=self.save_theme_edits).grid(row=4, column=0, sticky="ew")
+
+        ttk.Label(editor, text="Target theme", style="Panel.TLabel").grid(row=5, column=0, sticky="w", pady=(10, 0))
+        self.target_theme_box = ttk.Combobox(editor, textvariable=self.target_theme, state="readonly")
+        self.target_theme_box.grid(row=6, column=0, sticky="ew", pady=(4, 8))
+        action_row = ttk.Frame(editor, style="Surface.TFrame")
+        action_row.grid(row=7, column=0, sticky="ew")
+        action_row.columnconfigure(0, weight=1)
+        action_row.columnconfigure(1, weight=1)
+        ttk.Button(action_row, text="Move quote", style="Secondary.TButton", command=self.move_current_quote).grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        ttk.Button(action_row, text="Merge theme", style="Secondary.TButton", command=self.merge_current_theme).grid(row=0, column=1, sticky="ew")
+        ttk.Button(editor, text="Split quote to new theme", style="Secondary.TButton", command=self.split_current_quote).grid(row=8, column=0, sticky="ew", pady=(8, 0))
 
     def _build_evidence_panel(self, parent: ttk.Frame) -> None:
         ttk.Label(parent, textvariable=self.detail_title, style="Panel.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 8))
@@ -296,19 +353,18 @@ class ThemeForgeApp(tk.Tk):
             messagebox.showerror("Open transcripts failed", str(exc))
             return
 
-        self.result = None
-        self.current_theme_index = None
-        self.current_quote_matches = []
-        self.current_quote_index = -1
-        self.theme_list.delete(0, tk.END)
-        self.theme_summary.set("No analysis yet")
-        self.detail_title.set("Transcript evidence")
-        self.quote_status.set(evidence_navigation_status(0, 0))
-        self.quote_meta.set("Analyze to highlight quote evidence across the uploaded transcripts.")
-        self.quote_reason.set("Select a theme after analysis to review quote-selection rationale.")
+        self._reset_analysis_view("Analyze to highlight quote evidence across the uploaded transcripts.")
         self.file_summary.set(file_selection_summary(self.input_paths))
         self._render_transcript_tabs()
         self.status_text.set("Files loaded")
+
+    def remove_transcripts(self) -> None:
+        self.input_paths = []
+        self.documents = []
+        self._reset_analysis_view("Open transcripts, then analyze to highlight quote evidence.")
+        self.file_summary.set(file_selection_summary([]))
+        self._render_transcript_tabs()
+        self.status_text.set("Transcript files removed")
 
     def open_codebook(self) -> None:
         path = filedialog.askopenfilename(
@@ -334,6 +390,12 @@ class ThemeForgeApp(tk.Tk):
         self.codebook_summary.set(codebook_selection_summary(self.codebook_path, len(self.codebook_entries)))
         self.status_text.set("Codebook loaded")
 
+    def remove_codebook(self) -> None:
+        self.codebook_path = None
+        self.codebook_entries = ()
+        self.codebook_summary.set(codebook_selection_summary(None))
+        self.status_text.set("Codebook removed")
+
     def analyze(self) -> None:
         if not self.documents:
             messagebox.showinfo("Open transcripts", "Choose one or more transcript files first.")
@@ -351,6 +413,11 @@ class ThemeForgeApp(tk.Tk):
             messagebox.showerror("Analysis failed", str(exc))
             return
 
+        if self.semantic_mode.get() == "Local embeddings":
+            self.result.notes.append("Local embedding workflow selected; this preview keeps TF-IDF until the optional offline model package is installed.")
+        if self.language_mode.get() != "Auto":
+            self.result.notes.append(f"Language review mode selected: {self.language_mode.get()}.")
+
         self._render_themes()
         self._render_transcript_tabs()
         if self.result.themes:
@@ -361,6 +428,7 @@ class ThemeForgeApp(tk.Tk):
             self.quote_status.set(evidence_navigation_status(0, 0))
             self.quote_meta.set("No quote-length transcript units were found.")
             self.quote_reason.set("No quote rationale is available because no quote-length transcript units were found.")
+            self._refresh_editor()
 
         status = analysis_status_text(
             document_count=self.result.document_count,
@@ -369,6 +437,62 @@ class ThemeForgeApp(tk.Tk):
         )
         self.theme_summary.set(status)
         self.status_text.set(status)
+
+    def save_theme_edits(self) -> None:
+        if self.result is None or self.current_theme_index is None:
+            return
+        themes = list(self.result.themes)
+        themes[self.current_theme_index] = rename_theme(
+            themes[self.current_theme_index],
+            self.theme_name.get(),
+            self.theme_keywords.get(),
+        )
+        self.result.themes[:] = themes
+        self._render_themes()
+        self._select_theme(self.current_theme_index)
+        self.status_text.set("Theme edits saved")
+
+    def move_current_quote(self) -> None:
+        if self.result is None or self.current_theme_index is None:
+            return
+        match = self._current_quote_match()
+        target_id = self._target_theme_id()
+        if match is None or target_id is None:
+            return
+        source_id = self.result.themes[self.current_theme_index].id
+        self.result = reassign_quote(self.result, source_id, match.quote.quote_id, target_id)
+        self._render_themes()
+        self._select_theme_by_id(target_id)
+        self.status_text.set("Quote moved")
+
+    def merge_current_theme(self) -> None:
+        if self.result is None or self.current_theme_index is None:
+            return
+        target_id = self._target_theme_id()
+        if target_id is None:
+            return
+        source_id = self.result.themes[self.current_theme_index].id
+        self.result = merge_theme(self.result, target_id, source_id)
+        self._render_themes()
+        self._select_theme_by_id(target_id)
+        self.status_text.set("Themes merged")
+
+    def split_current_quote(self) -> None:
+        if self.result is None or self.current_theme_index is None:
+            return
+        match = self._current_quote_match()
+        if match is None:
+            return
+        source = self.result.themes[self.current_theme_index]
+        self.result = split_quote_to_theme(
+            self.result,
+            source.id,
+            match.quote.quote_id,
+            self.theme_name.get() or f"Split from {source.name}",
+        )
+        self._render_themes()
+        self._select_theme(len(self.result.themes) - 1)
+        self.status_text.set("Quote split into a new theme")
 
     def _load_documents(self, paths: list[Path]) -> list[TranscriptDocument]:
         name_counts: dict[str, int] = {}
@@ -383,6 +507,7 @@ class ThemeForgeApp(tk.Tk):
     def _render_themes(self) -> None:
         self.theme_list.delete(0, tk.END)
         if self.result is None:
+            self._refresh_editor()
             return
         for theme in self.result.themes:
             label = theme_list_label(
@@ -394,6 +519,75 @@ class ThemeForgeApp(tk.Tk):
             self.theme_list.insert(tk.END, label)
             self.theme_list.itemconfig(tk.END, foreground=theme.color)
         self._apply_display_colors()
+        self._refresh_editor()
+
+    def _reset_analysis_view(self, quote_meta: str) -> None:
+        self.result = None
+        self.current_theme_index = None
+        self.current_quote_matches = []
+        self.current_quote_index = -1
+        self.theme_list.delete(0, tk.END)
+        self.theme_summary.set("No analysis yet")
+        self.detail_title.set("Transcript evidence")
+        self.quote_status.set(evidence_navigation_status(0, 0))
+        self.quote_meta.set(quote_meta)
+        self.quote_reason.set("Select a theme after analysis to review quote-selection rationale.")
+        self._refresh_editor()
+
+    def _refresh_editor(self) -> None:
+        theme = self._current_theme()
+        if theme is None:
+            self.theme_name.set("")
+            self.theme_keywords.set("")
+            self.target_theme.set("")
+            if hasattr(self, "target_theme_box"):
+                self.target_theme_box.configure(values=())
+            return
+
+        self.theme_name.set(theme.name)
+        self.theme_keywords.set(", ".join(theme.keywords))
+        target_values = [
+            f"{item.id}: {item.name}"
+            for item in self.result.themes
+            if item.id != theme.id
+        ] if self.result is not None else []
+        if hasattr(self, "target_theme_box"):
+            self.target_theme_box.configure(values=tuple(target_values))
+        if target_values and self.target_theme.get() not in target_values:
+            self.target_theme.set(target_values[0])
+        elif not target_values:
+            self.target_theme.set("")
+
+    def _current_theme(self) -> Theme | None:
+        if self.result is None or self.current_theme_index is None:
+            return None
+        if self.current_theme_index >= len(self.result.themes):
+            return None
+        return self.result.themes[self.current_theme_index]
+
+    def _current_quote_match(self) -> QuoteMatch | None:
+        if not self.current_quote_matches or self.current_quote_index < 0:
+            return None
+        return self.current_quote_matches[self.current_quote_index]
+
+    def _target_theme_id(self) -> str | None:
+        value = self.target_theme.get()
+        if ": " not in value:
+            return None
+        return value.split(": ", 1)[0]
+
+    def _select_theme_by_id(self, theme_id: str) -> None:
+        if self.result is None:
+            return
+        for index, theme in enumerate(self.result.themes):
+            if theme.id == theme_id:
+                self._select_theme(index)
+                return
+
+    def _select_theme(self, index: int) -> None:
+        self.theme_list.selection_clear(0, tk.END)
+        self.theme_list.selection_set(index)
+        self.show_theme(index)
 
     def _render_transcript_tabs(self) -> None:
         for tab_id in self.transcript_notebook.tabs():
@@ -456,6 +650,7 @@ class ThemeForgeApp(tk.Tk):
         self._highlight_all_quotes(index)
         self.current_quote_matches = self._quote_matches_for_theme(index)
         self.current_quote_index = 0 if self.current_quote_matches else -1
+        self._refresh_editor()
         self._focus_current_quote()
 
     def previous_quote(self) -> None:
