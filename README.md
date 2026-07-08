@@ -28,7 +28,8 @@ Archive DOI: <https://doi.org/10.5281/zenodo.20653169>
 - Lets the researcher enter an optional central theme, such as accessibility,
   teacher perspective, parent burden, autism, or a short research focus.
 - Suggests theme groups using local TF-IDF clustering and c-TF-IDF phrase
-  labels. No online service receives transcript text.
+  labels, with optional local sentence-transformer embeddings when installed.
+  No online service receives transcript text.
 - Uses local BM25-style focus relevance and transcript-level related terms so
   indirect curriculum, training, lesson, assessment, and planning connections
   can be ranked for review without requiring an online model.
@@ -101,6 +102,16 @@ Run deductive quote matching with a researcher codebook:
 ```powershell
 python -m themeforge.cli interview_1.docx --codebook codebook.csv --quotes 3 --out codebook_report.md
 ```
+
+Optional local semantic embeddings:
+
+```powershell
+python -m pip install "themeforge[nlp]"
+python -m themeforge.cli interview_1.docx --semantic-backend local-embeddings --language Multilingual --out semantic_report.md
+```
+
+The first model download is handled by `sentence-transformers`; after that the
+local model cache can be reused offline.
 
 CSV codebooks should include a `theme`, `code`, `name`, or `category` column.
 Optional `description` and `example` or `quote` columns improve quote matching.

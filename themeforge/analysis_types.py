@@ -19,6 +19,8 @@ class AnalysisSettings:
     min_quote_words: int = 4
     agglomerative_limit: int = 120
     central_theme: str = ""
+    semantic_backend: str = "tfidf"
+    language_mode: str = "Auto"
     codebook_entries: tuple[CodebookEntry, ...] = ()
 
 

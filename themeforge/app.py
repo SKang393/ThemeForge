@@ -485,6 +485,8 @@ class ThemeForgeApp(tk.Tk):
                 theme_count=max(1, int(self.theme_count.get())),
                 quotes_per_theme=max(0, int(self.quotes_per_theme.get())),
                 central_theme=self.central_theme.get().strip(),
+                semantic_backend=self._semantic_backend(),
+                language_mode=self.language_mode.get(),
                 codebook_entries=self.codebook_entries,
             )
             previous_result = self.result
@@ -494,8 +496,6 @@ class ThemeForgeApp(tk.Tk):
             messagebox.showerror("Analysis failed", str(exc))
             return
 
-        if self.semantic_mode.get() == "Local embeddings":
-            self.result.notes.append("Local embedding workflow selected; this preview keeps TF-IDF until the optional offline model package is installed.")
         if self.language_mode.get() != "Auto":
             self.result.notes.append(f"Language review mode selected: {self.language_mode.get()}.")
 
@@ -817,6 +817,8 @@ class ThemeForgeApp(tk.Tk):
                 theme_count=max(1, int(self.theme_count.get())),
                 quotes_per_theme=max(0, int(self.quotes_per_theme.get())),
                 central_theme=self.central_theme.get().strip(),
+                semantic_backend=self._semantic_backend(),
+                language_mode=self.language_mode.get(),
                 codebook_entries=self.codebook_entries,
             ),
             result=self.result,
@@ -833,6 +835,12 @@ class ThemeForgeApp(tk.Tk):
         self.theme_count.set(state.settings.theme_count)
         self.quotes_per_theme.set(state.settings.quotes_per_theme)
         self.central_theme.set(state.settings.central_theme)
+        self.semantic_mode.set(
+            "Local embeddings"
+            if state.settings.semantic_backend == "local_embeddings"
+            else "TF-IDF"
+        )
+        self.language_mode.set(state.settings.language_mode)
         self.file_summary.set(file_selection_summary(self.input_paths))
         self.codebook_summary.set(codebook_selection_summary(self.codebook_path, len(self.codebook_entries)))
         self._render_themes()
@@ -952,6 +960,11 @@ class ThemeForgeApp(tk.Tk):
         if ": " not in value:
             return None
         return value.split(": ", 1)[0]
+
+    def _semantic_backend(self) -> str:
+        if self.semantic_mode.get() == "Local embeddings":
+            return "local_embeddings"
+        return "tfidf"
 
     def _parent_theme_id(self) -> str | None:
         value = self.parent_theme.get()

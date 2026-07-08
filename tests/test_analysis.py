@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from themeforge import __version__
 import themeforge.analysis as analysis
@@ -10,6 +11,7 @@ from themeforge.analysis import (
     parse_transcript,
 )
 from themeforge.exports import export_markdown
+from themeforge.local_embeddings import EmbeddingResult
 
 
 SAMPLE_TRANSCRIPT = """
@@ -107,6 +109,24 @@ class ThematicAnalysisTests(unittest.TestCase):
         self.assertFalse(any("Contextual coding model used" in note for note in result.notes))
         labels = " ".join(theme.name.lower() for theme in result.themes)
         self.assertTrue(any(term in labels for term in ["barrier", "support", "training", "club", "project"]))
+
+    def test_local_embedding_mode_falls_back_when_optional_package_is_missing(self):
+        with patch(
+            "themeforge.analysis._local_embedding_vectors",
+            return_value=EmbeddingResult([], "Local embeddings unavailable; TF-IDF clustering was used instead."),
+        ):
+            result = analyze_transcript(
+                SAMPLE_TRANSCRIPT,
+                AnalysisSettings(
+                    theme_count=3,
+                    quotes_per_theme=1,
+                    min_theme_size=1,
+                    semantic_backend="local_embeddings",
+                ),
+            )
+
+        self.assertTrue(result.themes)
+        self.assertTrue(any("Local embeddings unavailable" in note for note in result.notes))
 
     def test_asd_codebook_requires_4h_context(self):
         transcript = """

@@ -56,6 +56,8 @@ class ProjectIoTests(unittest.TestCase):
                 theme_count=6,
                 quotes_per_theme=0,
                 central_theme="curriculum",
+                semantic_backend="local_embeddings",
+                language_mode="Multilingual",
                 codebook_entries=(CodebookEntry("Training", "How training appears", ("example",)),),
             ),
             result=result,
@@ -72,6 +74,8 @@ class ProjectIoTests(unittest.TestCase):
         self.assertEqual(loaded.documents[0].text, "Cached transcript text")
         self.assertEqual(loaded.documents[0].memo, "Document memo")
         self.assertEqual(loaded.settings.theme_count, 6)
+        self.assertEqual(loaded.settings.semantic_backend, "local_embeddings")
+        self.assertEqual(loaded.settings.language_mode, "Multilingual")
         self.assertEqual(loaded.settings.codebook_entries[0].examples, ("example",))
         self.assertIsNotNone(loaded.result)
         self.assertEqual(loaded.result.themes[0].name, "Manual Theme")

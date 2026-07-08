@@ -26,6 +26,11 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn("v1.3.0", readme)
         self.assertRegex(build_script, re.compile(r'\[string\]\$Version = "1\.3\.0"'))
 
+    def test_nlp_extra_declares_optional_local_embedding_dependencies(self):
+        pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+
+        self.assertIn("sentence-transformers>=3", pyproject["project"]["optional-dependencies"]["nlp"])
+
 
 if __name__ == "__main__":
     unittest.main()

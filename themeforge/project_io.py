@@ -68,6 +68,8 @@ def _settings_to_json(settings: AnalysisSettings) -> dict[str, ValidationValue |
         "min_quote_words": settings.min_quote_words,
         "agglomerative_limit": settings.agglomerative_limit,
         "central_theme": settings.central_theme,
+        "semantic_backend": settings.semantic_backend,
+        "language_mode": settings.language_mode,
         "codebook_entries": [
             {
                 "name": entry.name,
@@ -88,6 +90,8 @@ def _settings_from_json(payload: dict[str, ValidationValue | list[dict[str, str 
         min_quote_words=int(payload.get("min_quote_words", 4)),
         agglomerative_limit=int(payload.get("agglomerative_limit", 120)),
         central_theme=str(payload.get("central_theme", "")),
+        semantic_backend=str(payload.get("semantic_backend", "tfidf")),
+        language_mode=str(payload.get("language_mode", "Auto")),
         codebook_entries=tuple(_codebook_entry_from_json(item) for item in entries if isinstance(item, dict)),
     )
 

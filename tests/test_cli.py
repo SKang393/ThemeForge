@@ -139,6 +139,40 @@ class CliTests(unittest.TestCase):
             self.assertIn("Theme 1: Training Needs", markdown)
             self.assertIn("Training examples helped staff", markdown)
 
+    def test_cli_accepts_local_embedding_backend_with_fallback(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            transcript = root / "transcript.txt"
+            report = root / "report.md"
+            transcript.write_text(
+                "Teacher: Peer planning helped curriculum teams revise lessons.\n"
+                "Teacher: Training examples helped curriculum teams design activities.\n",
+                encoding="utf-8",
+            )
+
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "themeforge.cli",
+                    str(transcript),
+                    "--semantic-backend",
+                    "local-embeddings",
+                    "--language",
+                    "Multilingual",
+                    "--out",
+                    str(report),
+                ],
+                cwd=Path(__file__).resolve().parents[1],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            markdown = report.read_text(encoding="utf-8")
+            self.assertIn("Local embedding", markdown)
+
 
 if __name__ == "__main__":
     unittest.main()

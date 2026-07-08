@@ -26,6 +26,8 @@ def main() -> int:
     parser.add_argument("--format", choices=("markdown", "json", "csv"), default="markdown")
     parser.add_argument("--themes", type=int, default=8, help="Maximum number of suggested themes")
     parser.add_argument("--quotes", type=int, default=0, help="Quotes to list per theme; 0 lists all matches")
+    parser.add_argument("--semantic-backend", choices=("tfidf", "local-embeddings"), default="tfidf")
+    parser.add_argument("--language", choices=("Auto", "English", "Korean", "Multilingual"), default="Auto")
     parser.add_argument(
         "--central-theme",
         default="",
@@ -57,6 +59,8 @@ def main() -> int:
             theme_count=args.themes,
             quotes_per_theme=args.quotes,
             central_theme=args.central_theme,
+            semantic_backend=args.semantic_backend.replace("-", "_"),
+            language_mode=args.language,
             codebook_entries=codebook_entries,
         ),
     )

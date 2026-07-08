@@ -21,6 +21,11 @@ dependencies = [
   "pypdf>=5",
 ]
 
+[project.optional-dependencies]
+nlp = [
+  "sentence-transformers>=3",
+]
+
 [project.scripts]
 themeforge = "themeforge.cli:main"
 themeforge-gui = "themeforge.app:main"

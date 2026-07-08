@@ -39,6 +39,7 @@ from .analysis_vectors import (
     terms_for_vector as _terms_for_vector,
     tfidf_vectors as _tfidf_vectors,
 )
+from .local_embeddings import local_embedding_vectors as _local_embedding_vectors
 from .quote_units import extract_quote_units, speaker_stopwords as build_speaker_stopwords
 from .transcript_parser import parse_transcript
 
@@ -100,10 +101,16 @@ def analyze_documents(
         notes.append("No codebook entries matched quote-length text units; automatic theme discovery was used.")
 
     focus_profile = _build_focus_profile(quotes, settings.central_theme, speaker_stopwords)
+    vector_texts = [_focus_augmented_text(quote.text, settings, focus_profile) for quote in quotes]
     vectors, idf = _tfidf_vectors(
-        [_focus_augmented_text(quote.text, settings, focus_profile) for quote in quotes],
+        vector_texts,
         speaker_stopwords,
     )
+    if settings.semantic_backend == "local_embeddings":
+        embedding_result = _local_embedding_vectors(vector_texts, settings.language_mode)
+        notes.append(embedding_result.note)
+        if embedding_result.vectors:
+            vectors = embedding_result.vectors
     clusters, clustering_note = _cluster_quotes(
         vectors,
         settings.theme_count,
