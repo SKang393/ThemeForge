@@ -20,7 +20,14 @@ from .analysis import (
 from .codebook import load_codebook_entries
 from .exports import export_json, export_markdown, export_quotes_csv
 from .io import load_transcript_text
-from .manual_editing import EditHistory, merge_theme, reassign_quote, rename_theme, split_quote_to_theme
+from .manual_editing import (
+    EditHistory,
+    merge_theme,
+    preserve_manual_themes,
+    reassign_quote,
+    rename_theme,
+    split_quote_to_theme,
+)
 from .project_io import ProjectState, load_project, save_project
 from .ui_model import (
     APP_THEMES,
@@ -419,7 +426,8 @@ class ThemeForgeApp(tk.Tk):
                 central_theme=self.central_theme.get().strip(),
                 codebook_entries=self.codebook_entries,
             )
-            self.result = analyze_documents(self.documents, settings)
+            previous_result = self.result
+            self.result = preserve_manual_themes(previous_result, analyze_documents(self.documents, settings))
             self.edit_history = EditHistory()
         except (tk.TclError, ValueError) as exc:
             messagebox.showerror("Analysis failed", str(exc))
@@ -448,7 +456,8 @@ class ThemeForgeApp(tk.Tk):
             theme_count=len(self.result.themes),
         )
         self.theme_summary.set(status)
-        self.status_text.set(status)
+        autosave_status = self._autosave_project()
+        self.status_text.set(f"{status}; {autosave_status}" if autosave_status else status)
 
     def save_theme_edits(self) -> None:
         if self.result is None or self.current_theme_index is None:

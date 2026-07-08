@@ -4,6 +4,7 @@ from themeforge.analysis import AnalysisResult, Theme, ThemeQuote
 from themeforge.manual_editing import (
     EditHistory,
     merge_theme,
+    preserve_manual_themes,
     reassign_quote,
     rename_theme,
     split_quote_to_theme,
@@ -107,6 +108,23 @@ class ManualEditingTests(unittest.TestCase):
             self.fail("Redo should restore the undone result")
         self.assertEqual(redo.result.themes[0].name, "Researcher Theme")
         self.assertEqual(redo.result.themes[0].keywords, ["researcher theme", "late"])
+
+    def test_preserve_manual_themes_keeps_researcher_edits_when_analysis_reruns(self):
+        previous = AnalysisResult("1.3.0", 1, 2, [
+            rename_theme(theme("T01", "Generated", [quote("Q1", "Manual quote")]), "Manual Theme", "manual"),
+            theme("T02", "Untouched", [quote("Q2", "Old generated")]),
+        ], [])
+        generated = AnalysisResult("1.3.0", 1, 3, [
+            theme("T01", "New Generated One", [quote("Q1", "Manual quote"), quote("Q3", "New quote")]),
+            theme("T02", "New Generated Two", [quote("Q4", "Another quote")]),
+        ], [])
+
+        preserved = preserve_manual_themes(previous, generated)
+
+        self.assertEqual([item.name for item in preserved.themes], ["Manual Theme", "New Generated Two"])
+        self.assertEqual([item.quote_id for item in preserved.themes[0].quotes], ["Q1"])
+        self.assertEqual([item.quote_id for item in preserved.themes[1].quotes], ["Q4"])
+        self.assertEqual(preserved.themes[0].validation["review_status"], "Researcher edited")
 
 
 if __name__ == "__main__":

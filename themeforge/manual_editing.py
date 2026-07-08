@@ -126,6 +126,35 @@ def split_quote_to_theme(
     return replace(result, themes=[*themes, new_theme])
 
 
+def preserve_manual_themes(previous: AnalysisResult | None, generated: AnalysisResult) -> AnalysisResult:
+    if previous is None:
+        return generated
+    manual_themes = [theme for theme in previous.themes if _is_manual_theme(theme)]
+    if not manual_themes:
+        return generated
+
+    manual_theme_ids = {theme.id for theme in manual_themes}
+    manual_quote_ids = {quote.quote_id for theme in manual_themes for quote in theme.quotes}
+    generated_themes = [
+        _refresh_generated_theme(
+            replace(
+                theme,
+                quotes=[quote for quote in theme.quotes if quote.quote_id not in manual_quote_ids],
+            )
+        )
+        for theme in generated.themes
+        if theme.id not in manual_theme_ids
+    ]
+    return replace(
+        generated,
+        themes=[*manual_themes, *[theme for theme in generated_themes if theme.quotes]],
+        notes=[
+            *generated.notes,
+            f"Preserved {len(manual_themes)} researcher-edited theme(s) during reanalysis.",
+        ],
+    )
+
+
 def _find_theme(result: AnalysisResult, theme_id: str) -> Theme | None:
     return next((theme for theme in result.themes if theme.id == theme_id), None)
 
@@ -166,6 +195,19 @@ def _refresh_theme(theme: Theme) -> Theme:
         quote_count=len(theme.quotes),
         validation=_manual_validation(theme.quotes),
     )
+
+
+def _refresh_generated_theme(theme: Theme) -> Theme:
+    validation = dict(theme.validation)
+    validation["evidence_count"] = len(theme.quotes)
+    validation["displayed_quote_count"] = len(theme.quotes)
+    validation["source_count"] = len({quote.source_name for quote in theme.quotes})
+    validation["speaker_count"] = len({quote.speaker for quote in theme.quotes})
+    return replace(theme, quote_count=len(theme.quotes), validation=validation)
+
+
+def _is_manual_theme(theme: Theme) -> bool:
+    return theme.validation.get("review_status") == "Researcher edited" or theme.id.startswith("M")
 
 
 def _manual_validation(quotes: list[ThemeQuote]) -> dict[str, ValidationValue]:
