@@ -50,7 +50,7 @@ class ProjectIoTests(unittest.TestCase):
         state = ProjectState(
             transcript_paths=(Path("interview.txt"),),
             codebook_path=Path("codebook.csv"),
-            documents=(TranscriptDocument(name="interview.txt", text="Cached transcript text"),),
+            documents=(TranscriptDocument(name="interview.txt", text="Cached transcript text", memo="Document memo"),),
             settings=AnalysisSettings(
                 theme_count=6,
                 quotes_per_theme=0,
@@ -69,6 +69,7 @@ class ProjectIoTests(unittest.TestCase):
         self.assertEqual(loaded.transcript_paths, (Path("interview.txt"),))
         self.assertEqual(loaded.codebook_path, Path("codebook.csv"))
         self.assertEqual(loaded.documents[0].text, "Cached transcript text")
+        self.assertEqual(loaded.documents[0].memo, "Document memo")
         self.assertEqual(loaded.settings.theme_count, 6)
         self.assertEqual(loaded.settings.codebook_entries[0].examples, ("example",))
         self.assertIsNotNone(loaded.result)

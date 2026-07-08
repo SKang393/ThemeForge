@@ -3,7 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass, replace
 
-from .analysis_types import AnalysisResult, Theme, ThemeQuote, ValidationValue
+from .analysis_types import AnalysisResult, Theme, ThemeQuote, TranscriptDocument, ValidationValue
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,6 +236,19 @@ def update_quote_memo(result: AnalysisResult, theme_id: str, quote_id: str, memo
         for theme in result.themes
     ]
     return replace(result, themes=themes)
+
+
+def update_document_memo(
+    documents: tuple[TranscriptDocument, ...],
+    source_name: str,
+    memo: str,
+) -> tuple[TranscriptDocument, ...]:
+    if not source_name:
+        return documents
+    return tuple(
+        replace(document, memo=memo.strip()) if document.name == source_name else document
+        for document in documents
+    )
 
 
 def preserve_manual_themes(previous: AnalysisResult | None, generated: AnalysisResult) -> AnalysisResult:

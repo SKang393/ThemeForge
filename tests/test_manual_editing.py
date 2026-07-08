@@ -1,6 +1,6 @@
 import unittest
 
-from themeforge.analysis import AnalysisResult, Theme, ThemeQuote
+from themeforge.analysis import AnalysisResult, Theme, ThemeQuote, TranscriptDocument
 from themeforge.manual_editing import (
     EditHistory,
     ManualSelection,
@@ -11,6 +11,7 @@ from themeforge.manual_editing import (
     rename_theme,
     split_quote_to_theme,
     uncode_quote,
+    update_document_memo,
     update_quote_memo,
     update_quote_boundary,
     update_theme_memo,
@@ -216,6 +217,17 @@ class ManualEditingTests(unittest.TestCase):
 
         self.assertEqual(updated.themes[0].quotes[0].memo, "Useful contrast quote.")
         self.assertEqual(updated.themes[0].validation["review_status"], "Researcher edited")
+
+    def test_update_document_memo_stores_note_for_matching_transcript(self):
+        documents = (
+            TranscriptDocument("interview-1.txt", "First transcript."),
+            TranscriptDocument("interview-2.txt", "Second transcript."),
+        )
+
+        updated = update_document_memo(documents, "interview-2.txt", "Participant context note.")
+
+        self.assertEqual(updated[0].memo, "")
+        self.assertEqual(updated[1].memo, "Participant context note.")
 
 
 if __name__ == "__main__":

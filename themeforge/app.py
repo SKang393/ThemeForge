@@ -30,6 +30,7 @@ from .manual_editing import (
     rename_theme,
     split_quote_to_theme,
     uncode_quote,
+    update_document_memo,
     update_quote_memo,
     update_quote_boundary,
     update_theme_memo,
@@ -75,6 +76,7 @@ class ThemeForgeApp(tk.Tk):
         self.edit_history = EditHistory()
         self.transcript_widgets: dict[str, tk.Text] = {}
         self.transcript_frames: dict[str, ttk.Frame] = {}
+        self.transcript_frame_sources: dict[str, str] = {}
         self.current_theme_index: int | None = None
         self.current_quote_matches: list[QuoteMatch] = []
         self.current_quote_index = -1
@@ -209,7 +211,7 @@ class ThemeForgeApp(tk.Tk):
         evidence = ttk.Labelframe(workspace, text="Evidence", style="Panel.TLabelframe", padding=(14, 12))
         evidence.grid(row=0, column=2, sticky="nsew")
         evidence.columnconfigure(0, weight=1)
-        evidence.rowconfigure(5, weight=1)
+        evidence.rowconfigure(6, weight=1)
         self._build_evidence_panel(evidence)
 
         footer = ttk.Frame(self, style="Footer.TFrame", padding=(20, 0, 20, 14))
@@ -372,8 +374,28 @@ class ThemeForgeApp(tk.Tk):
         self.quote_memo_text.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         ttk.Button(quote_memo, text="Save quote memo", style="Secondary.TButton", command=self.save_quote_memo).grid(row=1, column=0, sticky="ew")
 
+        document_memo = ttk.Labelframe(parent, text="Document memo", style="Panel.TLabelframe", padding=(10, 8))
+        document_memo.grid(row=5, column=0, sticky="ew", pady=(0, 8))
+        document_memo.columnconfigure(0, weight=1)
+        self.document_memo_text = tk.Text(
+            document_memo,
+            height=3,
+            wrap="word",
+            font=("Segoe UI", 9),
+            borderwidth=1,
+            relief="solid",
+        )
+        self.document_memo_text.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        ttk.Button(
+            document_memo,
+            text="Save document memo",
+            style="Secondary.TButton",
+            command=self.save_document_memo,
+        ).grid(row=1, column=0, sticky="ew")
+
         self.transcript_notebook = ttk.Notebook(parent)
-        self.transcript_notebook.grid(row=5, column=0, sticky="nsew")
+        self.transcript_notebook.grid(row=6, column=0, sticky="nsew")
+        self.transcript_notebook.bind("<<NotebookTabChanged>>", self._on_transcript_tab_changed)
 
     def open_transcript(self) -> None:
         paths = filedialog.askopenfilenames(
@@ -531,6 +553,21 @@ class ThemeForgeApp(tk.Tk):
         self._render_themes()
         self._select_theme(self.current_theme_index)
         self._set_manual_status("Quote memo saved")
+
+    def save_document_memo(self) -> None:
+        source_name = self._current_document_name()
+        if source_name is None or not self.documents:
+            self.status_text.set("No transcript selected for memo")
+            return
+        updated = update_document_memo(
+            tuple(self.documents),
+            source_name,
+            self.document_memo_text.get("1.0", tk.END),
+        )
+        if updated == tuple(self.documents):
+            return
+        self.documents = list(updated)
+        self._set_manual_status("Document memo saved")
 
     def move_current_quote(self) -> None:
         if self.result is None or self.current_theme_index is None:
@@ -917,6 +954,7 @@ class ThemeForgeApp(tk.Tk):
 
         self.transcript_widgets = {}
         self.transcript_frames = {}
+        self.transcript_frame_sources = {}
 
         documents = self.documents or [TranscriptDocument(name="Transcript", text="Open one or more transcripts to view raw content here.")]
         for document in documents:
@@ -945,10 +983,28 @@ class ThemeForgeApp(tk.Tk):
             self.transcript_notebook.add(frame, text=transcript_tab_label(document.name))
             self.transcript_widgets[document.name] = text
             self.transcript_frames[document.name] = frame
+            self.transcript_frame_sources[str(frame)] = document.name
 
         self._apply_display_colors()
         if self.result is not None:
             self._highlight_all_quotes(self.current_theme_index)
+        self._refresh_document_memo()
+
+    def _on_transcript_tab_changed(self, _event: tk.Event | None = None) -> None:
+        self._refresh_document_memo()
+
+    def _current_document_name(self) -> str | None:
+        selected = self.transcript_notebook.select()
+        if not selected:
+            return None
+        return self.transcript_frame_sources.get(selected)
+
+    def _refresh_document_memo(self) -> None:
+        if not hasattr(self, "document_memo_text"):
+            return
+        source_name = self._current_document_name()
+        document = next((item for item in self.documents if item.name == source_name), None)
+        self._set_editable_text_content(self.document_memo_text, document.memo if document else "")
 
     def show_selected_theme(self, _event: tk.Event | None = None) -> None:
         selection = self.theme_list.curselection()
