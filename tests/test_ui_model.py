@@ -22,6 +22,7 @@ class UiModelTests(unittest.TestCase):
 
     def test_codebook_selection_summary_is_compact(self):
         self.assertEqual(codebook_selection_summary(None), "No codebook selected")
+        self.assertEqual(codebook_selection_summary(Path("codebook.csv"), 1), "codebook.csv | 1 theme")
         self.assertEqual(codebook_selection_summary(Path("codebook.csv"), 2), "codebook.csv | 2 themes")
 
     def test_analysis_status_text_is_short_and_scannable(self):

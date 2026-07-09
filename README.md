@@ -12,7 +12,7 @@ qualitative studies in education and related fields.
 
 ## Current Version
 
-v1.3.0
+v1.4.0
 
 Archive DOI: <https://doi.org/10.5281/zenodo.20653169>
 
@@ -22,6 +22,16 @@ Archive DOI: <https://doi.org/10.5281/zenodo.20653169>
 - Accepts one transcript or multiple related transcripts in the same analysis.
 - Imports optional researcher codebooks from CSV or text documents for
   deductive theme matching against quote evidence.
+- Removes selected transcripts or a codebook from the workspace without
+  deleting the source files from disk.
+- Saves and opens `.tfproj` project files containing cached transcript text,
+  settings, analysis results, and manual coding work.
+- Supports manual theme renaming, hierarchy, merging, splitting, quote
+  reassignment, uncoding, quote-boundary editing, and undo or redo.
+- Codes arbitrary transcript selections to existing or new themes and stores
+  theme, quote, and document memos.
+- Shows coding stripes beside transcript passages so overlapping codes remain
+  visible during review.
 - Preserves speaker labels when transcript lines use `Speaker: text`,
   Otter/Zoom-style `Speaker  0:03`, or Word-style `Speaker 0:03` turns.
 - Preserves source file names and transcript line numbers for quote review.
@@ -115,6 +125,12 @@ that the local model cache can be reused offline. The same optional NLP tier
 also enables `kiwipiepy` Korean morphology so Korean transcripts use content
 terms instead of raw particle-attached Hangul chunks.
 
+The v1.4.0 Windows portable ZIP does not bundle the optional NLP tier. It uses
+the built-in TF-IDF backend and Korean fallback tokenization without requiring
+Python, a model download, or an online service. Install ThemeForge from source
+with `themeforge[nlp]` to enable sentence-transformer embeddings and
+`kiwipiepy` morphology.
+
 CSV codebooks should include a `theme`, `code`, `name`, or `category` column.
 Optional `description` and `example` or `quote` columns improve quote matching.
 TXT, DOCX, RTF, and text-based PDF codebooks can also use labeled lines such as
@@ -128,8 +144,9 @@ python -m unittest discover -s tests -v
 
 ## Windows Portable Build
 
-The release build is intended to be a zip file that users can extract and run
-without installing Python or NLP tools.
+The standard release build is a zip file that users can extract and run without
+installing Python or NLP tools. It contains the built-in TF-IDF analysis path;
+the optional NLP tier described above is source-install only in v1.4.0.
 
 Build the portable zip:
 
@@ -295,6 +312,8 @@ authors and project:
   alignment, and richer phrase-based theme labels.
 - v1.3.0: Added text-based PDF input, optional codebook matching, stronger
   transcript parsing, quote offsets, and validation harness checks.
-- Later: Manual theme editing, quote reassignment,
-  merge/split controls, optional local semantic embeddings, and deeper
-  multilingual support.
+- v1.4.0: Added persistent projects, manual selection coding, theme and quote
+  editing, hierarchy, memos, coding stripes, transcript and codebook removal,
+  optional local embeddings, and optional Korean morphology.
+- Later: Semantic "find more like this," matrix queries, intercoder reliability,
+  audit-log export, REFI-QDA exchange, and DOCX report export.

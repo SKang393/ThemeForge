@@ -1,6 +1,6 @@
 param(
     [string]$Python = "python",
-    [string]$Version = "1.3.0"
+    [string]$Version = "1.4.0"
 )
 
 $ErrorActionPreference = "Stop"
@@ -15,7 +15,7 @@ $ZipPath = Join-Path $Release "$PortableName.zip"
 
 Set-Location $Root
 
-& $Python -m pip install --upgrade pyinstaller
+& $Python -m pip install --disable-pip-version-check "pyinstaller==6.21.0"
 
 if (Test-Path $Build) { Remove-Item -LiteralPath $Build -Recurse -Force }
 if (Test-Path $Dist) { Remove-Item -LiteralPath $Dist -Recurse -Force }

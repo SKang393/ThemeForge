@@ -57,7 +57,8 @@ def codebook_selection_summary(path: Path | None, entry_count: int = 0) -> str:
     if path is None:
         return "No codebook selected"
     if entry_count > 0:
-        return f"{path.name} | {entry_count} themes"
+        label = "theme" if entry_count == 1 else "themes"
+        return f"{path.name} | {entry_count} {label}"
     return path.name
 
 
