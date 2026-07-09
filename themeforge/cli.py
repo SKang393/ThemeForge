@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 from typing import assert_never
 
@@ -77,7 +78,9 @@ def main() -> int:
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(output, encoding="utf-8")
-    print(f"Wrote {args.out}")
+    console_encoding = sys.stdout.encoding or "ascii"
+    display_path = str(args.out).encode(console_encoding, errors="backslashreplace").decode(console_encoding)
+    print(f"Wrote {display_path}")
     print(f"Documents analyzed: {result.document_count}")
     print(f"Suggested themes: {len(result.themes)}")
     print(f"Quote units analyzed: {result.quote_count}")

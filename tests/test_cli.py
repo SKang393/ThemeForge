@@ -1,3 +1,4 @@
+import os
 import subprocess
 import sys
 import tempfile
@@ -172,6 +173,38 @@ class CliTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 0, completed.stderr)
             markdown = report.read_text(encoding="utf-8")
             self.assertIn("Local embedding", markdown)
+
+    def test_cli_reports_korean_output_path_with_legacy_console_encoding(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            transcript = root / "transcript.txt"
+            report = root / "결과.md"
+            transcript.write_text(
+                "Teacher: Peer planning helped curriculum teams revise lessons.\n",
+                encoding="utf-8",
+            )
+            environment = os.environ.copy()
+            environment["PYTHONIOENCODING"] = "cp1252"
+
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "themeforge.cli",
+                    str(transcript),
+                    "--out",
+                    str(report),
+                ],
+                cwd=Path(__file__).resolve().parents[1],
+                env=environment,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr.decode("ascii", errors="replace"))
+            self.assertTrue(report.exists())
+            self.assertIn(b"Wrote ", completed.stdout)
+            self.assertNotIn(b"Traceback", completed.stderr)
 
 
 if __name__ == "__main__":

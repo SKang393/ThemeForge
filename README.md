@@ -12,7 +12,7 @@ qualitative studies in education and related fields.
 
 ## Current Version
 
-v1.4.0
+v1.4.1
 
 Archive DOI: <https://doi.org/10.5281/zenodo.20653169>
 
@@ -125,7 +125,7 @@ that the local model cache can be reused offline. The same optional NLP tier
 also enables `kiwipiepy` Korean morphology so Korean transcripts use content
 terms instead of raw particle-attached Hangul chunks.
 
-The v1.4.0 Windows portable ZIP does not bundle the optional NLP tier. It uses
+The standard Windows portable ZIP does not bundle the optional NLP tier. It uses
 the built-in TF-IDF backend and Korean fallback tokenization without requiring
 Python, a model download, or an online service. Install ThemeForge from source
 with `themeforge[nlp]` to enable sentence-transformer embeddings and
@@ -146,7 +146,7 @@ python -m unittest discover -s tests -v
 
 The standard release build is a zip file that users can extract and run without
 installing Python or NLP tools. It contains the built-in TF-IDF analysis path;
-the optional NLP tier described above is source-install only in v1.4.0.
+the optional NLP tier described above is source-install only.
 
 Build the portable zip:
 
@@ -315,5 +315,7 @@ authors and project:
 - v1.4.0: Added persistent projects, manual selection coding, theme and quote
   editing, hierarchy, memos, coding stripes, transcript and codebook removal,
   optional local embeddings, and optional Korean morphology.
+- v1.4.1: Fixed CLI completion output for Korean and other Unicode report paths
+  when Windows uses a legacy console encoding.
 - Later: Semantic "find more like this," matrix queries, intercoder reliability,
   audit-log export, REFI-QDA exchange, and DOCX report export.
