@@ -24,6 +24,7 @@ dependencies = [
 [project.optional-dependencies]
 nlp = [
   "sentence-transformers>=3",
+  "kiwipiepy>=0.20",
 ]
 
 [project.scripts]

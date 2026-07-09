@@ -103,15 +103,17 @@ Run deductive quote matching with a researcher codebook:
 python -m themeforge.cli interview_1.docx --codebook codebook.csv --quotes 3 --out codebook_report.md
 ```
 
-Optional local semantic embeddings:
+Optional local semantic embeddings and Korean tokenization:
 
 ```powershell
 python -m pip install "themeforge[nlp]"
 python -m themeforge.cli interview_1.docx --semantic-backend local-embeddings --language Multilingual --out semantic_report.md
 ```
 
-The first model download is handled by `sentence-transformers`; after that the
-local model cache can be reused offline.
+The first embedding model download is handled by `sentence-transformers`; after
+that the local model cache can be reused offline. The same optional NLP tier
+also enables `kiwipiepy` Korean morphology so Korean transcripts use content
+terms instead of raw particle-attached Hangul chunks.
 
 CSV codebooks should include a `theme`, `code`, `name`, or `category` column.
 Optional `description` and `example` or `quote` columns improve quote matching.

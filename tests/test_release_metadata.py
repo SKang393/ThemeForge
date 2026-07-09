@@ -30,6 +30,7 @@ class ReleaseMetadataTests(unittest.TestCase):
         pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
         self.assertIn("sentence-transformers>=3", pyproject["project"]["optional-dependencies"]["nlp"])
+        self.assertIn("kiwipiepy>=0.20", pyproject["project"]["optional-dependencies"]["nlp"])
 
 
 if __name__ == "__main__":
