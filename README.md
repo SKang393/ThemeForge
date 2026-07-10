@@ -11,7 +11,7 @@ the portable Windows build runs without installing Python or an NLP stack.
 
 ## Current Version
 
-v1.4.0
+v1.3.0
 
 Archive DOI: <https://doi.org/10.5281/zenodo.20653169>
 
