@@ -11,7 +11,7 @@ the portable Windows build runs without installing Python or an NLP stack.
 
 ## Current Version
 
-v1.0.8
+v1.4.0
 
 Archive DOI: <https://doi.org/10.5281/zenodo.20653169>
 
@@ -332,16 +332,20 @@ Purdue University affiliation. ORCID: 0000-0002-6449-712X.
   the start of an imported file does not prevent theme generation.
 - v1.0.3: Improved embedded interviewer-prompt filtering, contextual focus
   alignment, and richer phrase-based theme labels.
-- v1.0.4: Added text-based PDF input, optional codebook matching, stronger
-  transcript parsing, quote offsets, and validation harness checks.
-- v1.0.5: Added persistent projects, manual selection coding, theme and quote
-  editing, hierarchy, memos, coding stripes, transcript and codebook removal,
-  optional local embeddings, and optional Korean morphology.
-- v1.0.6: Fixed CLI completion output for Korean and other Unicode report paths
+- v1.1.0: Methodology update — text-based PDF input, optional codebook
+  matching, stronger transcript parsing, quote offsets, and validation harness
+  checks.
+- v1.2.0: Methodology update — optional local sentence-transformer embeddings
+  and Korean morphology, plus persistent projects, manual selection coding,
+  theme and quote editing, hierarchy, memos, coding stripes, and transcript
+  and codebook removal.
+- v1.2.1: Fixed CLI completion output for Korean and other Unicode report paths
   when Windows uses a legacy console encoding.
-- v1.0.7: Added ranked "find more like this" retrieval from a selected theme or
-  quote, uncoded-span exclusion, source highlighting, and speaker-preserving
-  acceptance through the existing undo and autosave workflow.
-- v1.0.8: Added matrix views, intercoder comparison, coder identity, and
-  exportable audit-event metadata for team coding review.
+- v1.3.0: Methodology update — ranked "find more like this" retrieval from a
+  selected theme or quote, uncoded-span exclusion, source highlighting, and
+  speaker-preserving acceptance through the existing undo and autosave
+  workflow.
+- v1.4.0: Methodology update — matrix views, intercoder comparison with
+  Cohen's kappa, coder identity, and exportable audit-event metadata for team
+  coding review.
 - Later: REFI-QDA exchange and DOCX report export.

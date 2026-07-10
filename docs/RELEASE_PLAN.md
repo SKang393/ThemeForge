@@ -9,16 +9,24 @@ reference it rather than restating the rules.
 ThemeForge versions are `x.y.z`, where each component is an integer from 0 to
 99.
 
-- **Every release increments `z` by exactly 1.** The release after `1.0.0` is
-  `1.0.1`, then `1.0.2`, and so on — regardless of how large the change is.
+- **Default: every release increments `z` by 1** — fixes, documentation, UI,
+  packaging, and workspace features that do not change how themes or quotes
+  are computed. The release after `1.0.0` is `1.0.1`, then `1.0.2`, and so on.
+- **Methodology updates increment `y` (and reset `z` to 0).** A methodology
+  update changes how the program performs thematic coding or its analysis of
+  coding: transcript unitization/parsing, clustering, theme labeling, focus or
+  codebook matching, similarity/embedding methods, tokenization for a
+  language, or reliability/agreement computation. Example: adding semantic
+  retrieval was `1.3.0`, not `1.2.2`.
 - **Rollover rule:** a component never exceeds 99. When `z` would pass 99, it
-  rolls over: the release after `1.0.99` is `1.1.0`. When `y` would pass 99,
-  the release after `1.99.99` is `2.0.0`.
+  rolls over (`1.0.99` → `1.1.0`); when `y` would pass 99, it rolls over
+  (`1.99.99` → `2.0.0`).
 - **Milestone promotions** (for example `0.x.y` → `1.0.0`) are deliberate,
-  owner-decided exceptions, not part of normal release flow.
+  owner-decided `x` bumps, reserved for maturity milestones or
+  project-format-breaking changes.
 
-Skipping numbers is not allowed. `y` and `x` change only through rollover or
-an explicit milestone decision.
+Skipping numbers is not allowed. When unsure whether a change is a
+methodology update, ask the owner before tagging.
 
 ## Release identity
 
@@ -72,12 +80,22 @@ All gates must pass on the release commit, in order:
   Their release-notes files remain in `release_notes/` as the archive; they
   have no tags or GitHub releases. Do not fabricate tags on guessed commits.
 - On 2026-07-10 the post-1.0.0 releases were renumbered to follow this policy.
-  Mapping (old tag → current tag, same commits):
-  `v1.2.0`→`v1.0.1` (also folds unreleased internal notes 1.1.0–1.1.2),
-  `v1.2.1`→`v1.0.2`, `v1.2.2`→`v1.0.3`, `v1.3.0`→`v1.0.4`,
-  `v1.4.0`→`v1.0.5`, `v1.4.1`→`v1.0.6`, `v1.5.0`→`v1.0.7`.
-  Portable zips attached to renumbered releases keep their original file
-  names, and those builds report their original internal version in the About
-  dialog; both are expected for pre-renumber artifacts.
+  Final mapping (original tag → current tag, same commits):
+  - `v1.2.0` → `v1.0.1` (also folds unreleased internal notes 1.1.0–1.1.2)
+  - `v1.2.1` → `v1.0.2`
+  - `v1.2.2` → `v1.0.3`
+  - `v1.3.0` → `v1.1.0` (methodology: parsing overhaul, codebook matching,
+    PDF input, quote offsets, validation harness)
+  - `v1.4.0` → `v1.2.0` (methodology: optional local embeddings and Korean
+    morphology; also projects and manual coding)
+  - `v1.4.1` → `v1.2.1`
+  - `v1.5.0` → `v1.3.0` (methodology: semantic find-more-like-this retrieval)
+  - unreleased 1.6.0 work → pending `1.4.0` (methodology: matrix queries,
+    intercoder agreement with Cohen's kappa, audit events)
+  Note: the current tag names `v1.2.0` and `v1.2.1` refer to different
+  commits than the original tags of the same names; the mapping above is the
+  source of truth. Builds attached to renumbered releases report their
+  original internal version in the About dialog; this is expected for
+  pre-renumber artifacts.
 - From `v1.0.0` onward, every published version has a tag, a notes file, and a
   GitHub release, and this policy applies in full.

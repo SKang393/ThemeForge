@@ -1,7 +1,11 @@
 # Public Education Transcript Datasets for QA
 
-These datasets are candidates for later testing. Confirm each repository's license
-and access terms before bundling or redistributing any transcript text.
+These public datasets are supplemental QA candidates. The primary accuracy
+validation runs on local real-study datasets (transcripts, researcher
+codebooks, and published outcome papers) kept in the uncommitted
+`validation/` folder and driven by `scripts/validate_against_codebooks.py`.
+Confirm each repository's license and access terms before bundling or
+redistributing any transcript text.
 
 ## Candidate Datasets
 

@@ -8,6 +8,9 @@ dist/
 release/
 validation/
 docs/*_FIX_GUIDE.md
+goal.md
+.agents/
+.omo/
 *.spec
 __pycache__/
 .pytest_cache/
