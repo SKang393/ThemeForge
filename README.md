@@ -1,85 +1,109 @@
 # ThemeForge
 
-ThemeForge is a Windows-friendly qualitative analysis tool for
+ThemeForge is a Windows-friendly qualitative analysis workspace for
 interview and focus group transcripts. It suggests thematic coding categories,
-keeps quote evidence tied to source files and line numbers, and helps
-researchers review how participant perspectives support candidate themes.
+keeps quote evidence tied to source files and line numbers, supports manual
+coding with persistent project files, and helps researchers review how
+participant perspectives support candidate themes.
 
-This project is rebuilt from an AutoPhrase fork. The original AutoPhrase system
-was designed for automated phrase mining from massive text corpora. This
-project has a different purpose: practical thematic coding support for
-qualitative studies in education and related fields.
+Everything runs locally: no transcript text is sent to an online service, and
+the portable Windows build runs without installing Python or an NLP stack.
 
 ## Current Version
 
-v1.5.0
+v1.0.8
 
 Archive DOI: <https://doi.org/10.5281/zenodo.20653169>
 
 ## What It Does
 
+### Transcript import
+
 - Opens TXT, Markdown, CSV, DOCX, RTF, and text-based PDF transcripts.
 - Accepts one transcript or multiple related transcripts in the same analysis.
-- Imports optional researcher codebooks from CSV or text documents for
-  deductive theme matching against quote evidence.
-- Removes selected transcripts or a codebook from the workspace without
-  deleting the source files from disk.
-- Saves and opens `.tfproj` project files containing cached transcript text,
-  settings, analysis results, and manual coding work.
-- Supports manual theme renaming, hierarchy, merging, splitting, quote
-  reassignment, uncoding, quote-boundary editing, and undo or redo.
-- Codes arbitrary transcript selections to existing or new themes and stores
-  theme, quote, and document memos.
-- Finds ranked uncoded passages similar to the selected theme or quote, using
-  local embedding cosine similarity when available and TF-IDF cosine fallback
-  otherwise; accepted suggestions join the existing undo and autosave workflow.
-- Shows coding stripes beside transcript passages so overlapping codes remain
-  visible during review.
 - Preserves speaker labels when transcript lines use `Speaker: text`,
   Otter/Zoom-style `Speaker  0:03`, or Word-style `Speaker 0:03` turns.
+- Filters interviewer, moderator, consent, and procedure text from theme
+  generation, and removes transcription boilerplate, timestamp rows, and
+  table-export noise before coding units are built.
 - Preserves source file names and transcript line numbers for quote review.
-- Lets the researcher enter an optional central theme, such as accessibility,
-  teacher perspective, parent burden, autism, or a short research focus.
+- Handles Korean transcript tokenization for first-pass theme and quote
+  suggestions.
+- Removes selected transcripts or a codebook from the workspace without
+  deleting the source files from disk.
+
+### Theme suggestion
+
 - Suggests theme groups using local TF-IDF clustering and c-TF-IDF phrase
   labels, with optional local sentence-transformer embeddings when installed.
-  No online service receives transcript text.
+- Lets the researcher enter an optional central theme, such as accessibility,
+  teacher perspective, parent burden, autism, or a short research focus.
 - Uses local BM25-style focus relevance and transcript-level related terms so
   indirect curriculum, training, lesson, assessment, and planning connections
   can be ranked for review without requiring an online model.
+- Imports optional researcher codebooks from CSV or text documents for
+  deductive theme matching against quote evidence.
+- Allows one quote to appear under multiple themes when it supports multiple
+  candidate codes.
+
+### Evidence review
+
 - Lists quote evidence for each suggested theme, including indirect matches
   where the quote supports the same focus area without repeating the exact
   theme label.
-- Allows one quote to appear under multiple themes when it supports multiple
-  candidate codes.
-- Color-codes themes in the app, Markdown report, CSV quote table, and JSON.
-- Uses compact researcher-facing labels for selected files, analysis status,
-  theme rows, and validation summaries.
-- Applies those compact labels inside the desktop app for easier scanning.
-- Uses a neutral, professional desktop style for researcher-facing review.
-- Provides a minimal three-panel desktop workspace for input controls, theme
-  review, and quote evidence.
-- Shows uploaded transcripts in file tabs so researchers can review each raw
-  transcript while using one shared focus topic across the whole dataset.
 - Highlights raw transcript passages with theme colors and provides previous
   and next quote navigation for the selected theme.
+- Shows coding stripes beside transcript passages so overlapping codes remain
+  visible during review.
 - Shows quote-selection rationale for the highlighted quote, including theme
   signals, focus-topic alignment, and a researcher-review reminder.
+- Finds ranked uncoded passages similar to the selected theme or quote, using
+  local embedding cosine similarity when available and TF-IDF cosine fallback
+  otherwise; accepted suggestions join the existing undo and autosave workflow.
+- Adds validation metadata for evidence count, source coverage, speaker
+  coverage, central-theme alignment, and researcher-review status.
+
+### Projects and manual coding
+
+- Saves and opens `.tfproj` project files containing cached transcript text,
+  settings, analysis results, and manual coding work.
+- Codes arbitrary transcript selections to existing or new themes and stores
+  theme, quote, and document memos.
+- Supports manual theme renaming, hierarchy, merging, splitting, quote
+  reassignment, uncoding, quote-boundary editing, and undo or redo.
+- Preserves manually touched themes when analysis is run again.
+
+### Team rigor tools
+
+- Shows theme-by-source and theme-by-speaker matrix views with quote counts and
+  unique-span coverage for coded evidence review.
+- Compares two `.tfproj` files when they have identical shared transcript text
+  and fixed shared meaning units, reporting per-theme percent agreement and
+  Cohen's kappa, prevalence or undefined-kappa warnings, and side-by-side
+  disagreements.
+- Stores coder identity with persistent and exportable coding audit events.
+
+### Exports and interface
+
+- Color-codes themes in the app, Markdown report, CSV quote table, and JSON.
+- Provides a minimal three-panel desktop workspace for input controls, theme
+  review, and quote evidence, with compact researcher-facing labels for
+  selected files, analysis status, theme rows, and validation summaries.
+- Shows uploaded transcripts in file tabs so researchers can review each raw
+  transcript while using one shared focus topic across the whole dataset.
 - Offers light and dark window modes and an About dialog with project contact
   information.
 - Checks release metadata so app, package, README, and portable build defaults
   stay on the same version.
-- Adds validation metadata for evidence count, source coverage, speaker
-  coverage, central-theme alignment, and researcher-review status.
-- Handles initial Korean transcript tokenization for first-pass theme and quote
-  suggestions.
 
 ## What It Does Not Do
 
 - It does not replace researcher coding, memo writing, or interpretation.
 - It does not claim that suggested themes are final findings.
-- It does not calculate intercoder reliability by itself.
-- It does not require the original Linux/Mac AutoPhrase pipeline, Docker, Java,
-  GNU Make, TreeTagger, or a C++ compiler.
+- It does not treat intercoder agreement metrics as proof of interpretive
+  validity.
+- It does not require Docker, Java, an online model service, or a compiler
+  toolchain; the portable build also runs without a Python installation.
 - It does not send transcript text to an online service.
 
 ## Run From Source
@@ -266,28 +290,19 @@ Candidate public datasets for external QA are listed in
 `docs/public_education_datasets.md`. Do not redistribute raw transcript data in
 this repository unless the dataset license clearly allows it.
 
-Earlier validation was run locally on public education and higher education
-transcript data stored under ignored `tmp/` folders, including DaRUS
-study-success RTF interviews, a DMU figshare DOCX interview, and King's College
-London neurodiversity focus-group transcripts. Raw transcript files are not
-committed. The v1.0.0 release pass also includes English and Korean CLI smoke
-checks for report branding, validation sections, and source-aware quote output.
+Validation runs use public education and higher education transcript data
+stored under ignored local folders, including DaRUS study-success RTF
+interviews, a DMU figshare DOCX interview, and King's College London
+neurodiversity focus-group transcripts, plus published-codebook comparison
+checks driven by `scripts/validate_against_codebooks.py`. Raw transcript files
+are not committed. Release passes include English and Korean CLI smoke checks
+for report branding, validation sections, and source-aware quote output.
 
 ## Credits
 
-Project direction and qualitative-study requirements: [SKang393](https://github.com/SKang393).
-
-This project is reconstructed from an AutoPhrase fork. Original AutoPhrase
-authors and project:
-
-- Jingbo Shang, Jialu Liu, Meng Jiang, Xiang Ren, Clare R. Voss, and Jiawei Han.
-  "Automated Phrase Mining from Massive Text Corpora."
-  <https://arxiv.org/abs/1702.04457>
-- Jialu Liu, Jingbo Shang, Chi Wang, Xiang Ren, and Jiawei Han.
-  "Mining Quality Phrases from Massive Text Corpora."
-  <https://doi.org/10.1145/2723372.2751523>
-- Original AutoPhrase repository:
-  <https://github.com/shangjingbo1226/AutoPhrase>
+ThemeForge is designed, written, and maintained by
+[Sungwoo Kang (SKang393)](https://github.com/SKang393).
+Purdue University affiliation. ORCID: 0000-0002-6449-712X.
 
 ## Roadmap
 
@@ -309,29 +324,24 @@ authors and project:
   Windows portable build defaults.
 - v1.0.0: Minimal professional desktop workspace, 1.0 release metadata, and
   portable Windows release checks.
-- v1.1.0: Multi-file transcript tabs, raw transcript theme highlighting,
-  selected-theme quote navigation, light/dark modes, About dialog, and
-  duplicate action cleanup.
-- v1.1.1: Stabilized selected-theme transcript highlighting across tabs when a
-  theme appears in one file but not another.
-- v1.1.2: Filtered interviewer, moderator, and consent or procedure text from
-  theme generation and quote evidence.
-- v1.2.0: Added named-interviewer filtering, merged duplicate same-label
-  themes, and added quote-selection rationale in the Evidence panel and
-  exports.
-- v1.2.1: Fixed unlabeled transcript handling so procedure or consent text at
+- v1.0.1: Multi-file transcript tabs, theme-colored transcript highlighting,
+  quote navigation, light/dark modes, About dialog, interviewer/moderator and
+  consent-procedure filtering, named-interviewer filtering, duplicate-theme
+  merging, and quote-selection rationale in the Evidence panel and exports.
+- v1.0.2: Fixed unlabeled transcript handling so procedure or consent text at
   the start of an imported file does not prevent theme generation.
-- v1.2.2: Improved embedded interviewer-prompt filtering, contextual focus
+- v1.0.3: Improved embedded interviewer-prompt filtering, contextual focus
   alignment, and richer phrase-based theme labels.
-- v1.3.0: Added text-based PDF input, optional codebook matching, stronger
+- v1.0.4: Added text-based PDF input, optional codebook matching, stronger
   transcript parsing, quote offsets, and validation harness checks.
-- v1.4.0: Added persistent projects, manual selection coding, theme and quote
+- v1.0.5: Added persistent projects, manual selection coding, theme and quote
   editing, hierarchy, memos, coding stripes, transcript and codebook removal,
   optional local embeddings, and optional Korean morphology.
-- v1.4.1: Fixed CLI completion output for Korean and other Unicode report paths
+- v1.0.6: Fixed CLI completion output for Korean and other Unicode report paths
   when Windows uses a legacy console encoding.
-- v1.5.0: Added ranked "find more like this" retrieval from a selected theme or
+- v1.0.7: Added ranked "find more like this" retrieval from a selected theme or
   quote, uncoded-span exclusion, source highlighting, and speaker-preserving
   acceptance through the existing undo and autosave workflow.
-- Later: Matrix queries, intercoder reliability, audit-log export, REFI-QDA
-  exchange, and DOCX report export.
+- v1.0.8: Added matrix views, intercoder comparison, coder identity, and
+  exportable audit-event metadata for team coding review.
+- Later: REFI-QDA exchange and DOCX report export.

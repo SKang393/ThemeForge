@@ -1,6 +1,6 @@
 param(
     [string]$Python = "python",
-    [string]$Version = "1.5.0"
+    [string]$Version = "1.0.8"
 )
 
 $ErrorActionPreference = "Stop"
@@ -35,5 +35,5 @@ Copy-Item -Path (Join-Path $Root "README.md") -Destination $PortableDir
 Copy-Item -Path (Join-Path $Root "LICENSE") -Destination $PortableDir
 Copy-Item -Path (Join-Path $Root "release_notes\v$Version.md") -Destination $PortableDir
 
-Compress-Archive -Path (Join-Path $PortableDir "*") -DestinationPath $ZipPath
+Compress-Archive -Path $PortableDir -DestinationPath $ZipPath
 Write-Host "Created $ZipPath"
