@@ -30,6 +30,9 @@ Archive DOI: <https://doi.org/10.5281/zenodo.20653169>
   reassignment, uncoding, quote-boundary editing, and undo or redo.
 - Codes arbitrary transcript selections to existing or new themes and stores
   theme, quote, and document memos.
+- Finds ranked uncoded passages similar to the selected theme or quote, using
+  local embedding cosine similarity when available and TF-IDF cosine fallback
+  otherwise; accepted suggestions join the existing undo and autosave workflow.
 - Shows coding stripes beside transcript passages so overlapping codes remain
   visible during review.
 - Preserves speaker labels when transcript lines use `Speaker: text`,
@@ -210,9 +213,11 @@ python -m unittest discover -s tests -v
 5. Review each suggested theme, its color, validation metadata, and quote
    evidence.
 6. Check each quote against the transcript context.
-7. Rename, merge, split, or reject themes in your own qualitative analysis
+7. Use **Find from theme** or **Find from quote** to review related uncoded
+   passages, then code only the suggestions supported by the transcript context.
+8. Rename, merge, split, or reject themes in your own qualitative analysis
    workflow.
-8. Export the report or quote table for researcher review.
+9. Export the report or quote table for researcher review.
 
 ## Validation Logic
 

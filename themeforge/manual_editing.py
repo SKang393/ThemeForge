@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# noqa: SIZE_OK - immutable manual-coding operations share result refresh helpers.
+
 from copy import deepcopy
 from dataclasses import dataclass, replace
 
@@ -55,6 +57,7 @@ class ManualSelection:
     source_line: int
     source_start: int
     source_end: int
+    speaker: str = "Researcher selection"
 
 
 def rename_theme(theme: Theme, name: str, keywords_text: str) -> Theme:
@@ -161,7 +164,7 @@ def code_selected_text(
 
     quote = ThemeQuote(
         quote_id=_next_manual_quote_id(result),
-        speaker="Researcher selection",
+        speaker=selection.speaker,
         text=text,
         relevance=1.0,
         source_line=selection.source_line,

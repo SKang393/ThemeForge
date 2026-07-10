@@ -38,6 +38,7 @@ from .manual_editing import (
     update_theme_memo,
 )
 from .project_io import ProjectState, load_project, save_project
+from .semantic_suggestions import SimilarPassage, find_similar_passages
 from .ui_model import (
     APP_THEMES,
     about_text,
@@ -83,6 +84,7 @@ class ThemeForgeApp(tk.Tk):
         self.current_theme_index: int | None = None
         self.current_quote_matches: list[QuoteMatch] = []
         self.current_quote_index = -1
+        self.similar_passages: list[SimilarPassage] = []
 
         self.file_summary = tk.StringVar(value=file_selection_summary([]))
         self.codebook_summary = tk.StringVar(value=codebook_selection_summary(None))
@@ -93,6 +95,7 @@ class ThemeForgeApp(tk.Tk):
         self.quote_reason = tk.StringVar(
             value="Select a theme, then use Previous quote or Next quote to review why each highlighted quote was selected."
         )
+        self.similar_note = tk.StringVar(value="Find related uncoded passages from the selected theme or quote.")
         self.theme_count = tk.IntVar(value=8)
         self.quotes_per_theme = tk.IntVar(value=0)
         self.central_theme = tk.StringVar(value="")
@@ -215,7 +218,7 @@ class ThemeForgeApp(tk.Tk):
         evidence = ttk.Labelframe(workspace, text="Evidence", style="Panel.TLabelframe", padding=(14, 12))
         evidence.grid(row=0, column=2, sticky="nsew")
         evidence.columnconfigure(0, weight=1)
-        evidence.rowconfigure(6, weight=1)
+        evidence.rowconfigure(7, weight=1)
         self._build_evidence_panel(evidence)
 
         footer = ttk.Frame(self, style="Footer.TFrame", padding=(20, 0, 20, 14))
@@ -407,8 +410,51 @@ class ThemeForgeApp(tk.Tk):
             command=self.save_document_memo,
         ).grid(row=1, column=0, sticky="ew")
 
+        similar = ttk.Labelframe(parent, text="Similar uncoded passages", style="Panel.TLabelframe", padding=(10, 8))
+        similar.grid(row=6, column=0, sticky="ew", pady=(0, 8))
+        similar.columnconfigure(0, weight=1)
+        search_actions = ttk.Frame(similar, style="Surface.TFrame")
+        search_actions.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        search_actions.columnconfigure(0, weight=1)
+        search_actions.columnconfigure(1, weight=1)
+        ttk.Button(
+            search_actions,
+            text="Find from theme",
+            style="Secondary.TButton",
+            command=self.find_more_from_theme,
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        ttk.Button(
+            search_actions,
+            text="Find from quote",
+            style="Secondary.TButton",
+            command=self.find_more_from_quote,
+        ).grid(row=0, column=1, sticky="ew")
+        self.similar_list = tk.Listbox(
+            similar,
+            height=3,
+            activestyle="none",
+            exportselection=False,
+            borderwidth=1,
+            relief="solid",
+            font=("Segoe UI", 9),
+        )
+        self.similar_list.grid(row=1, column=0, sticky="ew")
+        self.similar_list.bind("<<ListboxSelect>>", self.show_selected_similar_passage)
+        ttk.Label(similar, textvariable=self.similar_note, style="Muted.TLabel", wraplength=520).grid(
+            row=2,
+            column=0,
+            sticky="ew",
+            pady=(6, 6),
+        )
+        ttk.Button(
+            similar,
+            text="Code selected suggestion",
+            style="Secondary.TButton",
+            command=self.code_selected_similar_passage,
+        ).grid(row=3, column=0, sticky="ew")
+
         self.transcript_notebook = ttk.Notebook(parent)
-        self.transcript_notebook.grid(row=6, column=0, sticky="nsew")
+        self.transcript_notebook.grid(row=7, column=0, sticky="nsew")
         self.transcript_notebook.bind("<<NotebookTabChanged>>", self._on_transcript_tab_changed)
 
     def open_transcript(self) -> None:
@@ -481,14 +527,7 @@ class ThemeForgeApp(tk.Tk):
             return
 
         try:
-            settings = AnalysisSettings(
-                theme_count=max(1, int(self.theme_count.get())),
-                quotes_per_theme=max(0, int(self.quotes_per_theme.get())),
-                central_theme=self.central_theme.get().strip(),
-                semantic_backend=self._semantic_backend(),
-                language_mode=self.language_mode.get(),
-                codebook_entries=self.codebook_entries,
-            )
+            settings = self._analysis_settings()
             previous_result = self.result
             self.result = preserve_manual_themes(previous_result, analyze_documents(self.documents, settings))
             self.edit_history = EditHistory()
@@ -692,6 +731,112 @@ class ThemeForgeApp(tk.Tk):
             self._select_theme(len(self.result.themes) - 1)
         self._set_manual_status("Selected text coded")
 
+    def find_more_from_theme(self) -> None:
+        self._find_more_like_this("")
+
+    def find_more_from_quote(self) -> None:
+        match = self._current_quote_match()
+        if match is None:
+            self.status_text.set("Select a highlighted quote first")
+            return
+        self._find_more_like_this(match.quote.quote_id)
+
+    def _find_more_like_this(self, quote_id: str) -> None:
+        theme = self._current_theme()
+        if self.result is None or theme is None:
+            self.status_text.set("Select a theme first")
+            return
+        try:
+            settings = self._analysis_settings()
+        except (tk.TclError, ValueError):
+            self.status_text.set("Enter valid theme and quote counts first")
+            return
+        suggestion_result = find_similar_passages(
+            tuple(self.documents),
+            self.result,
+            theme.id,
+            settings,
+            quote_id=quote_id,
+        )
+        self.similar_passages = list(suggestion_result.passages)
+        self.similar_note.set(suggestion_result.note)
+        self.similar_list.delete(0, tk.END)
+        for passage in self.similar_passages:
+            preview = " ".join(passage.text.split())
+            if len(preview) > 38:
+                preview = f"{preview[:35]}..."
+            speaker = passage.speaker if len(passage.speaker) <= 14 else f"{passage.speaker[:11]}..."
+            source = passage.source_name if len(passage.source_name) <= 14 else f"{passage.source_name[:11]}..."
+            self.similar_list.insert(
+                tk.END,
+                (
+                    f"{passage.similarity:.2f} | {speaker} | "
+                    f"{source}:{passage.source_line} | {preview}"
+                ),
+            )
+        if self.similar_passages:
+            self.similar_list.selection_set(0)
+            self.show_selected_similar_passage()
+            self.status_text.set(f"Found {len(self.similar_passages)} related uncoded passages")
+            return
+        self.status_text.set("No related uncoded passages found")
+
+    def show_selected_similar_passage(self, _event: tk.Event | None = None) -> None:
+        passage = self._selected_similar_passage()
+        if passage is None:
+            return
+        for widget in self.transcript_widgets.values():
+            widget.configure(state="normal")
+            widget.tag_remove("similar_suggestion", "1.0", tk.END)
+            widget.configure(state="disabled")
+        location = self._locate_quote(
+            ThemeQuote(
+                quote_id="similar-suggestion",
+                speaker=passage.speaker,
+                text=passage.text,
+                relevance=passage.similarity,
+                source_line=passage.source_line,
+                source_name=passage.source_name,
+                source_start=passage.source_start,
+                source_end=passage.source_end,
+            )
+        )
+        frame = self.transcript_frames.get(passage.source_name)
+        if location is None or frame is None:
+            return
+        widget, start, end = location
+        widget.configure(state="normal")
+        widget.tag_configure(
+            "similar_suggestion",
+            background=self.palette["selected_quote"],
+            foreground=self.palette["highlight_foreground"],
+            underline=1,
+        )
+        widget.tag_add("similar_suggestion", start, end)
+        widget.tag_raise("similar_suggestion")
+        widget.see(start)
+        widget.configure(state="disabled")
+        self.transcript_notebook.select(frame)
+
+    def code_selected_similar_passage(self) -> None:
+        theme = self._current_theme()
+        passage = self._selected_similar_passage()
+        if theme is None or passage is None:
+            self.status_text.set("Select a suggested passage first")
+            return
+        self._apply_selection_coding(
+            ManualSelection(
+                source_name=passage.source_name,
+                text=passage.text,
+                source_line=passage.source_line,
+                source_start=passage.source_start,
+                source_end=passage.source_end,
+                speaker=passage.speaker,
+            ),
+            theme.id,
+            "",
+        )
+
     def uncode_current_quote(self) -> None:
         if self.result is None or self.current_theme_index is None:
             return
@@ -813,14 +958,7 @@ class ThemeForgeApp(tk.Tk):
             transcript_paths=tuple(self.input_paths),
             codebook_path=self.codebook_path,
             documents=tuple(self.documents),
-            settings=AnalysisSettings(
-                theme_count=max(1, int(self.theme_count.get())),
-                quotes_per_theme=max(0, int(self.quotes_per_theme.get())),
-                central_theme=self.central_theme.get().strip(),
-                semantic_backend=self._semantic_backend(),
-                language_mode=self.language_mode.get(),
-                codebook_entries=self.codebook_entries,
-            ),
+            settings=self._analysis_settings(),
             result=self.result,
         )
 
@@ -966,6 +1104,32 @@ class ThemeForgeApp(tk.Tk):
             return "local_embeddings"
         return "tfidf"
 
+    def _analysis_settings(self) -> AnalysisSettings:
+        return AnalysisSettings(
+            theme_count=max(1, int(self.theme_count.get())),
+            quotes_per_theme=max(0, int(self.quotes_per_theme.get())),
+            central_theme=self.central_theme.get().strip(),
+            semantic_backend=self._semantic_backend(),
+            language_mode=self.language_mode.get(),
+            codebook_entries=self.codebook_entries,
+        )
+
+    def _selected_similar_passage(self) -> SimilarPassage | None:
+        selection = self.similar_list.curselection()
+        if not selection or selection[0] >= len(self.similar_passages):
+            return None
+        return self.similar_passages[selection[0]]
+
+    def _clear_similar_passages(self) -> None:
+        self.similar_passages = []
+        if hasattr(self, "similar_list"):
+            self.similar_list.delete(0, tk.END)
+        self.similar_note.set("Find related uncoded passages from the selected theme or quote.")
+        for widget in self.transcript_widgets.values():
+            widget.configure(state="normal")
+            widget.tag_remove("similar_suggestion", "1.0", tk.END)
+            widget.configure(state="disabled")
+
     def _parent_theme_id(self) -> str | None:
         value = self.parent_theme.get()
         if value == "Top-level":
@@ -1093,6 +1257,7 @@ class ThemeForgeApp(tk.Tk):
         if self.result is None or index >= len(self.result.themes):
             return
 
+        self._clear_similar_passages()
         theme = self.result.themes[index]
         self.current_theme_index = index
         self.detail_title.set(theme.name)
@@ -1180,6 +1345,14 @@ class ThemeForgeApp(tk.Tk):
                 selectbackground=self.palette["surface_alt"],
                 selectforeground=self.palette["text"],
             )
+        if hasattr(self, "similar_list"):
+            self.similar_list.configure(
+                background=self.palette["surface"],
+                foreground=self.palette["text"],
+                highlightbackground=self.palette["border"],
+                selectbackground=self.palette["surface_alt"],
+                selectforeground=self.palette["text"],
+            )
         for widget in self.transcript_widgets.values():
             widget.configure(
                 background=self.palette["transcript_background"],
@@ -1218,7 +1391,7 @@ class ThemeForgeApp(tk.Tk):
         for widget in self.transcript_widgets.values():
             widget.configure(state="normal")
             for tag in widget.tag_names():
-                if tag.startswith("theme_") or tag == "selected_quote":
+                if tag.startswith("theme_") or tag in {"selected_quote", "similar_suggestion"}:
                     widget.tag_delete(tag)
             widget.configure(state="disabled")
         for canvas in self.stripe_canvases.values():

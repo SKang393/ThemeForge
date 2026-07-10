@@ -169,6 +169,23 @@ class ManualEditingTests(unittest.TestCase):
         self.assertEqual(updated.themes[0].quotes[0].source_end, 38)
         self.assertEqual(updated.themes[0].validation["review_status"], "Researcher edited")
 
+    def test_code_selected_text_preserves_known_speaker_for_semantic_suggestion(self):
+        result = AnalysisResult(
+            version="1.4.1",
+            document_count=1,
+            quote_count=0,
+            themes=[theme("T01", "Curriculum", [])],
+            notes=[],
+        )
+
+        updated = code_selected_text(
+            result,
+            "T01",
+            ManualSelection("interview.txt", "A related uncoded passage.", 3, 15, 41, "Participant 4"),
+        )
+
+        self.assertEqual(updated.themes[0].quotes[0].speaker, "Participant 4")
+
     def test_code_selected_text_creates_new_manual_theme(self):
         result = AnalysisResult("1.3.0", 1, 0, [
             theme("T01", "Curriculum", []),
