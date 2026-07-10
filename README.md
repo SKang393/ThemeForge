@@ -12,7 +12,7 @@ qualitative studies in education and related fields.
 
 ## Current Version
 
-v1.4.1
+v1.5.0
 
 Archive DOI: <https://doi.org/10.5281/zenodo.20653169>
 
@@ -252,6 +252,14 @@ means the theme contains direct focus-topic wording or transcript-learned
 related terms. Lower nonzero values mean the theme is indirectly connected and
 should be checked by the researcher rather than treated as a final code.
 
+Similar-passage scores are cosine-similarity ranking aids, not probabilities or
+automatic coding decisions. Theme search compares uncoded quote-length passages
+with the selected theme label, keywords, and evidence; quote search compares
+them with the selected quote. Local sentence-transformer embeddings support
+indirect semantic matches when installed, while normalized TF-IDF supplies the
+portable fallback. This follows the open Sentence Transformers semantic-search
+pattern: <https://sbert.net/examples/sentence_transformer/applications/semantic-search/README.html>.
+
 ## Public Education Data for Testing
 
 Candidate public datasets for external QA are listed in
@@ -322,5 +330,8 @@ authors and project:
   optional local embeddings, and optional Korean morphology.
 - v1.4.1: Fixed CLI completion output for Korean and other Unicode report paths
   when Windows uses a legacy console encoding.
-- Later: Semantic "find more like this," matrix queries, intercoder reliability,
-  audit-log export, REFI-QDA exchange, and DOCX report export.
+- v1.5.0: Added ranked "find more like this" retrieval from a selected theme or
+  quote, uncoded-span exclusion, source highlighting, and speaker-preserving
+  acceptance through the existing undo and autosave workflow.
+- Later: Matrix queries, intercoder reliability, audit-log export, REFI-QDA
+  exchange, and DOCX report export.
