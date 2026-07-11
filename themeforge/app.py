@@ -18,6 +18,7 @@ from .analysis import (
     TranscriptDocument,
     analyze_documents,
 )
+from .audit import AuditEvent, create_audit_event
 from .codebook import load_codebook_entries
 from .exports import export_json, export_markdown, export_quotes_csv
 from .io import load_transcript_text
@@ -37,7 +38,8 @@ from .manual_editing import (
     update_quote_boundary,
     update_theme_memo,
 )
-from .project_io import ProjectState, load_project, save_project
+from .project_io import ProjectState, UnsupportedProjectFormatError, load_project, save_project
+from .rigor_dialog import RigorContext, RigorDialog
 from .semantic_suggestions import SimilarPassage, find_similar_passages
 from .ui_model import (
     APP_THEMES,
@@ -76,6 +78,7 @@ class ThemeForgeApp(tk.Tk):
         self.codebook_entries = ()
         self.documents: list[TranscriptDocument] = []
         self.result: AnalysisResult | None = None
+        self.audit_events: list[AuditEvent] = []
         self.edit_history = EditHistory()
         self.transcript_widgets: dict[str, tk.Text] = {}
         self.transcript_frames: dict[str, ttk.Frame] = {}
@@ -88,6 +91,7 @@ class ThemeForgeApp(tk.Tk):
 
         self.file_summary = tk.StringVar(value=file_selection_summary([]))
         self.codebook_summary = tk.StringVar(value=codebook_selection_summary(None))
+        self.researcher_name = tk.StringVar(value="")
         self.status_text = tk.StringVar(value="Ready")
         self.detail_title = tk.StringVar(value="Transcript evidence")
         self.quote_status = tk.StringVar(value=evidence_navigation_status(0, 0))
@@ -163,6 +167,7 @@ class ThemeForgeApp(tk.Tk):
             padding=(12, 6),
         )
         style.map("TNotebook.Tab", background=[("selected", self.palette["surface"])])
+        self._configure_treeview_styles(style)
 
     def _build_layout(self) -> None:
         self.columnconfigure(0, weight=1)
@@ -195,7 +200,8 @@ class ThemeForgeApp(tk.Tk):
         mode.bind("<<ComboboxSelected>>", self.change_display_mode)
         ttk.Button(header_actions, text="Open project", style="Secondary.TButton", command=self.open_project).grid(row=0, column=2, padx=(0, 8))
         ttk.Button(header_actions, text="Save project", style="Secondary.TButton", command=self.save_project).grid(row=0, column=3, padx=(0, 8))
-        ttk.Button(header_actions, text="About", style="Secondary.TButton", command=self.show_about).grid(row=0, column=4)
+        ttk.Button(header_actions, text="Rigor tools", style="Secondary.TButton", command=self.open_rigor_tools).grid(row=0, column=4, padx=(0, 8))
+        ttk.Button(header_actions, text="About", style="Secondary.TButton", command=self.show_about).grid(row=0, column=5)
 
         workspace = ttk.Frame(self, style="App.TFrame", padding=(18, 18, 18, 12))
         workspace.grid(row=1, column=0, sticky="nsew")
@@ -250,11 +256,16 @@ class ThemeForgeApp(tk.Tk):
 
         ttk.Separator(parent).grid(row=7, column=0, sticky="ew", pady=16)
 
-        ttk.Label(parent, text="Shared focus topic", style="Panel.TLabel").grid(row=8, column=0, sticky="w")
-        ttk.Entry(parent, textvariable=self.central_theme).grid(row=9, column=0, sticky="ew", pady=(4, 14))
+        ttk.Label(parent, text="Coder name", style="Panel.TLabel").grid(row=8, column=0, sticky="w")
+        ttk.Entry(parent, textvariable=self.researcher_name).grid(row=9, column=0, sticky="ew", pady=(4, 14))
+
+        ttk.Separator(parent).grid(row=10, column=0, sticky="ew", pady=(0, 16))
+
+        ttk.Label(parent, text="Shared focus topic", style="Panel.TLabel").grid(row=11, column=0, sticky="w")
+        ttk.Entry(parent, textvariable=self.central_theme).grid(row=12, column=0, sticky="ew", pady=(4, 14))
 
         option_row = ttk.Frame(parent, style="Surface.TFrame")
-        option_row.grid(row=10, column=0, sticky="ew", pady=(0, 14))
+        option_row.grid(row=13, column=0, sticky="ew", pady=(0, 14))
         option_row.columnconfigure(0, weight=1)
         option_row.columnconfigure(1, weight=1)
         ttk.Label(option_row, text="Theme model", style="Panel.TLabel").grid(row=0, column=0, sticky="w")
@@ -275,7 +286,7 @@ class ThemeForgeApp(tk.Tk):
         ).grid(row=1, column=1, sticky="ew", padx=(10, 0), pady=(4, 0))
 
         count_row = ttk.Frame(parent, style="Surface.TFrame")
-        count_row.grid(row=11, column=0, sticky="ew")
+        count_row.grid(row=14, column=0, sticky="ew")
         count_row.columnconfigure(0, weight=1)
         count_row.columnconfigure(1, weight=1)
 
@@ -284,15 +295,15 @@ class ThemeForgeApp(tk.Tk):
         ttk.Spinbox(count_row, from_=1, to=20, width=6, textvariable=self.theme_count).grid(row=1, column=0, sticky="ew", pady=(4, 0))
         ttk.Spinbox(count_row, from_=0, to=200, width=6, textvariable=self.quotes_per_theme).grid(row=1, column=1, sticky="ew", padx=(10, 0), pady=(4, 0))
 
-        ttk.Button(parent, text="Analyze", style="Primary.TButton", command=self.analyze).grid(row=12, column=0, sticky="ew", pady=(18, 8))
-        ttk.Button(parent, text="Export report", style="Secondary.TButton", command=self.save_report).grid(row=13, column=0, sticky="ew")
+        ttk.Button(parent, text="Analyze", style="Primary.TButton", command=self.analyze).grid(row=15, column=0, sticky="ew", pady=(18, 8))
+        ttk.Button(parent, text="Export report", style="Secondary.TButton", command=self.save_report).grid(row=16, column=0, sticky="ew")
 
         ttk.Label(
             parent,
             text="Suggestions need researcher review before reporting.",
             style="Muted.TLabel",
             wraplength=220,
-        ).grid(row=14, column=0, sticky="ew", pady=(18, 0))
+        ).grid(row=17, column=0, sticky="ew", pady=(18, 0))
 
     def _build_theme_panel(self, parent: ttk.Frame) -> None:
         self.theme_summary = tk.StringVar(value="No analysis yet")
@@ -556,15 +567,22 @@ class ThemeForgeApp(tk.Tk):
             theme_count=len(self.result.themes),
         )
         self.theme_summary.set(status)
+        self._record_audit_event(
+            "analysis_run",
+            "project",
+            self.project_path.name if self.project_path is not None else "unsaved",
+            f"documents={self.result.document_count}; themes={len(self.result.themes)}; quotes={self.result.quote_count}",
+        )
         autosave_status = self._autosave_project()
         self.status_text.set(f"{status}; {autosave_status}" if autosave_status else status)
 
     def save_theme_edits(self) -> None:
         if self.result is None or self.current_theme_index is None:
             return
+        original = self.result.themes[self.current_theme_index]
         themes = list(self.result.themes)
         themes[self.current_theme_index] = rename_theme(
-            themes[self.current_theme_index],
+            original,
             self.theme_name.get(),
             self.theme_keywords.get(),
         )
@@ -575,19 +593,28 @@ class ThemeForgeApp(tk.Tk):
         self.result = updated
         self._render_themes()
         self._select_theme(self.current_theme_index)
+        renamed = updated.themes[self.current_theme_index]
+        self._record_audit_event(
+            "theme_renamed",
+            "theme",
+            renamed.id,
+            f"from={original.name}; to={renamed.name}; keywords={len(renamed.keywords)}",
+        )
         self._set_manual_status("Theme edits saved")
 
     def save_theme_memo(self) -> None:
         theme = self._current_theme()
         if self.result is None or theme is None:
             return
-        updated = update_theme_memo(self.result, theme.id, self.theme_memo_text.get("1.0", tk.END))
+        memo_text = self.theme_memo_text.get("1.0", tk.END)
+        updated = update_theme_memo(self.result, theme.id, memo_text)
         if updated == self.result:
             return
         self.edit_history = self.edit_history.record(self.result)
         self.result = updated
         self._render_themes()
         self._select_theme_by_id(theme.id)
+        self._record_audit_event("theme_memo_updated", "theme", theme.id, f"memo_chars={len(memo_text.strip())}")
         self._set_manual_status("Theme memo saved")
 
     def save_theme_hierarchy(self) -> None:
@@ -604,6 +631,7 @@ class ThemeForgeApp(tk.Tk):
         self.result = updated
         self._render_themes()
         self._select_theme_by_id(theme.id)
+        self._record_audit_event("theme_hierarchy_updated", "theme", theme.id, f"parent_theme_id={parent_id or 'top-level'}")
         self._set_manual_status("Theme hierarchy saved")
 
     def save_quote_memo(self) -> None:
@@ -614,13 +642,15 @@ class ThemeForgeApp(tk.Tk):
             self.status_text.set("No quote selected for memo")
             return
         theme_id = self.result.themes[self.current_theme_index].id
-        updated = update_quote_memo(self.result, theme_id, match.quote.quote_id, self.quote_memo_text.get("1.0", tk.END))
+        memo_text = self.quote_memo_text.get("1.0", tk.END)
+        updated = update_quote_memo(self.result, theme_id, match.quote.quote_id, memo_text)
         if updated == self.result:
             return
         self.edit_history = self.edit_history.record(self.result)
         self.result = updated
         self._render_themes()
         self._select_theme(self.current_theme_index)
+        self._record_audit_event("quote_memo_updated", "quote", match.quote.quote_id, f"theme_id={theme_id}; memo_chars={len(memo_text.strip())}")
         self._set_manual_status("Quote memo saved")
 
     def save_document_memo(self) -> None:
@@ -636,6 +666,9 @@ class ThemeForgeApp(tk.Tk):
         if updated == tuple(self.documents):
             return
         self.documents = list(updated)
+        document = next((item for item in self.documents if item.name == source_name), None)
+        memo_length = len(document.memo) if document is not None else 0
+        self._record_audit_event("document_memo_updated", "document", source_name, f"memo_chars={memo_length}")
         self._set_manual_status("Document memo saved")
 
     def move_current_quote(self) -> None:
@@ -653,6 +686,7 @@ class ThemeForgeApp(tk.Tk):
         self.result = updated
         self._render_themes()
         self._select_theme_by_id(target_id)
+        self._record_audit_event("quote_moved", "quote", match.quote.quote_id, f"from_theme={source_id}; to_theme={target_id}")
         self._set_manual_status("Quote moved")
 
     def merge_current_theme(self) -> None:
@@ -669,6 +703,7 @@ class ThemeForgeApp(tk.Tk):
         self.result = updated
         self._render_themes()
         self._select_theme_by_id(target_id)
+        self._record_audit_event("theme_merged", "theme", source_id, f"into_theme={target_id}")
         self._set_manual_status("Themes merged")
 
     def split_current_quote(self) -> None:
@@ -690,6 +725,12 @@ class ThemeForgeApp(tk.Tk):
         self.result = updated
         self._render_themes()
         self._select_theme(len(self.result.themes) - 1)
+        self._record_audit_event(
+            "quote_split",
+            "quote",
+            match.quote.quote_id,
+            f"from_theme={source.id}; new_theme={self.result.themes[-1].id}",
+        )
         self._set_manual_status("Quote split into a new theme")
 
     def code_selection_to_theme(self) -> None:
@@ -727,8 +768,17 @@ class ThemeForgeApp(tk.Tk):
         self._render_themes()
         if target_theme_id:
             self._select_theme_by_id(target_theme_id)
+            coded_theme_id = target_theme_id
         else:
             self._select_theme(len(self.result.themes) - 1)
+            coded_theme_id = self.result.themes[-1].id
+        action = "manual_passage_coded" if selection.speaker == "Researcher selection" else "semantic_passage_coded"
+        self._record_audit_event(
+            action,
+            "passage",
+            f"{selection.source_name}:{selection.source_line}",
+            f"theme_id={coded_theme_id}; chars={selection.source_start}-{selection.source_end}",
+        )
         self._set_manual_status("Selected text coded")
 
     def find_more_from_theme(self) -> None:
@@ -852,6 +902,7 @@ class ThemeForgeApp(tk.Tk):
         self.result = updated
         self._render_themes()
         self._select_theme(min(self.current_theme_index, len(self.result.themes) - 1))
+        self._record_audit_event("quote_uncoded", "quote", match.quote.quote_id, f"theme_id={theme_id}")
         self._set_manual_status("Quote uncoded")
 
     def update_current_quote_boundary(self) -> None:
@@ -870,6 +921,12 @@ class ThemeForgeApp(tk.Tk):
         self.result = updated
         self._render_themes()
         self._select_theme(self.current_theme_index)
+        self._record_audit_event(
+            "quote_boundary_updated",
+            "quote",
+            match.quote.quote_id,
+            f"theme_id={theme_id}; source={selection.source_name}; chars={selection.source_start}-{selection.source_end}",
+        )
         self._set_manual_status("Quote boundary updated")
 
     def undo_manual_edit(self) -> None:
@@ -884,6 +941,7 @@ class ThemeForgeApp(tk.Tk):
         self._render_themes()
         if self.result.themes:
             self._select_theme(min(self.current_theme_index or 0, len(self.result.themes) - 1))
+        self._record_audit_event("undo", "history", "manual_edits", f"themes={len(self.result.themes)}")
         self._set_manual_status("Manual edit undone")
 
     def redo_manual_edit(self) -> None:
@@ -898,6 +956,7 @@ class ThemeForgeApp(tk.Tk):
         self._render_themes()
         if self.result.themes:
             self._select_theme(min(self.current_theme_index or 0, len(self.result.themes) - 1))
+        self._record_audit_event("redo", "history", "manual_edits", f"themes={len(self.result.themes)}")
         self._set_manual_status("Manual edit redone")
 
     def open_project(self) -> None:
@@ -912,7 +971,7 @@ class ThemeForgeApp(tk.Tk):
             return
         try:
             self._restore_project(load_project(Path(path)), Path(path))
-        except (OSError, ValueError, KeyError, zipfile.BadZipFile) as exc:
+        except (UnsupportedProjectFormatError, OSError, ValueError, KeyError, zipfile.BadZipFile) as exc:
             messagebox.showerror("Open project failed", str(exc))
 
     def save_project(self) -> None:
@@ -944,6 +1003,20 @@ class ThemeForgeApp(tk.Tk):
             return
         self.status_text.set(action)
 
+    def _record_audit_event(self, action: str, target_type: str, target_id: str, details: str) -> None:
+        self.audit_events.append(
+            create_audit_event(
+                actor=self.researcher_name.get(),
+                action=action,
+                target_type=target_type,
+                target_id=target_id,
+                details=details,
+            )
+        )
+        for child in self.winfo_children():
+            if isinstance(child, RigorDialog):
+                child.refresh_current_state()
+
     def _autosave_project(self) -> str | None:
         if self.project_path is None:
             return None
@@ -960,6 +1033,8 @@ class ThemeForgeApp(tk.Tk):
             documents=tuple(self.documents),
             settings=self._analysis_settings(),
             result=self.result,
+            researcher_name=self.researcher_name.get(),
+            audit_events=tuple(self.audit_events),
         )
 
     def _restore_project(self, state: ProjectState, path: Path) -> None:
@@ -969,6 +1044,8 @@ class ThemeForgeApp(tk.Tk):
         self.codebook_entries = state.settings.codebook_entries
         self.documents = list(state.documents)
         self.result = state.result
+        self.researcher_name.set(state.researcher_name)
+        self.audit_events = list(state.audit_events)
         self.edit_history = EditHistory()
         self.theme_count.set(state.settings.theme_count)
         self.quotes_per_theme.set(state.settings.quotes_per_theme)
@@ -1314,6 +1391,20 @@ class ThemeForgeApp(tk.Tk):
         target.write_text(output, encoding="utf-8")
         self.status_text.set(f"Saved {target.name}")
 
+    def _rigor_context(self) -> RigorContext:
+        return RigorContext(
+            documents=tuple(self.documents),
+            result=self.result,
+            audit_events=tuple(self.audit_events),
+            coder_name=self.researcher_name.get(),
+        )
+
+    def open_rigor_tools(self) -> None:
+        if not self.documents or self.result is None:
+            messagebox.showinfo("Rigor tools", "Open transcripts and run analysis before using rigor tools.")
+            return
+        RigorDialog(self, self._rigor_context(), self._rigor_context)
+
     def show_about(self) -> None:
         messagebox.showinfo("About ThemeForge", about_text(__version__))
 
@@ -1337,6 +1428,7 @@ class ThemeForgeApp(tk.Tk):
         widget.insert(tk.END, text)
 
     def _apply_display_colors(self) -> None:
+        self._configure_treeview_styles(ttk.Style(self))
         if hasattr(self, "theme_list"):
             self.theme_list.configure(
                 background=self.palette["surface"],
@@ -1362,6 +1454,27 @@ class ThemeForgeApp(tk.Tk):
             )
         for canvas in self.stripe_canvases.values():
             canvas.configure(background=self.palette["transcript_background"])
+
+    def _configure_treeview_styles(self, style: ttk.Style) -> None:
+        style.configure(
+            "Treeview",
+            background=self.palette["surface"],
+            fieldbackground=self.palette["surface"],
+            foreground=self.palette["text"],
+            bordercolor=self.palette["border"],
+            rowheight=24,
+        )
+        style.configure(
+            "Treeview.Heading",
+            background=self.palette["surface_alt"],
+            foreground=self.palette["text"],
+            bordercolor=self.palette["border"],
+        )
+        style.map(
+            "Treeview",
+            background=[("selected", self.palette["accent"])],
+            foreground=[("selected", self.palette["background"])],
+        )
 
     def _highlight_all_quotes(self, selected_theme_index: int | None) -> None:
         self._clear_quote_tags()

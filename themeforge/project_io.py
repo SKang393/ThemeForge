@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import zipfile
 
+from .audit import AuditEvent
 from .analysis_types import (
     AnalysisResult,
     AnalysisSettings,
@@ -15,8 +16,17 @@ from .analysis_types import (
     ValidationValue,
 )
 
-PROJECT_FORMAT_VERSION = 1
+PROJECT_FORMAT_VERSION = 2
 PROJECT_JSON = "project.json"
+
+
+@dataclass(frozen=True, slots=True)
+class UnsupportedProjectFormatError(Exception):
+    format_version: int | str
+    supported_version: int
+
+    def __str__(self) -> str:
+        return f"project format {self.format_version} is unsupported; supported format is {self.supported_version}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +36,8 @@ class ProjectState:
     documents: tuple[TranscriptDocument, ...]
     settings: AnalysisSettings
     result: AnalysisResult | None = None
+    researcher_name: str = ""
+    audit_events: tuple[AuditEvent, ...] = ()
 
 
 def save_project(path: Path, state: ProjectState) -> None:
@@ -36,6 +48,8 @@ def save_project(path: Path, state: ProjectState) -> None:
         "documents": [asdict(document) for document in state.documents],
         "settings": _settings_to_json(state.settings),
         "result": _result_to_json(state.result),
+        "researcher_name": state.researcher_name,
+        "audit_events": [asdict(event) for event in state.audit_events],
     }
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(PROJECT_JSON, json.dumps(payload, ensure_ascii=False, indent=2))
@@ -45,13 +59,29 @@ def load_project(path: Path) -> ProjectState:
     with zipfile.ZipFile(path) as archive:
         payload = json.loads(archive.read(PROJECT_JSON).decode("utf-8"))
 
+    raw_format_version = payload.get("format_version", 1)
+    try:
+        format_version = int(raw_format_version)
+    except (TypeError, ValueError):
+        raise UnsupportedProjectFormatError(
+            format_version=str(raw_format_version),
+            supported_version=PROJECT_FORMAT_VERSION,
+        ) from None
+    _reject_unsupported_format(format_version)
     return ProjectState(
         transcript_paths=tuple(Path(item) for item in payload.get("transcript_paths", [])),
         codebook_path=_optional_path(payload.get("codebook_path")),
         documents=tuple(_document_from_json(item) for item in payload.get("documents", []) if isinstance(item, dict)),
         settings=_settings_from_json(payload.get("settings", {})),
         result=_result_from_json(payload.get("result")),
+        researcher_name=str(payload.get("researcher_name", "")),
+        audit_events=tuple(_audit_event_from_json(item) for item in payload.get("audit_events", []) if isinstance(item, dict)),
     )
+
+
+def _reject_unsupported_format(format_version: int) -> None:
+    if format_version > PROJECT_FORMAT_VERSION:
+        raise UnsupportedProjectFormatError(format_version=format_version, supported_version=PROJECT_FORMAT_VERSION)
 
 
 def _optional_path(value: str | None) -> Path | None:
@@ -110,6 +140,17 @@ def _document_from_json(payload: dict[str, object]) -> TranscriptDocument:  # no
         name=str(payload.get("name", "")),
         text=str(payload.get("text", "")),
         memo=str(payload.get("memo", "")),
+    )
+
+
+def _audit_event_from_json(payload: dict[str, object]) -> AuditEvent:  # noqa: OBJECT_OK - JSON boundary.
+    return AuditEvent(
+        timestamp_utc=str(payload.get("timestamp_utc", "")),
+        actor=str(payload.get("actor", "")),
+        action=str(payload.get("action", "")),
+        target_type=str(payload.get("target_type", "")),
+        target_id=str(payload.get("target_id", "")),
+        details=str(payload.get("details", "")),
     )
 
 

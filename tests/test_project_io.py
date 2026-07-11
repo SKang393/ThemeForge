@@ -1,6 +1,8 @@
 from pathlib import Path
+import json
 import tempfile
 import unittest
+import zipfile
 
 from themeforge.analysis import (
     AnalysisResult,
@@ -10,7 +12,8 @@ from themeforge.analysis import (
     ThemeQuote,
     TranscriptDocument,
 )
-from themeforge.project_io import ProjectState, load_project, save_project
+from themeforge.audit import AuditEvent
+from themeforge.project_io import ProjectState, UnsupportedProjectFormatError, load_project, save_project
 
 
 class ProjectIoTests(unittest.TestCase):
@@ -83,6 +86,82 @@ class ProjectIoTests(unittest.TestCase):
         self.assertEqual(loaded.result.themes[0].parent_theme_id, "T00")
         self.assertEqual(loaded.result.themes[0].quotes[0].source_start, 12)
         self.assertEqual(loaded.result.themes[0].quotes[0].memo, "Quote memo")
+
+    def test_load_project_defaults_v1_researcher_and_audit_fields(self):
+        payload = {
+            "format_version": 1,
+            "transcript_paths": ["interview.txt"],
+            "codebook_path": None,
+            "documents": [],
+            "settings": {},
+            "result": None,
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "v1.tfproj"
+            with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("project.json", json.dumps(payload))
+
+            loaded = load_project(path)
+
+        self.assertEqual(loaded.researcher_name, "")
+        self.assertEqual(loaded.audit_events, ())
+
+    def test_project_round_trips_v2_researcher_and_audit_events_as_utf8(self):
+        event = AuditEvent(
+            timestamp_utc="2026-01-02T03:04:05Z",
+            actor="김민지",
+            action="code_applied",
+            target_type="quote",
+            target_id="Q1",
+            details="세부 내용, comma\n다음 줄",
+        )
+        state = ProjectState(
+            transcript_paths=(Path("interview.txt"),),
+            codebook_path=None,
+            documents=(),
+            settings=AnalysisSettings(),
+            researcher_name="Dr. 한",
+            audit_events=(event,),
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "study.tfproj"
+            save_project(path, state)
+
+            with zipfile.ZipFile(path) as archive:
+                payload = json.loads(archive.read("project.json").decode("utf-8"))
+            loaded = load_project(path)
+
+        self.assertEqual(payload["format_version"], 2)
+        self.assertEqual(loaded.researcher_name, "Dr. 한")
+        self.assertEqual(loaded.audit_events, (event,))
+
+    def test_load_project_rejects_future_format(self):
+        payload = {"format_version": 99, "settings": {}}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "future.tfproj"
+            with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("project.json", json.dumps(payload))
+
+            with self.assertRaises(UnsupportedProjectFormatError) as raised:
+                load_project(path)
+
+        self.assertIn("format 99", str(raised.exception))
+
+    def test_load_project_rejects_malformed_format_with_typed_error(self):
+        payload = {"format_version": "99x", "settings": {}}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "malformed.tfproj"
+            with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("project.json", json.dumps(payload))
+
+            with self.assertRaises(UnsupportedProjectFormatError) as raised:
+                load_project(path)
+
+        self.assertIn("99x", str(raised.exception))
 
 
 if __name__ == "__main__":
