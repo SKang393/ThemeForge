@@ -121,6 +121,18 @@ Protected planning time would help instructors revise the curriculum.
         self.assertEqual({quote.speaker for quote in quotes}, {"ADMIN1"})
         self.assertTrue(all("MD" not in quote.text for quote in quotes))
 
+    def test_drm_interviewer_turns_are_excluded(self):
+        transcript = """
+DRM: We will move to the next section about preference assessment.
+P16: Classroom routines help me understand which activities each child prefers.
+DRM: I want to ask about another type of assessment now.
+P16: Offering choices helps children communicate what they want to use.
+""".strip()
+
+        quotes = extract_quote_units(parse_transcript(transcript))
+
+        self.assertEqual({quote.speaker for quote in quotes}, {"P16"})
+
     def test_nvio_table_noise_and_moderator_rows_are_removed(self):
         transcript = """
 Timespan

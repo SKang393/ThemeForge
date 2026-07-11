@@ -11,7 +11,7 @@ the portable Windows build runs without installing Python or an NLP stack.
 
 ## Current Version
 
-v1.4.0
+v1.5.0
 
 Archive DOI: <https://doi.org/10.5281/zenodo.20653169>
 
@@ -348,4 +348,7 @@ Purdue University affiliation. ORCID: 0000-0002-6449-712X.
 - v1.4.0: Methodology update — matrix views, intercoder comparison with
   Cohen's kappa, coder identity, and exportable audit-event metadata for team
   coding review.
+- v1.5.0: Methodology update — stronger interviewer exclusion and fail-closed
+  real-data validation with quote-level precision and recall, published
+  theme-table extraction, and multi-coder reliability checks.
 - Later: REFI-QDA exchange and DOCX report export.

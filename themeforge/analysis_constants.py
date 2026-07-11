@@ -428,7 +428,7 @@ BACKCHANNEL_RE = re.compile(
     re.IGNORECASE,
 )
 EXCLUDED_SPEAKER_RE = re.compile(
-    r"\b(interviewer|moderator|facilitator|researcher|host|note\s*taker|notetaker)\b",
+    r"\b(drm|interviewer|moderator|facilitator|researcher|host|note\s*taker|notetaker)\b",
     re.IGNORECASE,
 )
 INTERVIEW_PROCEDURE_RE = re.compile(
