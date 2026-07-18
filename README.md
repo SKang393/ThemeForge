@@ -304,6 +304,24 @@ ThemeForge is designed, written, and maintained by
 [Sungwoo Kang (SKang393)](https://github.com/SKang393).
 Purdue University affiliation. ORCID: 0000-0002-6449-712X.
 
+## Built with Codex and GPT-5.6
+
+ThemeForge was developed through a human-directed, AI-assisted workflow. The
+author reviewed thematic-analysis literature, defined the research and product
+requirements, and evaluated pilot versions. GPT-5.6 helped translate those
+methodological requirements, user-experience observations, and identified edge
+cases into explicit implementation specifications and validation criteria.
+
+Codex was used to implement and refactor the Python application, write tests and
+validation harnesses, diagnose failures, and prepare portable Windows releases.
+The author reviewed the generated code and outputs, directed revisions, and
+made the final decisions about methodology, algorithm behavior, interface
+design, and release readiness.
+
+Codex and GPT-5.6 were development tools, not runtime dependencies. ThemeForge
+analyzes imported transcripts locally and does not send transcript text to
+Codex, GPT-5.6, or another online model.
+
 ## Roadmap
 
 - v0.1.0: Basic thematic grouping and quote evidence export.
