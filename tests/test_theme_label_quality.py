@@ -1,3 +1,4 @@
+"""Regression coverage for the explicitly selected historical lexical pipeline."""
 import unittest
 
 from themeforge.analysis import AnalysisSettings, analyze_transcript
@@ -17,7 +18,7 @@ class ThemeLabelQualityTests(unittest.TestCase):
 
         result = analyze_transcript(
             transcript,
-            AnalysisSettings(theme_count=2, quotes_per_theme=2, min_theme_size=1),
+            AnalysisSettings(discovery_mode="legacy", theme_count=2, quotes_per_theme=2, min_theme_size=1),
         )
 
         labels = {theme.name.lower() for theme in result.themes}
@@ -43,7 +44,7 @@ class ThemeLabelQualityTests(unittest.TestCase):
 
         result = analyze_transcript(
             transcript,
-            AnalysisSettings(theme_count=4, quotes_per_theme=1, min_theme_size=1, central_theme="curriculum"),
+            AnalysisSettings(discovery_mode="legacy", theme_count=4, quotes_per_theme=1, min_theme_size=1, central_theme="curriculum"),
         )
 
         labels = {theme.name.lower() for theme in result.themes}
@@ -73,7 +74,7 @@ class ThemeLabelQualityTests(unittest.TestCase):
 
         result = analyze_transcript(
             transcript,
-            AnalysisSettings(theme_count=3, quotes_per_theme=1, min_theme_size=1, central_theme="curriculum"),
+            AnalysisSettings(discovery_mode="legacy", theme_count=3, quotes_per_theme=1, min_theme_size=1, central_theme="curriculum"),
         )
 
         generated = " ".join(
@@ -98,7 +99,7 @@ class ThemeLabelQualityTests(unittest.TestCase):
 
         result = analyze_transcript(
             transcript,
-            AnalysisSettings(theme_count=4, quotes_per_theme=1, min_theme_size=1),
+            AnalysisSettings(discovery_mode="legacy", theme_count=4, quotes_per_theme=1, min_theme_size=1),
         )
 
         generated = " ".join(
@@ -122,7 +123,7 @@ class ThemeLabelQualityTests(unittest.TestCase):
 
         result = analyze_transcript(
             transcript,
-            AnalysisSettings(theme_count=3, quotes_per_theme=1, min_theme_size=1),
+            AnalysisSettings(discovery_mode="legacy", theme_count=3, quotes_per_theme=1, min_theme_size=1),
         )
         generated = " ".join(
             [
@@ -147,7 +148,7 @@ class ThemeLabelQualityTests(unittest.TestCase):
 
         result = analyze_transcript(
             transcript,
-            AnalysisSettings(theme_count=3, quotes_per_theme=1, min_theme_size=1),
+            AnalysisSettings(discovery_mode="legacy", theme_count=3, quotes_per_theme=1, min_theme_size=1),
         )
         generated = " ".join(
             [
@@ -171,7 +172,7 @@ class ThemeLabelQualityTests(unittest.TestCase):
 
         result = analyze_transcript(
             transcript,
-            AnalysisSettings(theme_count=2, quotes_per_theme=1, min_theme_size=1),
+            AnalysisSettings(discovery_mode="legacy", theme_count=2, quotes_per_theme=1, min_theme_size=1),
         )
 
         labels = {theme.name.lower() for theme in result.themes}
@@ -192,7 +193,7 @@ class ThemeLabelQualityTests(unittest.TestCase):
 
         result = analyze_transcript(
             transcript,
-            AnalysisSettings(
+            AnalysisSettings(discovery_mode="legacy",
                 theme_count=3,
                 quotes_per_theme=1,
                 min_theme_size=1,
@@ -227,7 +228,7 @@ class ThemeLabelQualityTests(unittest.TestCase):
         )
         no_hint_result = analyze_transcript(
             no_hint_transcript,
-            AnalysisSettings(theme_count=2, quotes_per_theme=1, min_theme_size=1),
+            AnalysisSettings(discovery_mode="legacy", theme_count=2, quotes_per_theme=1, min_theme_size=1),
         )
         no_hint_labels = {theme.name.lower() for theme in no_hint_result.themes}
         no_hint_keywords = {keyword.lower() for theme in no_hint_result.themes for keyword in theme.keywords}

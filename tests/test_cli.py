@@ -1,4 +1,5 @@
 import os
+import json
 import subprocess
 import sys
 import tempfile
@@ -7,6 +8,35 @@ from pathlib import Path
 
 
 class CliTests(unittest.TestCase):
+    def test_cli_exports_analytic_intent_and_codebook_no_match(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            transcript = root / "study.txt"
+            codebook = root / "codes.csv"
+            output = root / "result.json"
+            transcript.write_text("P1: The garden flowers bloomed beside the orchard.\n", encoding="utf-8")
+            codebook.write_text("name,description,code_id,version,inclusion_criteria,exclusion_criteria\nTransport,Railway tickets,transport,2,Actual journeys,Imagined journeys\n", encoding="utf-8")
+            completed = subprocess.run([
+                sys.executable, "-m", "themeforge.cli", str(transcript), "--codebook", str(codebook),
+                "--methodology", "codebook", "--coding-logic", "deductive", "--analytic-depth", "semantic",
+                "--research-question", "How do journeys affect access?", "--research-question", "Which obstacles matter?",
+                "--theoretical-lens", "Access framework", "--researcher-memo", "Review exceptions.",
+                "--codebook-mode", "codebook_only", "--format", "json", "--out", str(output),
+            ], cwd=Path(__file__).resolve().parents[1], text=True, capture_output=True, check=False)
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            payload = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(payload["themes"], [])
+            self.assertEqual(payload["analytic_intent"]["research_questions"], ["How do journeys affect access?", "Which obstacles matter?"])
+            self.assertEqual(payload["analytic_intent"]["theoretical_lens"], "Access framework")
+            self.assertEqual(payload["codebook_snapshot"][0]["version"], 2)
+            self.assertEqual(payload["codebook_snapshot"][0]["exclusion_criteria"], "Imagined journeys")
+
+    def test_cli_rejects_blank_research_question(self):
+        completed = subprocess.run([sys.executable, "-m", "themeforge.cli", "unused.txt", "--research-question", "   "], cwd=Path(__file__).resolve().parents[1], text=True, capture_output=True, check=False)
+        self.assertEqual(completed.returncode, 2)
+        self.assertIn("--research-question must contain text", completed.stderr)
+        self.assertNotIn("Traceback", completed.stderr)
+
     def test_cli_accepts_multiple_inputs_and_central_theme(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -31,6 +61,8 @@ class CliTests(unittest.TestCase):
                     str(parent),
                     "--central-theme",
                     "accessibility parent burden",
+                    "--discovery-mode",
+                    "legacy",
                     "--out",
                     str(report),
                 ],

@@ -1,3 +1,4 @@
+"""Regression coverage for the explicitly selected historical lexical pipeline."""
 import unittest
 
 import themeforge.analysis as analysis
@@ -7,7 +8,7 @@ class ValidationAndMultiFileTests(unittest.TestCase):
     def _settings_with_central_theme(self, central_theme: str) -> AnalysisSettings:
         if "central_theme" not in AnalysisSettings.__dataclass_fields__:
             self.fail("AnalysisSettings.central_theme is required for focus-theme analysis")
-        return AnalysisSettings(
+        return AnalysisSettings(discovery_mode="legacy",
             theme_count=4,
             quotes_per_theme=0,
             min_theme_size=1,

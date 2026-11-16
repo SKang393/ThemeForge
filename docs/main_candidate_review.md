@@ -1,0 +1,24 @@
+# Review automatic candidates in the main app
+
+Open **Local candidate codebook** from the main ThemeForge window, then **Open saved review (JSON)**. No model or runtime is needed to review a saved codebook. Normal open/guided generation remains available and unchanged.
+
+## Start without technical setup
+
+For a saved review, open its JSON directly; model setup is unnecessary. For new suggestions, use **Choose saved model profile**, choose passages, then **2. Generate suggestions**. Manual runtime paths and hashes remain available under **Advanced: runtime paths and verification**; hiding those fields does not disable verification. **Save review (JSON)** saves reopenable work and **Export readable report** produces HTML. Save a new file after editing; original files are not overwritten.
+
+## Inspect, revise and keep a decision
+
+1. Select a candidate in **Codes and source evidence**. The wording and review history remain visible above the source pane. The source selector starts at **TARGET** each time you change candidates. **CONTEXT** entries show other source turns separately, with their own structural speaker labels, exact Unicode character offsets and source hashes. Adjacent context shown for review is not necessarily what the original model received. **Provenance / raw output** shows the selected source's recorded provenance and unchanged unit-linked calls, including saved experimental verdicts when supplied. Those verdicts do not approve or hide candidates.
+2. Compare who spoke with who is being addressed or reported. A source speaker can report another actor's preference or offer. A question is not automatically a personal experience. Check possibility versus commitment, intention versus action, conditions, frequency, and omissions. Imported headers establish source attribution only. Unknown and multiple-speaker attribution remain explicit.
+3. Choose **3. Review / correct selected code**. Enter your name or identifier and choose **researcher** or **assistant_development_review**. These are declared provenance, not authenticated identities. Review the exact source beside the existing wording editor. The **Actor, status and limits** tab holds optional reviewer notes, including valid alternatives and unresolved distinctions. Blank notes mean unassessed, not correct.
+4. Choose **accept**, **edit**, **reject** or **uncertain**, give a reason, and save. Use **edit** when changing label, claim or definition. A missing definition can be supplied explicitly as a reviewer revision; it never becomes a successful model definition. Reject and uncertain retain the candidate and evidence. AI accept/edit never becomes researcher approval.
+5. To separate a compound candidate, use the split option in this same editor. Supply two substantive parts and exact support IDs from the target pane. The original stays visible as **split_parent**. Each child needs its own review decision. Children share the same turn and do not add independent participants or recurrence. Qualifications and counterexamples must be selected explicitly for each part through **Edit evidence roles**; the parent selections remain intact.
+6. **Review source evidence** and **Edit evidence roles** retain their existing functions, now with named authorship. Changing wording or evidence makes any older decision **needs_review**. No highlight change proves a meaning is correct. Unselected sentences are not automatically qualifications or counterexamples.
+
+## Group and save
+
+Select 2 to 6 codes with completed definitions from at least two different source contents. In a codebook with recorded review decisions, each selected code needs a current accept/edit decision. Uncertain, rejected, stale and split-parent candidates remain inspectable but are excluded from this reviewed grouping action. Legacy drafts keep their existing explicit review-checkbox behavior until decisions are recorded.
+
+Use **Add category (no model)** to record a provisional shared relationship, member-specific contributions and limits. Member snapshots retain current review authorship and uncertainty. This is an analyst grouping, not an automatic discovery success or established interpretive theme. Source files are not verified participant identities. The optional experimental admission/checker tools remain opt-in; an old checker failure does not hide a candidate or silently decide for you.
+
+Export a fresh **JSON** before grouping and another afterward. JSON reopens the exact decisions, rejected/uncertain candidates, split lineage, raw calls and original prose. **HTML** provides a readable source-and-review report. Exports refuse to overwrite an existing file. The grouping checkbox resets on reopen; saved decisions are retained. Categories are add-only snapshots. To change member codes after grouping, reopen the saved pre-grouping JSON and save a new branch.

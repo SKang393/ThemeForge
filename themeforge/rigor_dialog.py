@@ -7,9 +7,10 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 import zipfile
 
-from .analysis_types import AnalysisResult, TranscriptDocument
+from .analysis_types import AnalyticIntent, AnalysisResult, TranscriptDocument
 from .audit import AuditEvent, export_audit_events_csv
 from .project_io import UnsupportedProjectFormatError, load_project
+from .exports import method_guidance
 from .rigor import (
     CodedProject,
     CoderLabels,
@@ -45,7 +46,9 @@ class RigorDialog(tk.Toplevel):
         self.report: IntercoderReliabilityReport | None = None
         self._comparison_project: CodedProject | None = None
         self._comparison_label = ""
+        self._comparison_intent: AnalyticIntent | None = None
         self.status = tk.StringVar(value="Choose a comparison .tfproj for intercoder reliability.")
+        self.method_note = tk.StringVar(value="")
         self.title("Rigor tools")
         self.minsize(900, 600)
         self.transient(master)
@@ -102,7 +105,10 @@ class RigorDialog(tk.Toplevel):
         ttk.Button(actions, text="Choose comparison project", command=self._choose_comparison).grid(row=0, column=0, sticky="w")
         ttk.Button(actions, text="Export reliability CSV", command=self._export_reliability).grid(row=0, column=1, padx=(8, 0))
         ttk.Button(actions, text="Export disagreements CSV", command=self._export_disagreements).grid(row=0, column=2, padx=(8, 0))
-        ttk.Label(tab, textvariable=self.status).grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        notes = ttk.Frame(tab)
+        notes.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        ttk.Label(notes, textvariable=self.status).pack(anchor="w")
+        ttk.Label(notes, textvariable=self.method_note, wraplength=840).pack(anchor="w", pady=(4, 0))
         self.reliability_tree = ttk.Treeview(
             tab,
             columns=("theme", "both", "current", "comparison", "neither", "agreement", "kappa", "warning"),
@@ -146,6 +152,7 @@ class RigorDialog(tk.Toplevel):
             self.report = None
             self._comparison_project = None
             self._comparison_label = ""
+            self._comparison_intent = None
             self._render_intercoder()
             self.status.set("Current project has no analysis result.")
             return
@@ -157,6 +164,25 @@ class RigorDialog(tk.Toplevel):
         self._render_matrix(self.source_matrix_tree, self.matrix_report.source_rows)
         self._render_matrix(self.speaker_matrix_tree, self.matrix_report.speaker_rows)
         self._render_audit()
+        self._refresh_method_note()
+
+    def _current_intent(self) -> AnalyticIntent:
+        return self.context.result.analytic_intent if self.context.result is not None else AnalyticIntent()
+
+    def _comparison_note(self) -> str:
+        notes = []
+        if self._comparison_intent and self._comparison_intent.methodology != self._current_intent().methodology:
+            notes.append("The projects use different methodologies; review their coding procedures before interpreting agreement.")
+        if self._comparison_project and self.context.result:
+            current = self.context.result.codebook_snapshot
+            comparison = self._comparison_project.result.codebook_snapshot
+            if current != comparison:
+                notes.append("The codebook snapshots differ; review definitions and versions before interpreting agreement.")
+        return " ".join(notes)
+
+    def _refresh_method_note(self) -> None:
+        intent = self._current_intent()
+        self.method_note.set(" ".join(part for part in (method_guidance(intent), self._comparison_note()) if part))
 
     def _render_matrix(self, tree: ttk.Treeview, rows: Sequence[MatrixCell]) -> None:
         self._clear_tree(tree)
@@ -187,6 +213,7 @@ class RigorDialog(tk.Toplevel):
         self.report = None
         self._comparison_project = None
         self._comparison_label = ""
+        self._comparison_intent = None
         self._render_intercoder()
         self.status.set("")
         path = Path(chosen)
@@ -196,6 +223,7 @@ class RigorDialog(tk.Toplevel):
                 self.status.set("Comparison project has no analysis result.")
                 return
             self._comparison_project = CodedProject(state.documents, state.result)
+            self._comparison_intent = state.result.analytic_intent
             self._comparison_label = _label(state.researcher_name, path.stem)
         except (UnsupportedProjectFormatError, OSError, zipfile.BadZipFile, KeyError, TypeError, ValueError) as exc:
             self.status.set(f"Could not load comparison project: {exc}")
@@ -204,6 +232,7 @@ class RigorDialog(tk.Toplevel):
             self.status.set(f"Compared {path.name}: {self.report.unit_count if self.report else 0} shared unit(s).")
 
     def _refresh_comparison(self) -> bool:
+        self._refresh_method_note()
         if self._comparison_project is None:
             return False
         try:
@@ -221,6 +250,7 @@ class RigorDialog(tk.Toplevel):
         return True
 
     def _render_intercoder(self) -> None:
+        self._refresh_method_note()
         self._clear_tree(self.reliability_tree)
         self._clear_tree(self.disagreement_tree)
         if self.report is None:
@@ -244,19 +274,19 @@ class RigorDialog(tk.Toplevel):
         if self.report is None:
             self.status.set("Choose a comparison project before exporting reliability.")
             return
-        self._export_text(export_reliability_csv(self.report), "intercoder-reliability.csv")
+        self._export_text(export_reliability_csv(self.report, analytic_intent=self._current_intent(), comparison_intent=self._comparison_intent, comparison_note=self._comparison_note()), "intercoder-reliability.csv")
 
     def _export_disagreements(self) -> None:
         self.refresh_current_state()
         if self.report is None:
             self.status.set("Choose a comparison project before exporting disagreements.")
             return
-        self._export_text(export_disagreements_csv(self.report), "intercoder-disagreements.csv")
+        self._export_text(export_disagreements_csv(self.report, analytic_intent=self._current_intent(), comparison_intent=self._comparison_intent, comparison_note=self._comparison_note()), "intercoder-disagreements.csv")
 
     def _export_matrix(self, axis_label: str) -> None:
         self.refresh_current_state()
         rows = self.matrix_report.source_rows if axis_label == "source" else self.matrix_report.speaker_rows
-        self._export_text(export_matrix_csv(rows, axis_label=axis_label), f"{axis_label}-matrix.csv")
+        self._export_text(export_matrix_csv(rows, axis_label=axis_label, analytic_intent=self._current_intent()), f"{axis_label}-matrix.csv")
 
     def _export_audit(self) -> None:
         self.refresh_current_state()

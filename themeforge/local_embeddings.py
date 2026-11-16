@@ -35,13 +35,15 @@ def local_embedding_vectors(texts: Sequence[str], language_mode: str) -> Embeddi
         )
 
     try:
-        return _encode_with_model(texts, model_name, SentenceTransformer)
-    except (OSError, RuntimeError):
+        def offline_factory(name: str) -> EmbeddingModel:
+            return SentenceTransformer(name, local_files_only=True, trust_remote_code=False)
+        return _encode_with_model(texts, model_name, offline_factory)
+    except (OSError, RuntimeError, ValueError, TypeError):
         return EmbeddingResult(
             vectors=[],
             note=(
                 f"Local embeddings unavailable; {model_name} is not in the local model cache yet. "
-                "TF-IDF clustering was used instead."
+                "The portable TF-IDF/lexical fallback was used instead; no download was attempted."
             ),
         )
 

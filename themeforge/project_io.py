@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import json
+from hashlib import sha256
 from pathlib import Path
 import zipfile
 
@@ -9,14 +10,16 @@ from .audit import AuditEvent
 from .analysis_types import (
     AnalysisResult,
     AnalysisSettings,
+    AnalyticIntent,
     CodebookEntry,
+    QuoteUnit,
     Theme,
     ThemeQuote,
     TranscriptDocument,
     ValidationValue,
 )
 
-PROJECT_FORMAT_VERSION = 2
+PROJECT_FORMAT_VERSION = 3
 PROJECT_JSON = "project.json"
 
 
@@ -45,7 +48,10 @@ def save_project(path: Path, state: ProjectState) -> None:
         "format_version": PROJECT_FORMAT_VERSION,
         "transcript_paths": [str(item) for item in state.transcript_paths],
         "codebook_path": str(state.codebook_path) if state.codebook_path is not None else None,
-        "documents": [asdict(document) for document in state.documents],
+        "documents": [
+            {**asdict(document), "source_hash": sha256(document.text.encode("utf-8")).hexdigest()}
+            for document in state.documents
+        ],
         "settings": _settings_to_json(state.settings),
         "result": _result_to_json(state.result),
         "researcher_name": state.researcher_name,
@@ -68,19 +74,25 @@ def load_project(path: Path) -> ProjectState:
             supported_version=PROJECT_FORMAT_VERSION,
         ) from None
     _reject_unsupported_format(format_version)
+    settings = _settings_from_json(payload.get("settings", {}), legacy=format_version < 3)
+    result = _result_from_json(payload.get("result"))
+    if result is not None and any(entry.code_id.startswith("legacy_row_") for entry in settings.codebook_entries):
+        notice = "Legacy codebook rows with duplicate identities were preserved with distinct IDs; review these rows before merging or recoding."
+        if notice not in result.notes:
+            result = replace(result, notes=[*result.notes, notice])
     return ProjectState(
         transcript_paths=tuple(Path(item) for item in payload.get("transcript_paths", [])),
         codebook_path=_optional_path(payload.get("codebook_path")),
         documents=tuple(_document_from_json(item) for item in payload.get("documents", []) if isinstance(item, dict)),
-        settings=_settings_from_json(payload.get("settings", {})),
-        result=_result_from_json(payload.get("result")),
+        settings=settings,
+        result=result,
         researcher_name=str(payload.get("researcher_name", "")),
         audit_events=tuple(_audit_event_from_json(item) for item in payload.get("audit_events", []) if isinstance(item, dict)),
     )
 
 
 def _reject_unsupported_format(format_version: int) -> None:
-    if format_version > PROJECT_FORMAT_VERSION:
+    if format_version < 1 or format_version > PROJECT_FORMAT_VERSION:
         raise UnsupportedProjectFormatError(format_version=format_version, supported_version=PROJECT_FORMAT_VERSION)
 
 
@@ -90,29 +102,20 @@ def _optional_path(value: str | None) -> Path | None:
     return Path(value)
 
 
-def _settings_to_json(settings: AnalysisSettings) -> dict[str, ValidationValue | list[dict[str, str | list[str]]]]:
-    return {
-        "theme_count": settings.theme_count,
-        "quotes_per_theme": settings.quotes_per_theme,
-        "min_theme_size": settings.min_theme_size,
-        "min_quote_words": settings.min_quote_words,
-        "agglomerative_limit": settings.agglomerative_limit,
-        "central_theme": settings.central_theme,
-        "semantic_backend": settings.semantic_backend,
-        "language_mode": settings.language_mode,
-        "codebook_entries": [
-            {
-                "name": entry.name,
-                "description": entry.description,
-                "examples": list(entry.examples),
-            }
-            for entry in settings.codebook_entries
-        ],
-    }
+def _settings_to_json(settings: AnalysisSettings) -> dict[str, object]:
+    return asdict(settings)
 
 
-def _settings_from_json(payload: dict[str, ValidationValue | list[dict[str, str | list[str]]]]) -> AnalysisSettings:
+def _settings_from_json(payload: dict[str, object], *, legacy: bool = False) -> AnalysisSettings:
     entries = payload.get("codebook_entries", [])
+    loaded_entries = [_codebook_entry_from_json(item) for item in entries if isinstance(item, dict)]
+    if legacy:
+        seen: set[str] = set()
+        for index, entry in enumerate(loaded_entries):
+            if entry.code_id in seen:
+                entry = replace(entry, code_id=f"legacy_row_{index + 1}_{entry.code_id}")
+                loaded_entries[index] = entry
+            seen.add(entry.code_id)
     return AnalysisSettings(
         theme_count=int(payload.get("theme_count", 8)),
         quotes_per_theme=int(payload.get("quotes_per_theme", 0)),
@@ -122,23 +125,56 @@ def _settings_from_json(payload: dict[str, ValidationValue | list[dict[str, str 
         central_theme=str(payload.get("central_theme", "")),
         semantic_backend=str(payload.get("semantic_backend", "tfidf")),
         language_mode=str(payload.get("language_mode", "Auto")),
-        codebook_entries=tuple(_codebook_entry_from_json(item) for item in entries if isinstance(item, dict)),
+        codebook_entries=tuple(loaded_entries),
+        analytic_intent=_intent_from_json(payload.get("analytic_intent", {})),
+        # Old projects keep their recorded workflow instead of silently adopting new semantics.
+        codebook_mode=str(payload.get("codebook_mode", "legacy")),
+        discovery_mode=str(payload.get("discovery_mode", "legacy")),
     )
 
 
-def _codebook_entry_from_json(payload: dict[str, str | list[str]]) -> CodebookEntry:
-    examples = payload.get("examples", [])
+def _intent_from_json(payload: object) -> AnalyticIntent:
+    if not isinstance(payload, dict):
+        raise ValueError("Analytic intent must be an object.")
+    return AnalyticIntent(
+        methodology=str(payload.get("methodology", "unspecified")),
+        coding_logic=str(payload.get("coding_logic", "unspecified")),
+        analytic_depth=str(payload.get("analytic_depth", "unspecified")),
+        research_questions=_strings_from_json(payload.get("research_questions", [])),
+        theoretical_lens=str(payload.get("theoretical_lens", "")),
+        researcher_memo=str(payload.get("researcher_memo", "")),
+        version=int(payload.get("version", 1)),
+    )
+
+
+def _strings_from_json(value: object) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        raise ValueError("Expected a JSON array of text values.")
+    return tuple(str(item) for item in value)
+
+
+def _codebook_entry_from_json(payload: dict[str, object]) -> CodebookEntry:
     return CodebookEntry(
         name=str(payload.get("name", "")),
         description=str(payload.get("description", "")),
-        examples=tuple(str(item) for item in examples) if isinstance(examples, list) else (),
+        examples=_strings_from_json(payload.get("examples", [])),
+        code_id=str(payload.get("code_id", "")),
+        version=int(payload.get("version", 1)),
+        inclusion_criteria=str(payload.get("inclusion_criteria", "")),
+        exclusion_criteria=str(payload.get("exclusion_criteria", "")),
+        negative_examples=_strings_from_json(payload.get("negative_examples", [])),
+        origin=str(payload.get("origin", "unspecified")),
     )
 
 
 def _document_from_json(payload: dict[str, object]) -> TranscriptDocument:  # noqa: OBJECT_OK - JSON boundary.
+    text = str(payload.get("text", ""))
+    expected_hash = payload.get("source_hash", "")
+    if expected_hash and expected_hash != sha256(text.encode("utf-8")).hexdigest():
+        raise ValueError(f"Cached transcript hash mismatch: {payload.get('name', '')}")
     return TranscriptDocument(
         name=str(payload.get("name", "")),
-        text=str(payload.get("text", "")),
+        text=text,
         memo=str(payload.get("memo", "")),
     )
 
@@ -175,6 +211,9 @@ def _result_from_json(payload: dict[str, object] | None) -> AnalysisResult | Non
             validation=_validation_from_json(theme.get("validation", {})),
             memo=str(theme.get("memo", "")),
             parent_theme_id=str(theme.get("parent_theme_id", "")),
+            code_id=str(theme.get("code_id", "")),
+            code_version=int(theme.get("code_version", 0)),
+            code_definition=_codebook_entry_from_json(theme["code_definition"]) if isinstance(theme.get("code_definition"), dict) else None,
         )
         for theme in payload.get("themes", [])
         if isinstance(theme, dict)
@@ -186,6 +225,15 @@ def _result_from_json(payload: dict[str, object] | None) -> AnalysisResult | Non
         themes=themes,
         notes=[str(item) for item in payload.get("notes", [])],
         validation_summary=[str(item) for item in payload.get("validation_summary", [])],
+        analytic_intent=_intent_from_json(payload.get("analytic_intent", {})),
+        codebook_mode=str(payload.get("codebook_mode", "legacy")),
+        codebook_snapshot=tuple(_codebook_entry_from_json(item) for item in payload.get("codebook_snapshot", [])),
+        evidence_units=tuple(_evidence_from_json(item) for item in payload.get("evidence_units", [])),
+        run_id=str(payload.get("run_id", "")),
+        source_hashes={str(key): str(value) for key, value in payload.get("source_hashes", {}).items()},
+        source_lengths={str(key): int(value) for key, value in payload.get("source_lengths", {}).items()},
+        analysis_parameters=_validation_from_json(payload.get("analysis_parameters", {})),
+        discovery=dict(payload.get("discovery", {})),
     )
 
 
@@ -201,6 +249,28 @@ def _quote_from_json(payload: dict[str, object]) -> ThemeQuote:  # noqa: OBJECT_
         source_start=int(payload.get("source_start", 0)),
         source_end=int(payload.get("source_end", 0)),
         memo=str(payload.get("memo", "")),
+        source_hash=str(payload.get("source_hash", "")),
+        context_start=int(payload.get("context_start", 0)),
+        context_end=int(payload.get("context_end", 0)),
+        context_text=str(payload.get("context_text", "")),
+    )
+
+
+def _evidence_from_json(payload: dict[str, object]) -> QuoteUnit:
+    return QuoteUnit(
+        id=str(payload.get("id", "")),
+        speaker=str(payload.get("speaker", "")),
+        text=str(payload.get("text", "")),
+        source_line=int(payload.get("source_line", 0)),
+        word_count=int(payload.get("word_count", 0)),
+        source_name=str(payload.get("source_name", "Transcript")),
+        source_start=int(payload.get("source_start", 0)),
+        source_end=int(payload.get("source_end", 0)),
+        source_hash=str(payload.get("source_hash", "")),
+        context_start=int(payload.get("context_start", 0)),
+        context_end=int(payload.get("context_end", 0)),
+        context_text=str(payload.get("context_text", "")),
+        exclusion_reason=str(payload.get("exclusion_reason", "")),
     )
 
 

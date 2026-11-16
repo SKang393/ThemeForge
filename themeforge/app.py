@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from hashlib import sha256
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -19,8 +20,9 @@ from .analysis import (
     analyze_documents,
 )
 from .audit import AuditEvent, create_audit_event
+from .analysis_types import AnalyticIntent, QuoteUnit
 from .codebook import load_codebook_entries
-from .exports import export_json, export_markdown, export_quotes_csv
+from .exports import export_json, export_markdown, export_quotes_csv, method_guidance
 from .io import load_transcript_text
 from .manual_editing import (
     EditHistory,
@@ -76,6 +78,9 @@ class ThemeForgeApp(tk.Tk):
         self.project_path: Path | None = None
         self.codebook_path: Path | None = None
         self.codebook_entries = ()
+        self._settings_baseline = AnalysisSettings()
+        self.analytic_intent = self._settings_baseline.analytic_intent
+        self.codebook_mode = self._settings_baseline.codebook_mode
         self.documents: list[TranscriptDocument] = []
         self.result: AnalysisResult | None = None
         self.audit_events: list[AuditEvent] = []
@@ -108,11 +113,39 @@ class ThemeForgeApp(tk.Tk):
         self.target_theme = tk.StringVar(value="")
         self.parent_theme = tk.StringVar(value="")
         self.semantic_mode = tk.StringVar(value="TF-IDF")
+        self.discovery_mode = tk.StringVar(value="auto")
         self.language_mode = tk.StringVar(value="Auto")
 
         self._configure_styles()
         self._build_layout()
         self._render_transcript_tabs()
+
+    def destroy(self):
+        """Keep Tk alive until explicitly owned dialog workers have stopped."""
+        from .review_branch_dialog import close_review_branches
+        if not close_review_branches(self):
+            return
+        poll = getattr(self, '_shutdown_poll', None)
+        if poll is not None:
+            self.after_cancel(poll)
+            self._shutdown_poll = None
+        active = []
+        def inspect(widget):
+            for child in widget.winfo_children():
+                worker = getattr(child, '_worker', None) or getattr(child, '_thread', None)
+                if hasattr(worker, 'is_alive') and worker.is_alive():
+                    active.append(child)
+                inspect(child)
+        inspect(self)
+        for child in active:
+            close = getattr(child, 'request_close', None) or getattr(child, 'close', None)
+            if callable(close):
+                close()
+        if active:
+            self.withdraw()
+            self._shutdown_poll = self.after(50, self.destroy)
+            return
+        super().destroy()
 
     def _configure_styles(self) -> None:
         self.configure(background=self.palette["background"])
@@ -215,7 +248,7 @@ class ThemeForgeApp(tk.Tk):
         controls.columnconfigure(0, weight=1)
         self._build_controls(controls)
 
-        themes = ttk.Labelframe(workspace, text="Themes", style="Panel.TLabelframe", padding=(14, 12))
+        themes = ttk.Labelframe(workspace, text="Codes / themes", style="Panel.TLabelframe", padding=(14, 12))
         themes.grid(row=0, column=1, sticky="nsew", padx=(0, 12))
         themes.columnconfigure(0, weight=1)
         themes.rowconfigure(1, weight=1)
@@ -259,7 +292,15 @@ class ThemeForgeApp(tk.Tk):
         ttk.Label(parent, text="Coder name", style="Panel.TLabel").grid(row=8, column=0, sticky="w")
         ttk.Entry(parent, textvariable=self.researcher_name).grid(row=9, column=0, sticky="ew", pady=(4, 14))
 
-        ttk.Separator(parent).grid(row=10, column=0, sticky="ew", pady=(0, 16))
+        setup_buttons = ttk.Frame(parent, style="Surface.TFrame")
+        setup_buttons.grid(row=10, column=0, sticky="ew", pady=(0, 14))
+        setup_buttons.columnconfigure((0, 1), weight=1)
+        ttk.Button(setup_buttons, text="Analysis setup", command=self.open_analysis_setup).grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        ttk.Button(setup_buttons, text="Evidence review", command=self.open_evidence_review).grid(row=0, column=1, sticky="ew")
+        ttk.Button(setup_buttons, text="Local candidate codebook", command=self.open_local_codebook).grid(row=1, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        ttk.Button(setup_buttons, text="Candidate source neighbors", command=self.open_source_neighbors).grid(row=2, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        ttk.Button(setup_buttons, text="Whole-study coding queue", command=self.open_study_coding).grid(row=3, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        ttk.Button(setup_buttons, text="Review candidate dataset", command=self.open_candidate_dataset).grid(row=4, column=0, columnspan=2, sticky="ew", pady=(6, 0))
 
         ttk.Label(parent, text="Shared focus topic", style="Panel.TLabel").grid(row=11, column=0, sticky="w")
         ttk.Entry(parent, textvariable=self.central_theme).grid(row=12, column=0, sticky="ew", pady=(4, 14))
@@ -268,7 +309,7 @@ class ThemeForgeApp(tk.Tk):
         option_row.grid(row=13, column=0, sticky="ew", pady=(0, 14))
         option_row.columnconfigure(0, weight=1)
         option_row.columnconfigure(1, weight=1)
-        ttk.Label(option_row, text="Theme model", style="Panel.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(option_row, text="Evidence similarity", style="Panel.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(option_row, text="Language", style="Panel.TLabel").grid(row=0, column=1, sticky="w", padx=(10, 0))
         ttk.Combobox(
             option_row,
@@ -284,13 +325,15 @@ class ThemeForgeApp(tk.Tk):
             state="readonly",
             width=14,
         ).grid(row=1, column=1, sticky="ew", padx=(10, 0), pady=(4, 0))
+        ttk.Label(option_row, text="Discovery: auto uses context when supplied", style="Muted.TLabel", wraplength=220).grid(row=2, column=0, columnspan=2, sticky="w", pady=(9, 2))
+        ttk.Combobox(option_row, textvariable=self.discovery_mode, values=("auto", "open", "guided", "legacy"), state="readonly").grid(row=3, column=0, columnspan=2, sticky="ew")
 
         count_row = ttk.Frame(parent, style="Surface.TFrame")
         count_row.grid(row=14, column=0, sticky="ew")
         count_row.columnconfigure(0, weight=1)
         count_row.columnconfigure(1, weight=1)
 
-        ttk.Label(count_row, text="Themes", style="Panel.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(count_row, text="Candidate cap", style="Panel.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(count_row, text="Quotes", style="Panel.TLabel").grid(row=0, column=1, sticky="w", padx=(10, 0))
         ttk.Spinbox(count_row, from_=1, to=20, width=6, textvariable=self.theme_count).grid(row=1, column=0, sticky="ew", pady=(4, 0))
         ttk.Spinbox(count_row, from_=0, to=200, width=6, textvariable=self.quotes_per_theme).grid(row=1, column=1, sticky="ew", padx=(10, 0), pady=(4, 0))
@@ -566,6 +609,8 @@ class ThemeForgeApp(tk.Tk):
             quote_count=self.result.quote_count,
             theme_count=len(self.result.themes),
         )
+        if self.result.discovery:
+            status = f"{len(self.result.themes)} candidate codes; {self.result.quote_count} eligible meaning units. Export HTML for categories, qualifications and unassigned evidence."
         self.theme_summary.set(status)
         self._record_audit_event(
             "analysis_run",
@@ -755,12 +800,16 @@ class ThemeForgeApp(tk.Tk):
     def _apply_selection_coding(self, selection: ManualSelection, target_theme_id: str, new_theme_name: str) -> None:
         if self.result is None:
             return
-        updated = code_selected_text(
-            self.result,
-            target_theme_id,
-            selection,
-            new_theme_name,
-        )
+        try:
+            updated = code_selected_text(
+                self.result,
+                target_theme_id,
+                selection,
+                new_theme_name,
+            )
+        except ValueError as exc:
+            self.status_text.set(f"Could not code the passage: {exc}")
+            return
         if updated == self.result:
             return
         self.edit_history = self.edit_history.record(self.result)
@@ -874,6 +923,10 @@ class ThemeForgeApp(tk.Tk):
         if theme is None or passage is None:
             self.status_text.set("Select a suggested passage first")
             return
+        document = next((item for item in self.documents if item.name == passage.source_name), None)
+        if document is None:
+            self.status_text.set("The suggested passage source is unavailable")
+            return
         self._apply_selection_coding(
             ManualSelection(
                 source_name=passage.source_name,
@@ -882,6 +935,7 @@ class ThemeForgeApp(tk.Tk):
                 source_start=passage.source_start,
                 source_end=passage.source_end,
                 speaker=passage.speaker,
+                source_text=document.text,
             ),
             theme.id,
             "",
@@ -914,7 +968,11 @@ class ThemeForgeApp(tk.Tk):
             self.status_text.set("Select a quote and transcript text first")
             return
         theme_id = self.result.themes[self.current_theme_index].id
-        updated = update_quote_boundary(self.result, theme_id, match.quote.quote_id, selection)
+        try:
+            updated = update_quote_boundary(self.result, theme_id, match.quote.quote_id, selection)
+        except ValueError as exc:
+            self.status_text.set(f"Could not update the quote boundary: {exc}")
+            return
         if updated == self.result:
             return
         self.edit_history = self.edit_history.record(self.result)
@@ -1042,6 +1100,10 @@ class ThemeForgeApp(tk.Tk):
         self.input_paths = list(state.transcript_paths)
         self.codebook_path = state.codebook_path
         self.codebook_entries = state.settings.codebook_entries
+        self._settings_baseline = state.settings
+        self.discovery_mode.set(state.settings.discovery_mode)
+        self.analytic_intent = state.settings.analytic_intent
+        self.codebook_mode = state.settings.codebook_mode
         self.documents = list(state.documents)
         self.result = state.result
         self.researcher_name.set(state.researcher_name)
@@ -1182,14 +1244,83 @@ class ThemeForgeApp(tk.Tk):
         return "tfidf"
 
     def _analysis_settings(self) -> AnalysisSettings:
-        return AnalysisSettings(
+        return replace(
+            self._settings_baseline,
             theme_count=max(1, int(self.theme_count.get())),
             quotes_per_theme=max(0, int(self.quotes_per_theme.get())),
             central_theme=self.central_theme.get().strip(),
             semantic_backend=self._semantic_backend(),
             language_mode=self.language_mode.get(),
             codebook_entries=self.codebook_entries,
+            analytic_intent=self.analytic_intent,
+            codebook_mode=self.codebook_mode,
+            discovery_mode=self.discovery_mode.get(),
         )
+
+    def open_analysis_setup(self) -> None:
+        AnalysisSetupDialog(self)
+
+    def open_source_neighbors(self, packet=None):
+        from .neighbor_dialog import NeighborDialog
+        return NeighborDialog(self, packet)
+
+    def open_local_codebook(self):
+        from .local_codebook_dialog import LocalCodebookDialog
+        return LocalCodebookDialog(self, tuple(self.documents), research_questions=self.analytic_intent.research_questions,
+                                   prompt_variant="grounded-v6", speaker_label_policy="explicit_roles")
+
+    def open_study_coding(self):
+        from .study_dialog import StudyDialog
+        return StudyDialog(self, tuple(self.documents), research_questions=self.analytic_intent.research_questions)
+
+    def open_candidate_dataset(self, packet=None):
+        from .candidate_review_dialog import CandidateReviewDialog
+        return CandidateReviewDialog(self, packet)
+
+    def _apply_analytic_settings(self, intent: AnalyticIntent, codebook_mode: str) -> bool:
+        candidate = replace(intent, version=self.analytic_intent.version)
+        if candidate == self.analytic_intent and codebook_mode == self.codebook_mode:
+            return False
+        candidate = replace(candidate, version=self.analytic_intent.version + 1)
+        replace(self._analysis_settings(), analytic_intent=candidate, codebook_mode=codebook_mode)
+        self.analytic_intent = candidate
+        self.codebook_mode = codebook_mode
+        self._record_audit_event(
+            "analytic_intent_updated", "analysis", str(candidate.version),
+            f"methodology={candidate.methodology}; logic={candidate.coding_logic}; depth={candidate.analytic_depth}; codebook_mode={codebook_mode}",
+        )
+        self._set_manual_status("Analysis setup saved; run analysis to apply it to suggestions")
+        return True
+
+    def open_evidence_review(self) -> None:
+        if self.result is None or not self.result.evidence_units:
+            messagebox.showinfo("Evidence review", "Run analysis to record exact evidence units and exclusion reasons.")
+            return
+        EvidenceReviewDialog(self)
+
+    def _select_evidence_unit(self, unit: QuoteUnit) -> bool:
+        document = next((item for item in self.documents if item.name == unit.source_name), None)
+        widget = self.transcript_widgets.get(unit.source_name)
+        if document is None or widget is None:
+            self.status_text.set("The evidence source is unavailable")
+            return False
+        if (
+            unit.source_start < 0 or unit.source_end <= unit.source_start or unit.source_end > len(document.text)
+            or document.text[unit.source_start:unit.source_end] != unit.text
+            or (unit.source_hash and sha256(document.text.encode("utf-8")).hexdigest() != unit.source_hash)
+        ):
+            self.status_text.set("Evidence does not match this source version; rerun analysis")
+            return False
+        for other in self.transcript_widgets.values():
+            other.tag_remove(tk.SEL, "1.0", tk.END)
+        start, end = f"1.0 + {unit.source_start} chars", f"1.0 + {unit.source_end} chars"
+        widget.tag_add(tk.SEL, start, end)
+        widget.see(start)
+        self.transcript_notebook.select(self.transcript_frames[unit.source_name])
+        widget.focus_set()
+        self.quote_reason.set(f"Evidence review: {unit.exclusion_reason or 'eligible for suggestions'}. Context remains separate from the selected passage.")
+        self.status_text.set("Passage selected for review; use the manual coding controls to assign a theme")
+        return True
 
     def _selected_similar_passage(self) -> SimilarPassage | None:
         selection = self.similar_list.curselection()
@@ -1228,15 +1359,22 @@ class ThemeForgeApp(tk.Tk):
                 end = widget.index(tk.SEL_LAST)
             except tk.TclError:
                 continue
-            text = widget.get(start, end).strip()
+            raw_text = widget.get(start, end)
+            text = raw_text.strip()
             if not text:
+                return None
+            source_start = len(widget.get("1.0", start)) + len(raw_text) - len(raw_text.lstrip())
+            document = next((item for item in self.documents if item.name == source_name), None)
+            if document is None or document.text[source_start:source_start + len(text)] != text:
+                self.status_text.set("The selected passage does not match the current transcript")
                 return None
             return ManualSelection(
                 source_name=source_name,
                 text=text,
-                source_line=int(start.split(".", 1)[0]),
-                source_start=int(widget.count("1.0", start, "chars")[0]),
-                source_end=int(widget.count("1.0", end, "chars")[0]),
+                source_line=document.text.count("\n", 0, source_start) + 1,
+                source_start=source_start,
+                source_end=source_start + len(text),
+                source_text=document.text,
             )
         return None
 
@@ -1374,6 +1512,7 @@ class ThemeForgeApp(tk.Tk):
                 ("Markdown report", "*.md"),
                 ("Quote table CSV", "*.csv"),
                 ("JSON data", "*.json"),
+                ("Candidate codebook HTML", "*.html"),
             ],
         )
         if not path:
@@ -1385,6 +1524,12 @@ class ThemeForgeApp(tk.Tk):
             output = export_quotes_csv(self.result)
         elif suffix == ".json":
             output = export_json(self.result)
+        elif suffix == ".html":
+            if not self.result.discovery:
+                messagebox.showinfo("Discovery report", "Choose open or guided discovery without an imported codebook for a candidate-codebook HTML report.")
+                return
+            from .discovery_exports import export_discovery_html
+            output = export_discovery_html(self.result)
         else:
             output = export_markdown(self.result)
 
@@ -1600,11 +1745,21 @@ class ThemeForgeApp(tk.Tk):
         if widget is None:
             return None
 
+        if quote.source_hash:
+            source_text = widget.get("1.0", "end-1c")
+            if (sha256(source_text.encode("utf-8")).hexdigest() != quote.source_hash
+                or quote.source_start < 0 or quote.source_end > len(source_text)
+                or source_text[quote.source_start:quote.source_end] != quote.text):
+                return None
+
         offset_start = f"1.0 + {quote.source_start} chars"
         if quote.source_end > quote.source_start:
             offset_end = f"1.0 + {quote.source_end} chars"
             if widget.get(offset_start, offset_end) == quote.text:
                 return widget, offset_start, offset_end
+
+        if quote.source_hash:
+            return None
 
         starts = [offset_start, f"{max(1, quote.source_line)}.0", "1.0"]
         snippets = [quote.text]
@@ -1677,6 +1832,153 @@ class ThemeForgeApp(tk.Tk):
 
     def _theme_tag(self, theme: Theme) -> str:
         return f"theme_{theme.id}"
+
+
+class AnalysisSetupDialog(tk.Toplevel):
+    """Edit future analysis settings without relabeling a completed run."""
+
+    def __init__(self, app: ThemeForgeApp) -> None:
+        super().__init__(app)
+        self.app = app
+        self.title("Analysis setup")
+        self.transient(app)
+        self.minsize(650, 620)
+        self.columnconfigure(1, weight=1)
+        self.rowconfigure(5, weight=1)
+        self.rowconfigure(9, weight=1)
+        intent = app.analytic_intent
+        self.methodology = tk.StringVar(self, value=self._display(intent.methodology))
+        self.logic = tk.StringVar(self, value=self._display(intent.coding_logic))
+        self.depth = tk.StringVar(self, value=self._display(intent.analytic_depth))
+        self.mode = tk.StringVar(self, value=self._display(app.codebook_mode))
+        fields = (
+            ("Methodology", self.methodology, ("unspecified", "reflexive", "codebook", "coding_reliability")),
+            ("Coding logic", self.logic, ("unspecified", "inductive", "deductive", "hybrid")),
+            ("Analytic depth", self.depth, ("unspecified", "semantic", "latent", "both")),
+            ("Codebook workflow", self.mode, ("codebook_only", "hybrid", "legacy")),
+        )
+        for row, (label, variable, choices) in enumerate(fields):
+            ttk.Label(self, text=label).grid(row=row, column=0, sticky="w", padx=12, pady=5)
+            ttk.Combobox(self, textvariable=variable, values=tuple(self._display(value) for value in choices), state="readonly").grid(row=row, column=1, sticky="ew", padx=12, pady=5)
+        ttk.Label(self, text="Research questions (one per line)").grid(row=4, column=0, columnspan=2, sticky="w", padx=12, pady=(8, 2))
+        self.questions = self._text_field(5, "\n".join(intent.research_questions), 3)
+        ttk.Label(self, text="Theoretical lens or framework").grid(row=6, column=0, columnspan=2, sticky="w", padx=12, pady=(8, 2))
+        self.lens = self._text_field(7, intent.theoretical_lens, 2)
+        ttk.Label(self, text="Analytic / reflexive memo").grid(row=8, column=0, columnspan=2, sticky="w", padx=12, pady=(8, 2))
+        self.memo = self._text_field(9, intent.researcher_memo, 3)
+        self.guidance = tk.StringVar(self, value=method_guidance(intent))
+        ttk.Label(self, textvariable=self.guidance, wraplength=610).grid(row=10, column=0, columnspan=2, sticky="ew", padx=12, pady=(10, 4))
+        self.methodology.trace_add("write", self._update_guidance)
+        ttk.Label(self, text="Without a codebook, Auto uses open discovery or research-context-guided ranking. Open ignores context; Guided requires it. Imported codebooks use the separate assignment workflow. Depth and lens do not create automatic latent interpretations.", wraplength=610).grid(row=11, column=0, columnspan=2, sticky="ew", padx=12, pady=4)
+        buttons = ttk.Frame(self)
+        buttons.grid(row=12, column=0, columnspan=2, sticky="e", padx=12, pady=12)
+        ttk.Button(buttons, text="Cancel", command=self.destroy).grid(row=0, column=0, padx=6)
+        ttk.Button(buttons, text="Save setup", command=self._save).grid(row=0, column=1)
+
+    @staticmethod
+    def _display(value: str) -> str:
+        return value.replace("_", " ").capitalize()
+
+    @staticmethod
+    def _value(variable: tk.StringVar) -> str:
+        return variable.get().lower().replace(" ", "_")
+
+    def _text_field(self, row: int, content: str, height: int) -> tk.Text:
+        widget = tk.Text(self, height=height, width=68, wrap="word")
+        widget.grid(row=row, column=0, columnspan=2, sticky="nsew", padx=12)
+        widget.insert("1.0", content)
+        return widget
+
+    def _update_guidance(self, *_args: str) -> None:
+        self.guidance.set(method_guidance(replace(self.app.analytic_intent, methodology=self._value(self.methodology))))
+
+    def _save(self) -> None:
+        try:
+            intent = AnalyticIntent(
+                methodology=self._value(self.methodology),
+                coding_logic=self._value(self.logic),
+                analytic_depth=self._value(self.depth),
+                research_questions=tuple(line.strip() for line in self.questions.get("1.0", tk.END).splitlines() if line.strip()),
+                theoretical_lens=self.lens.get("1.0", tk.END).strip(),
+                researcher_memo=self.memo.get("1.0", tk.END).strip(),
+                version=self.app.analytic_intent.version,
+            )
+            self.app._apply_analytic_settings(intent, self._value(self.mode))
+        except (ValueError, tk.TclError) as exc:
+            messagebox.showerror("Invalid analysis setup", str(exc), parent=self)
+            return
+        self.destroy()
+
+
+class EvidenceReviewDialog(tk.Toplevel):
+    """Review retained evidence, including units omitted from suggestions."""
+
+    def __init__(self, app: ThemeForgeApp) -> None:
+        super().__init__(app)
+        self.app = app
+        self.units = tuple(app.result.evidence_units) if app.result else ()
+        self.visible_units: tuple[QuoteUnit, ...] = ()
+        self.title("Evidence review")
+        self.transient(app)
+        self.minsize(850, 620)
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)
+        self.rowconfigure(2, weight=1)
+        controls = ttk.Frame(self)
+        controls.grid(row=0, column=0, sticky="ew", padx=12, pady=10)
+        self.excluded_only = tk.BooleanVar(self, value=any(unit.exclusion_reason for unit in self.units))
+        ttk.Checkbutton(controls, text="Only units excluded from suggestions", variable=self.excluded_only, command=self._populate).grid(row=0, column=0, sticky="w")
+        self.summary = tk.StringVar(self)
+        ttk.Label(controls, textvariable=self.summary).grid(row=0, column=1, padx=20)
+        self.tree = ttk.Treeview(self, columns=("source", "speaker", "reason", "preview"), show="headings", selectmode="browse")
+        for name, width in (("source", 150), ("speaker", 100), ("reason", 210), ("preview", 320)):
+            self.tree.heading(name, text=name.capitalize())
+            self.tree.column(name, width=width, minwidth=70)
+        self.tree.grid(row=1, column=0, sticky="nsew", padx=(12, 0))
+        scroll = ttk.Scrollbar(self, orient="vertical", command=self.tree.yview)
+        scroll.grid(row=1, column=1, sticky="ns", padx=(0, 12))
+        self.tree.configure(yscrollcommand=scroll.set)
+        self.tree.bind("<<TreeviewSelect>>", self._show_unit)
+        self.detail = tk.Text(self, height=12, wrap="word", state="disabled")
+        self.detail.grid(row=2, column=0, columnspan=2, sticky="nsew", padx=12, pady=10)
+        ttk.Button(self, text="Select passage in transcript for manual coding", command=self._select_in_transcript).grid(row=3, column=0, columnspan=2, sticky="e", padx=12, pady=(0, 12))
+        self._populate()
+
+    def _populate(self) -> None:
+        self.visible_units = tuple(unit for unit in self.units if unit.exclusion_reason or not self.excluded_only.get())
+        self.tree.delete(*self.tree.get_children())
+        for index, unit in enumerate(self.visible_units):
+            self.tree.insert("", tk.END, iid=str(index), values=(unit.source_name, unit.speaker, unit.exclusion_reason or "Eligible", " ".join(unit.text.split())[:110]))
+        self.summary.set(f"{len(self.visible_units)} of {len(self.units)} units")
+        if self.visible_units:
+            self.tree.selection_set("0")
+        self._show_unit()
+
+    def _selected(self) -> QuoteUnit | None:
+        selected = self.tree.selection()
+        return self.visible_units[int(selected[0])] if selected else None
+
+    def _show_unit(self, _event: tk.Event | None = None) -> None:
+        unit = self._selected()
+        content = "No units match this filter."
+        if unit is not None:
+            content = (
+                f"Source: {unit.source_name} | Speaker: {unit.speaker} | Line: {unit.source_line}\n"
+                f"Exact offsets: {unit.source_start}:{unit.source_end} | ID: {unit.id}\n"
+                f"Source SHA-256: {unit.source_hash or 'Unavailable'}\n"
+                f"Suggestion status: {unit.exclusion_reason or 'Eligible'}\n\n"
+                f"Target passage:\n{unit.text}\n\n"
+                f"Separate context ({unit.context_start}:{unit.context_end}), which may include other speakers:\n{unit.context_text}"
+            )
+        self.detail.configure(state="normal")
+        self.detail.delete("1.0", tk.END)
+        self.detail.insert("1.0", content)
+        self.detail.configure(state="disabled")
+
+    def _select_in_transcript(self) -> None:
+        unit = self._selected()
+        if unit is not None and self.app._select_evidence_unit(unit):
+            self.destroy()
 
 
 def _blend_hex(foreground: str, background: str, alpha: float) -> str:

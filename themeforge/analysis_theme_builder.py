@@ -63,6 +63,10 @@ def build_themes(
                     ),
                     source_start=quotes[index].source_start,
                     source_end=quotes[index].source_end,
+                    source_hash=quotes[index].source_hash,
+                    context_start=quotes[index].context_start,
+                    context_end=quotes[index].context_end,
+                    context_text=quotes[index].context_text,
                 )
                 for index in cluster
             ),
@@ -99,6 +103,18 @@ def validation_summary(settings: AnalysisSettings) -> list[str]:
         "Validation checks include evidence count, source coverage, speaker coverage, central-theme alignment, and an explicit review status.",
         "Research basis: thematic analysis is treated as an iterative researcher-led process with traceable quote evidence, not an automated finding generator.",
     ]
+    intent = settings.analytic_intent
+    lines.append(f"Analytic intent v{intent.version}: methodology={intent.methodology}; logic={intent.coding_logic}; depth={intent.analytic_depth}.")
+    if intent.methodology == "reflexive":
+        lines.append("Reflexive TA: assess research-question relevance, interpretive coherence, supporting and contrasting evidence, and researcher reflexivity. Intercoder agreement is not a validity grade.")
+    elif intent.methodology == "coding_reliability":
+        lines.append("Coding reliability: use independent coding, fixed shared units, and a reviewed codebook version. Report per-code agreement and prevalence; machine agreement is not independent human agreement.")
+    elif intent.methodology == "codebook":
+        lines.append("Codebook TA: review definitions, case comparisons, revision history, and evidence boundaries. Use agreement statistics only when the study design calls for them.")
+    else:
+        lines.append("Methodology is unspecified. Select an approach before interpreting quality measures.")
+    if intent.analytic_depth in {"latent", "both"}:
+        lines.append("Latent readings require researcher interpretation, an explicit theoretical lens, and consideration of alternative accounts; similarity scores do not establish latent meaning.")
     if settings.central_theme.strip():
         lines.append(
             f"Central theme applied as a deductive priority: {settings.central_theme.strip()}."
@@ -128,6 +144,8 @@ def theme_validation(
             3,
         ),
         "review_status": "Researcher review required",
+        "score_kind": "cluster_cohesion",
+        "origin": "discovery_candidate",
     }
 
 

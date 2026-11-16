@@ -1,3 +1,4 @@
+"""Regression coverage for the explicitly selected historical lexical pipeline."""
 import unittest
 from unittest.mock import patch
 
@@ -40,7 +41,7 @@ class ThematicAnalysisTests(unittest.TestCase):
     def test_analyze_transcript_discovers_themes_with_ranked_quotes(self):
         result = analyze_transcript(
             SAMPLE_TRANSCRIPT,
-            AnalysisSettings(theme_count=3, quotes_per_theme=2, min_theme_size=1),
+            AnalysisSettings(discovery_mode="legacy", theme_count=3, quotes_per_theme=2, min_theme_size=1),
         )
 
         self.assertEqual(result.version, __version__)
@@ -66,7 +67,7 @@ class ThematicAnalysisTests(unittest.TestCase):
     def test_export_markdown_contains_theme_quote_and_researcher_warning(self):
         result = analyze_transcript(
             SAMPLE_TRANSCRIPT,
-            AnalysisSettings(theme_count=2, quotes_per_theme=1, min_theme_size=1),
+            AnalysisSettings(discovery_mode="legacy", theme_count=2, quotes_per_theme=1, min_theme_size=1),
         )
 
         markdown = export_markdown(result)
@@ -86,7 +87,7 @@ class ThematicAnalysisTests(unittest.TestCase):
 
         result = analyze_transcript(
             transcript,
-            AnalysisSettings(
+            AnalysisSettings(discovery_mode="legacy",
                 theme_count=4,
                 quotes_per_theme=2,
                 min_theme_size=1,
@@ -101,7 +102,7 @@ class ThematicAnalysisTests(unittest.TestCase):
     def test_autism_4h_corpus_uses_normal_clustering_path(self):
         result = analyze_transcript(
             ASD_4H_TRANSCRIPT,
-            AnalysisSettings(theme_count=5, quotes_per_theme=1, min_theme_size=1),
+            AnalysisSettings(discovery_mode="legacy", theme_count=5, quotes_per_theme=1, min_theme_size=1),
         )
 
         self.assertTrue(result.themes)
@@ -117,7 +118,7 @@ class ThematicAnalysisTests(unittest.TestCase):
         ):
             result = analyze_transcript(
                 SAMPLE_TRANSCRIPT,
-                AnalysisSettings(
+                AnalysisSettings(discovery_mode="legacy",
                     theme_count=3,
                     quotes_per_theme=1,
                     min_theme_size=1,
@@ -137,7 +138,7 @@ Participant 3: Cognitive load was lower when instructions were predictable and a
 
         result = analyze_transcript(
             transcript,
-            AnalysisSettings(theme_count=3, quotes_per_theme=0, min_theme_size=1),
+            AnalysisSettings(discovery_mode="legacy", theme_count=3, quotes_per_theme=0, min_theme_size=1),
         )
 
         labels = {theme.name for theme in result.themes}

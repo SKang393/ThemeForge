@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 import math
 from statistics import mean
+from .text_utils import normalize_for_match
 
 from .analysis import (
     AnalysisSettings,
@@ -49,7 +50,7 @@ def build_codebook_themes(
             continue
         themes.append(
             Theme(
-                id=f"C{index:02d}",
+                id=f"C:{entry.code_id}",
                 name=entry.name,
                 color=_theme_color(index),
                 keywords=_codebook_keywords(entry, speaker_stopwords),
@@ -57,6 +58,9 @@ def build_codebook_themes(
                 score=round(mean(quote.relevance for quote in ranked_quotes), 3),
                 quotes=_limit_theme_quotes(ranked_quotes, settings.quotes_per_theme),
                 validation=_codebook_validation(ranked_quotes),
+                code_id=entry.code_id,
+                code_version=entry.version,
+                code_definition=entry,
             )
         )
     return themes
@@ -71,7 +75,10 @@ def _rank_codebook_quotes(
     settings: AnalysisSettings,
 ) -> list[ThemeQuote]:
     ranked: list[ThemeQuote] = []
+    negative_examples = {normalize_for_match(example) for example in entry.negative_examples if example.strip()}
     for quote, terms in zip(quotes, term_documents, strict=True):
+        if normalize_for_match(quote.text) in negative_examples:
+            continue
         raw_score = _weighted_bm25_score(Counter(terms), len(terms), profile, query_weights)
         relevance = round(min(1.0, 1.0 - math.exp(-raw_score / 1.8)), 3)
         if relevance <= 0:
@@ -87,6 +94,10 @@ def _rank_codebook_quotes(
                 rationale=_codebook_rationale(entry, quote.text, relevance, settings.central_theme),
                 source_start=quote.source_start,
                 source_end=quote.source_end,
+                source_hash=quote.source_hash,
+                context_start=quote.context_start,
+                context_end=quote.context_end,
+                context_text=quote.context_text,
             )
         )
     return sorted(ranked, key=lambda quote: (-quote.relevance, quote.source_name, quote.source_line, quote.quote_id))
@@ -110,6 +121,8 @@ def _codebook_validation(quotes: list[ThemeQuote]) -> dict[str, ValidationValue]
         "speaker_count": len(speakers),
         "central_theme_alignment": 0.0,
         "review_status": "Codebook match requires researcher review",
+        "score_kind": "lexical_relevance",
+        "origin": "codebook",
     }
 
 

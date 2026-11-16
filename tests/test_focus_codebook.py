@@ -1,3 +1,4 @@
+"""Regression coverage for the explicitly selected historical lexical pipeline."""
 import unittest
 
 from themeforge.analysis import AnalysisSettings, CodebookEntry, analyze_transcript
@@ -17,7 +18,7 @@ class FocusAndCodebookTests(unittest.TestCase):
 
         result = analyze_transcript(
             transcript,
-            AnalysisSettings(theme_count=5, quotes_per_theme=2, min_theme_size=1, central_theme="curriculum"),
+            AnalysisSettings(discovery_mode="legacy", theme_count=5, quotes_per_theme=2, min_theme_size=1, central_theme="curriculum"),
         )
 
         generated_text = " ".join(
@@ -45,7 +46,7 @@ class FocusAndCodebookTests(unittest.TestCase):
 
         result = analyze_transcript(
             transcript,
-            AnalysisSettings(theme_count=4, quotes_per_theme=1, min_theme_size=1, central_theme="curriculum"),
+            AnalysisSettings(discovery_mode="legacy", theme_count=4, quotes_per_theme=1, min_theme_size=1, central_theme="curriculum"),
         )
 
         by_text = {
@@ -74,7 +75,7 @@ class FocusAndCodebookTests(unittest.TestCase):
 
         result = analyze_transcript(
             transcript,
-            AnalysisSettings(
+            AnalysisSettings(discovery_mode="legacy",
                 theme_count=3,
                 quotes_per_theme=2,
                 min_theme_size=1,

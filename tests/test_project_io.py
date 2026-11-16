@@ -13,7 +13,7 @@ from themeforge.analysis import (
     TranscriptDocument,
 )
 from themeforge.audit import AuditEvent
-from themeforge.project_io import ProjectState, UnsupportedProjectFormatError, load_project, save_project
+from themeforge.project_io import PROJECT_FORMAT_VERSION, ProjectState, UnsupportedProjectFormatError, load_project, save_project
 
 
 class ProjectIoTests(unittest.TestCase):
@@ -133,7 +133,7 @@ class ProjectIoTests(unittest.TestCase):
                 payload = json.loads(archive.read("project.json").decode("utf-8"))
             loaded = load_project(path)
 
-        self.assertEqual(payload["format_version"], 2)
+        self.assertEqual(payload["format_version"], PROJECT_FORMAT_VERSION)
         self.assertEqual(loaded.researcher_name, "Dr. 한")
         self.assertEqual(loaded.audit_events, (event,))
 
