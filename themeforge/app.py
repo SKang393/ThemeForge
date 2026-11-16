@@ -526,12 +526,17 @@ class ThemeForgeApp(tk.Tk):
             return
 
         try:
-            self.input_paths = [Path(path) for path in paths]
-            self.documents = self._load_documents(self.input_paths)
+            input_paths = [Path(path) for path in paths]
+            documents = self._load_documents(input_paths)
         except (OSError, ValueError, zipfile.BadZipFile) as exc:
             messagebox.showerror("Open transcripts failed", str(exc))
             return
 
+        self.input_paths = input_paths
+        self.documents = documents
+        # Replacing the source collection starts a new unsaved project. Never
+        # autosave its generated coding over the previously opened project.
+        self.project_path = None
         self._reset_analysis_view("Analyze to highlight quote evidence across the uploaded transcripts.")
         self.file_summary.set(file_selection_summary(self.input_paths))
         self._render_transcript_tabs()

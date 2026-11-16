@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
 import json
+import os
+import tempfile
 from hashlib import sha256
 from pathlib import Path
 import zipfile
@@ -57,8 +59,21 @@ def save_project(path: Path, state: ProjectState) -> None:
         "researcher_name": state.researcher_name,
         "audit_events": [asdict(event) for event in state.audit_events],
     }
-    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr(PROJECT_JSON, json.dumps(payload, ensure_ascii=False, indent=2))
+    # Serialize before touching disk, then replace only a complete sibling archive.
+    serialized = json.dumps(payload, ensure_ascii=False, indent=2)
+    path = Path(path)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w+b", prefix=f".{path.name}.", suffix=".tmp", dir=path.parent, delete=False) as stream:
+            temporary = Path(stream.name)
+            with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr(PROJECT_JSON, serialized)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def load_project(path: Path) -> ProjectState:

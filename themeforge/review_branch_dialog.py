@@ -521,12 +521,13 @@ def group_form_fields(branch, code_ids):
 
 def close_review_branches(owner):
     """Ask before destroying nested review branches from any owning window."""
+    from .local_codebook_dialog import LocalCodebookDialog
     for child in tuple(owner.winfo_children()):
-        if isinstance(child, ReviewBranchDialog):
+        if isinstance(child, (ReviewBranchDialog, LocalCodebookDialog)):
             try:
                 if not child.request_close(): return False
             except (ValueError, KeyError, TypeError, OSError) as error:
-                child.notice.set(str(error))
+                (child.status if isinstance(child, LocalCodebookDialog) else child.notice).set(str(error))
                 return False
         elif not close_review_branches(child):
             return False

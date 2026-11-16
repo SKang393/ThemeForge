@@ -10,7 +10,7 @@ from pathlib import Path
 import queue
 import threading
 import tkinter as tk
-from tkinter import filedialog, ttk
+from tkinter import filedialog, messagebox, ttk
 
 from .local_inference import GIB, LocalInferenceConfig, staged_inference_limits
 from .study_runtime import StudyLlamaClient
@@ -31,6 +31,8 @@ class LocalCodebookDialog(tk.Toplevel):
         self.speaker_label_policy = speaker_label_policy
         self.result = None
         self.loaded_result_path = None
+        self._saved_result_fingerprint = None
+        self._close_authorized_fingerprint = None
         self.profile_sha256 = ""
         self._limits = staged_inference_limits()
         self._client_factory = client_factory or StudyLlamaClient
@@ -349,6 +351,7 @@ class LocalCodebookDialog(tk.Toplevel):
             validate_result_sources(result)
             self.set_result(result)
             self.loaded_result_path = source_path
+            self._saved_result_fingerprint = LocalCodebookDialog._result_fingerprint(self)
             self.status.set(f"Opened {source_path.name} without model execution. Loaded mode: {result.get('mode', 'unspecified')}; controls above configure new runs. Saved decisions and original provenance retained; grouping checkbox reset.")
             return True
         except (OSError, ValueError, KeyError, TypeError, AttributeError, RecursionError) as error:
@@ -1047,8 +1050,9 @@ class LocalCodebookDialog(tk.Toplevel):
         except queue.Empty:
             pass
         if self._closing and (self._thread is None or not self._thread.is_alive()):
-            self.destroy()
-            return
+            if self.destroy():
+                return
+            self._closing = False
         self._after_id = self.after(60, self._drain_events)
 
     def set_result(self, result):
@@ -1217,18 +1221,53 @@ class LocalCodebookDialog(tk.Toplevel):
         self._cancel_event.set()
         self.status.set("Cancelling; waiting for the owned local process to close…")
 
+    def _result_fingerprint(self):
+        if self.result is None:
+            return None
+        return sha256(json.dumps(self.result, ensure_ascii=False, sort_keys=True,
+                                 allow_nan=False).encode('utf-8')).hexdigest()
+
+    def _confirm_result_close(self):
+        try:
+            fingerprint = self._result_fingerprint()
+        except (ValueError, TypeError, RecursionError) as error:
+            self.status.set(f'Cannot check unsaved review; window kept open: {error}')
+            return False
+        if fingerprint is None or fingerprint in (
+                getattr(self, '_saved_result_fingerprint', None),
+                getattr(self, '_close_authorized_fingerprint', None)):
+            return True
+        answer = messagebox.askyesnocancel(
+            'Unsaved candidate review',
+            'Save this candidate codebook and its review changes as JSON before closing?'
+            '\nYes: save a new file. No: discard unsaved changes. Cancel: keep reviewing.',
+            parent=self)
+        if answer is None:
+            return False
+        if answer and not self.export('json'):
+            return False
+        self._close_authorized_fingerprint = fingerprint
+        return True
+
     def destroy(self):
+        if not self._confirm_result_close():
+            return False
         from .review_branch_dialog import close_review_branches
         if not close_review_branches(self):
-            return
+            self._close_authorized_fingerprint = None
+            return False
         super().destroy()
+        return True
 
     def request_close(self):
+        if not self._confirm_result_close():
+            return False
         if self._busy or (self._thread is not None and self._thread.is_alive()):
             self._closing = True
             self.cancel()
+            return False
         else:
-            self.destroy()
+            return self.destroy()
 
     def _on_destroy(self, event):
         if event.widget is not self:
@@ -1267,6 +1306,8 @@ class LocalCodebookDialog(tk.Toplevel):
             # Write the measured bytes exactly, including LF, on Windows too.
             with Path(path).open("xb") as stream:
                 stream.write(encoded)
+            if format == "json":
+                self._saved_result_fingerprint = LocalCodebookDialog._result_fingerprint(self)
             self.status.set(f"Exported candidate codebook and retained review history to {Path(path).name}")
             return True
         except (OSError, ValueError, TypeError) as error:
