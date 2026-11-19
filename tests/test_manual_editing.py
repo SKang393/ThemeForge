@@ -166,7 +166,8 @@ class ManualEditingTests(unittest.TestCase):
         updated = code_selected_text(
             result,
             "T01",
-            ManualSelection("interview.txt", "Selected participant words.", 2, 10, 38),
+            ManualSelection("interview.txt", "Selected participant words.", 2, 10, 37),
+            document=TranscriptDocument("interview.txt", "Opening..\nSelected participant words."), actor="Coder A",
         )
 
         self.assertEqual(updated.themes[0].quote_count, 1)
@@ -174,7 +175,7 @@ class ManualEditingTests(unittest.TestCase):
         self.assertEqual(updated.themes[0].quotes[0].source_name, "interview.txt")
         self.assertEqual(updated.themes[0].quotes[0].source_line, 2)
         self.assertEqual(updated.themes[0].quotes[0].source_start, 10)
-        self.assertEqual(updated.themes[0].quotes[0].source_end, 38)
+        self.assertEqual(updated.themes[0].quotes[0].source_end, 37)
         self.assertEqual(updated.themes[0].validation["review_status"], "Researcher edited")
 
     def test_code_selected_text_preserves_known_speaker_for_semantic_suggestion(self):
@@ -190,6 +191,8 @@ class ManualEditingTests(unittest.TestCase):
             result,
             "T01",
             ManualSelection("interview.txt", "A related uncoded passage.", 3, 15, 41, "Participant 4"),
+            document=TranscriptDocument("interview.txt", "intro.\nsecond.\nA related uncoded passage."),
+            actor="Coder A", retrieval_similarity=.42,
         )
 
         self.assertEqual(updated.themes[0].quotes[0].speaker, "Participant 4")
@@ -204,11 +207,12 @@ class ManualEditingTests(unittest.TestCase):
             "",
             ManualSelection("interview.txt", "A new selected quote.", 3, 15, 36),
             "New Finding",
+            document=TranscriptDocument("interview.txt", "intro.\nsecond.\nA new selected quote."), actor="Coder B",
         )
 
         self.assertEqual(updated.themes[1].id, "M02")
         self.assertEqual(updated.themes[1].name, "New Finding")
-        self.assertEqual(updated.themes[1].quotes[0].quote_id, "MQ01")
+        self.assertTrue(updated.themes[1].quotes[0].quote_id.startswith("MQF"))
 
     def test_uncode_quote_removes_quote_from_theme(self):
         result = AnalysisResult("1.3.0", 1, 2, [

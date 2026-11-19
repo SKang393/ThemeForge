@@ -154,7 +154,7 @@ score and prior group details. Neither the moved assignment nor the two
 changed groups inherit a score; other quote rows retain theirs. If the target
 already has the same ID or passage at those offsets, both records stay intact.
 
-**Project compatibility:** Projects with exact manual codebook assignments,
+**Project compatibility:** Projects with new manual passage assignments,
 new quote moves or recorded merges use a separate nullable-score archive profile. Their current
 unscored fields contain JSON `null`, not zero or a negative score. Previous
 readers that expect `project.json` cannot open these files and may report a
@@ -167,6 +167,16 @@ changes open. Known earlier manual-code zero placeholders and move markers
 are not scores. Old reports may show them as `0.000` or `-1.000`; re-export
 from the updated app. An ordinary-looking historical move score cannot be
 corrected from the number alone.
+
+**Code selection**, **New code from selection**, and explicitly coding a
+similar passage record your decision, not a model score. Enter your researcher
+name or pseudonym first. The saved quote and audit identify how you chose the
+passage. For an applied suggestion, the audit saves the search text, method
+and similarity score. That score ranks the suggestion; it does not rate your assignment.
+The assignment has blank CSV relevance,
+JSON `null`, and no numeric score in Markdown. Earlier versions wrote `1.000`
+for these actions. Existing scores and reports are not retrospectively changed;
+a numeric 1 alone does not identify a manual decision.
 
 **Merge theme** uses your researcher name and asks for a reason. It counts the same exact
 passage once even when its two assignments have different quote IDs. The

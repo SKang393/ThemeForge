@@ -11,6 +11,14 @@ from .transcript_parser import parse_transcript
 
 
 @dataclass(frozen=True, slots=True)
+class SimilarityQuery:
+    theme_id: str
+    quote_id: str
+    text: str
+    method_note: str
+
+
+@dataclass(frozen=True, slots=True)
 class SimilarPassage:
     source_name: str
     speaker: str
@@ -19,6 +27,7 @@ class SimilarPassage:
     source_start: int
     source_end: int
     similarity: float
+    query: SimilarityQuery
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +62,7 @@ def find_similar_passages(
         return SimilarPassageResult((), "Similarity vectors could not be created for the open transcripts.")
 
     query_vector = vectors[0]
+    query = SimilarityQuery(theme.id, quote_id, query_text, note)
     ranked = sorted(
         (
             SimilarPassage(
@@ -63,6 +73,7 @@ def find_similar_passages(
                 source_start=candidate.source_start,
                 source_end=candidate.source_end,
                 similarity=cosine(query_vector, vector),
+                query=query,
             )
             for candidate, vector in zip(candidates, vectors[1:], strict=True)
         ),

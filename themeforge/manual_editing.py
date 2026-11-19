@@ -6,6 +6,7 @@ from copy import deepcopy
 from dataclasses import asdict, dataclass, replace
 from hashlib import sha256
 import json
+from math import isfinite
 from uuid import uuid4
 
 from .analysis_types import AnalysisResult, CodebookEntry, Theme, ThemeQuote, TranscriptDocument, ValidationValue
@@ -235,24 +236,33 @@ def code_selected_text(
     result: AnalysisResult,
     target_theme_id: str,
     selection: ManualSelection,
-    new_theme_name: str = "",
+    new_theme_name: str = "", *, document: TranscriptDocument, actor: str, retrieval_similarity: float | None = None,
 ) -> AnalysisResult:
-    text = selection.text.strip()
-    if not text:
-        return result
+    start, end = selection.source_start, selection.source_end
+    if not actor.strip() or not (document.name == selection.source_name and 0 <= start < end <= len(document.text)
+            and document.text[start:end] == selection.text and selection.text.strip()
+            and document.text.count("\n", 0, start) + 1 == selection.source_line):
+        raise ValueError("A named coder and an exact passage in the active transcript are required.")
+    if retrieval_similarity is not None and (not isfinite(retrieval_similarity) or retrieval_similarity <= 0):
+        raise ValueError("The suggestion's retrieval similarity is invalid; no assignment was made.")
+    target = _find_theme(result, target_theme_id)
+    if target_theme_id and target is None:
+        raise ValueError("The destination group no longer exists.")
+    method = ("Selected directly from the transcript." if retrieval_similarity is None else
+              f"Explicitly applied from similar passages; retrieval similarity {retrieval_similarity:g} is not a coding score.")
 
     quote = ThemeQuote(
-        quote_id=_next_manual_quote_id(result),
-        speaker=selection.speaker,
-        text=text,
-        relevance=1.0,
+        quote_id=f"MQF{uuid4().hex}",
+        speaker=("Not attributed (manual selection)" if retrieval_similarity is None and selection.speaker == "Researcher selection"
+                 else selection.speaker),
+        text=selection.text,
+        relevance=None,
         source_line=selection.source_line,
         source_name=selection.source_name,
-        rationale="Researcher manually coded this selected transcript passage.",
+        rationale=f"Manual coding decision by {actor.strip()}. {method} Assignment not scored.",
         source_start=selection.source_start,
         source_end=selection.source_end,
     )
-    target = _find_theme(result, target_theme_id)
     if target is None:
         return _add_manual_theme(result, quote, new_theme_name)
     themes = [
@@ -486,19 +496,6 @@ def _next_manual_theme_number(result: AnalysisResult) -> int:
     return number
 
 
-def _next_manual_quote_id(result: AnalysisResult) -> str:
-    used = {
-        int(quote.quote_id[2:])
-        for theme in result.themes
-        for quote in theme.quotes
-        if quote.quote_id.startswith("MQ") and quote.quote_id[2:].isdigit()
-    }
-    number = 1
-    while number in used:
-        number += 1
-    return f"MQ{number:02d}"
-
-
 def _add_manual_theme(result: AnalysisResult, quote: ThemeQuote, name: str) -> AnalysisResult:
     theme = Theme(
         id=f"M{_next_manual_theme_number(result):02d}",
@@ -510,7 +507,7 @@ def _add_manual_theme(result: AnalysisResult, quote: ThemeQuote, name: str) -> A
         quotes=[quote],
         validation=_manual_validation([quote]),
     )
-    return replace(result, themes=[*result.themes, theme])
+    return replace(result, themes=[*result.themes, _refresh_theme(theme)])
 
 
 def _replace_quote_boundary(quote: ThemeQuote, selection: ManualSelection, text: str) -> ThemeQuote:
@@ -561,7 +558,8 @@ def _manual_validation(quotes: list[ThemeQuote]) -> dict[str, ValidationValue]:
         "evidence_count": len(quotes),
         "displayed_quote_count": len(quotes),
         "source_count": len({quote.source_name for quote in quotes}),
-        "speaker_count": len({quote.speaker for quote in quotes if not quote.manual_definition_assignment}),
+        "speaker_count": len({quote.speaker for quote in quotes if not quote.manual_definition_assignment
+                              and quote.speaker != "Not attributed (manual selection)"}),
         "central_theme_alignment": 0.0,
         "review_status": "Researcher edited",
     }

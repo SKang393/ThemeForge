@@ -3,7 +3,8 @@ from __future__ import annotations
 # noqa: SIZE_OK - one Tkinter window class; splitting callbacks adds UI indirection.
 
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
+import json
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
@@ -920,19 +921,24 @@ class ThemeForgeApp(tk.Tk):
             return
         self._apply_selection_coding(selection, "", self.theme_name.get())
 
-    def _apply_selection_coding(self, selection: ManualSelection, target_theme_id: str, new_theme_name: str) -> None:
+    def _apply_selection_coding(self, selection: ManualSelection, target_theme_id: str, new_theme_name: str,
+                                *, suggestion: SimilarPassage | None = None) -> None:
         if self.result is None:
             return
         if any(t.id == target_theme_id and "manual_codebook_definition" in t.validation for t in self.result.themes):
             self.status_text.set("Use Apply codebook entry to confirm the definition and coder for this passage.")
             return
-        updated = code_selected_text(
-            self.result,
-            target_theme_id,
-            selection,
-            new_theme_name,
-        )
-        if updated == self.result:
+        documents = [d for d in self.documents if d.name == selection.source_name]
+        if len(documents) != 1:
+            self.status_text.set("This passage does not identify one active transcript; no assignment was made.")
+            return
+        retrieval_similarity = suggestion.similarity if suggestion is not None else None
+        try:
+            updated = code_selected_text(self.result, target_theme_id, selection, new_theme_name,
+                                         document=documents[0], actor=self.researcher_name.get(),
+                                         retrieval_similarity=retrieval_similarity)
+        except ValueError as exc:
+            self.status_text.set(str(exc))
             return
         self.edit_history = self.edit_history.record(self.result)
         self.result = updated
@@ -943,13 +949,15 @@ class ThemeForgeApp(tk.Tk):
         else:
             self._select_theme(len(self.result.themes) - 1)
             coded_theme_id = self.result.themes[-1].id
-        action = "manual_passage_coded" if selection.speaker == "Researcher selection" else "semantic_passage_coded"
-        self._record_audit_event(
-            action,
-            "passage",
-            f"{selection.source_name}:{selection.source_line}",
-            f"theme_id={coded_theme_id}; chars={selection.source_start}-{selection.source_end}",
-        )
+        group = next(t for t in updated.themes if t.id == coded_theme_id)
+        quote = group.quotes[-1]
+        method = "transcript selection" if retrieval_similarity is None else "applied similarity suggestion"
+        self._record_audit_event("selection_assignment_recorded", "quote", quote.quote_id, json.dumps({
+            "method": method, "theme_id": group.id, "theme_name": group.name, "source": quote.source_name,
+            "start": quote.source_start, "end": quote.source_end, "text": quote.text,
+            "retrieval_query": asdict(suggestion.query) if suggestion is not None else None,
+            "retrieval_similarity": retrieval_similarity, "assignment_score": None}, ensure_ascii=False))
+        self._focus_quote_by_id(quote.quote_id)
         self._set_manual_status("Selected text coded")
 
     def find_more_from_theme(self) -> None:
@@ -1056,6 +1064,7 @@ class ThemeForgeApp(tk.Tk):
             ),
             theme.id,
             "",
+            suggestion=passage,
         )
 
     def uncode_current_quote(self) -> None:
