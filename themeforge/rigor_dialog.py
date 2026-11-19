@@ -9,7 +9,7 @@ import zipfile
 
 from .analysis_types import AnalysisResult, TranscriptDocument
 from .audit import AuditEvent, export_audit_events_csv
-from .manual_record_comparison import compare_recorded_assignments
+from .manual_record_comparison import compare_recorded_assignments, current_assignment_csv
 from .project_io import UnsupportedProjectFormatError, load_project
 from .rigor import (
     CodedProject,
@@ -48,6 +48,8 @@ class RigorDialog(tk.Toplevel):
         self._comparison_project: CodedProject | None = None
         self._comparison_label = ""
         self.status = tk.StringVar(value="Choose a comparison .tfproj for intercoder reliability.")
+        self.assignment_status = tk.StringVar(value="This project's manual codebook CSV includes current assignments that match their "
+                                               "original records. It excludes suggestions and freehand codes.")
         self.title("Rigor tools")
         self.minsize(900, 600)
         self.transient(master)
@@ -79,11 +81,13 @@ class RigorDialog(tk.Toplevel):
         tab = ttk.Frame(notebook, padding=10)
         tab.columnconfigure(0, weight=1)
         tab.rowconfigure(1, weight=1)
-        ttk.Button(
-            tab,
-            text="Export CSV",
-            command=lambda: self._export_matrix(axis_label),
-        ).grid(row=0, column=0, sticky="w", pady=(0, 8))
+        actions = ttk.Frame(tab)
+        actions.grid(row=0, column=0, sticky="w", pady=(0, 8))
+        ttk.Button(actions, text="Export matrix CSV", command=lambda: self._export_matrix(axis_label)).pack(side="left")
+        if axis_label == "source":
+            ttk.Button(actions, text="Export this project's manual codebook assignments",
+                       command=self._export_current_assignments).pack(side="left", padx=8)
+            ttk.Label(tab, textvariable=self.assignment_status, wraplength=780).grid(row=2, column=0, sticky="w")
         tree = ttk.Treeview(
             tab,
             columns=("theme", axis_label, "quotes", "chars", "coverage"),
@@ -257,6 +261,19 @@ class RigorDialog(tk.Toplevel):
             return
         self._export_text(export_disagreements_csv(self.report), "intercoder-disagreements.csv")
 
+    def _export_current_assignments(self) -> None:
+        context = self._context_source() if self._context_source is not None else self.context
+        if context.result is None:
+            self.assignment_status.set("No current manual codebook assignments to export.")
+            return
+        try:
+            text, count, skipped = current_assignment_csv(CodedProject(context.documents, context.result, context.audit_events))
+        except ValueError as exc:
+            self.assignment_status.set(f"Manual codebook report unavailable: {exc} The full review report is still available.")
+            return
+        if self._export_text(text, "manual-codebook-assignments.csv", new_file=True, status=self.assignment_status):
+            self.assignment_status.set(f"Exported {count} original manual assignment(s); {skipped} other stored quote row(s) excluded.")
+
     def _export_manual_records(self) -> None:
         context = self._context_source() if self._context_source is not None else self.context
         if context.result is None or self._comparison_project is None:
@@ -282,7 +299,9 @@ class RigorDialog(tk.Toplevel):
         self.refresh_current_state()
         self._export_text(export_audit_events_csv(self.context.audit_events), "audit-log.csv")
 
-    def _export_text(self, text: str, default_name: str, *, new_file: bool = False) -> bool:
+    def _export_text(self, text: str, default_name: str, *, new_file: bool = False,
+                     status: tk.StringVar | None = None) -> bool:
+        status = self.status if status is None else status
         chosen = filedialog.asksaveasfilename(parent=self, defaultextension=".csv", initialfile=default_name)
         if not chosen:
             return False
@@ -290,12 +309,12 @@ class RigorDialog(tk.Toplevel):
             with Path(chosen).open("x" if new_file else "w", encoding="utf-8", newline="") as stream:
                 stream.write(text)
         except FileExistsError:
-            self.status.set("Choose a new CSV filename; the existing file was not changed.")
+            status.set("Choose a new CSV filename; the existing file was not changed.")
             return False
         except OSError as exc:
-            self.status.set(f"Could not export CSV: {exc}")
+            status.set(f"Could not export CSV: {exc}")
             return False
-        self.status.set(f"Exported {Path(chosen).name}")
+        status.set(f"Exported {Path(chosen).name}")
         return True
 
     def _configure_tree(self, tree: ttk.Treeview, headings: Sequence[str]) -> None:

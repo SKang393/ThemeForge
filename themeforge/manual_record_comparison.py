@@ -1,12 +1,13 @@
-"""Descriptive comparison of original, positive manual records. Never infer negative decisions."""
+"""Report and compare original, positive manual codebook records. Never infer negative decisions."""
 from collections import defaultdict
 import csv
 from dataclasses import dataclass
+from hashlib import sha256
 import io
 import json
 
-from .analysis_types import CodebookEntry
-from .audit import neutralize_csv_cell
+from .analysis_types import CodebookEntry, ThemeQuote
+from .audit import AuditEvent, neutralize_csv_cell
 from .manual_editing import manual_assignment_details, manual_assignment_rationale
 from .rigor import CodedProject
 
@@ -21,6 +22,14 @@ class RecordedComparison:
     both: int
     current_only: int
     comparison_only: int
+
+
+@dataclass(frozen=True)
+class _Assignment:
+    theme_id: str
+    entry: CodebookEntry
+    quote: ThemeQuote
+    event: AuditEvent
 
 
 def _sources(project: CodedProject) -> dict[str, str]:
@@ -42,13 +51,12 @@ def _definition(snapshot: object) -> tuple[CodebookEntry, str]:
     return entry, json.dumps(raw, ensure_ascii=False, sort_keys=True)
 
 
-def _records(project: CodedProject, sources: dict[str, str]) -> tuple[dict[RecordKey, str], str, set[str], int]:
+def _verified_assignments(project: CodedProject, sources: dict[str, str]) -> tuple[dict[RecordKey, _Assignment], set[str], int]:
     events = defaultdict(list)
     for event in project.audit_events:
         if event.action == "codebook_passage_assigned" and event.target_type == "quote":
             events[event.target_id].append(event)
     records = {}
-    actors = set()
     current_ids = set()
     skipped = 0
     for theme in project.result.themes:
@@ -74,13 +82,42 @@ def _records(project: CodedProject, sources: dict[str, str]) -> tuple[dict[Recor
                 raise ValueError("An assignment changed or no longer matches its original attributed record.")
             key = source, start, end, snapshot
             if key in records or q.quote_id in current_ids:
-                raise ValueError("Duplicate manual records make the comparison ambiguous.")
+                raise ValueError("Duplicate manual records make the assignment identities ambiguous.")
             current_ids.add(q.quote_id)
-            records[key] = q.quote_id
-            actors.add(event.actor)
+            records[key] = _Assignment(theme.id, entry, q, event)
+    return records, set(events), skipped
+
+
+def _records(project: CodedProject, sources: dict[str, str]) -> tuple[dict[RecordKey, str], str, set[str], int]:
+    assignments, history, skipped = _verified_assignments(project, sources)
+    actors = {a.event.actor for a in assignments.values()}
     if len(actors) != 1:
         raise ValueError("Each project must have current manual assignments from exactly one declared coder.")
-    return records, actors.pop(), set(events), skipped
+    return {key: a.quote.quote_id for key, a in assignments.items()}, actors.pop(), history, skipped
+
+
+def current_assignment_csv(project: CodedProject) -> tuple[str, int, int]:
+    """One current project; report the original assigning actor on each verified row."""
+    sources = _sources(project)
+    assignments, _, skipped = _verified_assignments(project, sources)
+    if not assignments:
+        raise ValueError(f"No current manual codebook assignments. {skipped} other stored quote row(s); no CSV written.")
+    digests = {name: sha256(sources[name].encode("utf-8")).hexdigest() for name in {key[0] for key in assignments}}
+    output = io.StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow(("assignment_id", "theme_id", "assigned_by", "assigned_utc", "code_name", "definition",
+                     "examples_json", "source", "source_snapshot_sha256", "source_line", "source_start",
+                     "source_end", "passage", "current_quote_memo", "other_current_rows_excluded", "scope"))
+    scope = ("Current manual codebook assignments only, checked against creation records and the cached source. "
+             "Other stored quote rows, including suggestions and freehand codes, are excluded. Absence is not a negative code. "
+             "These records do not establish findings or complete review. Spreadsheet-leading =, +, -, @ are apostrophe-prefixed.")
+    for key, a in sorted(assignments.items()):
+        source, start, end, _ = key
+        values = (a.quote.quote_id, a.theme_id, a.event.actor, a.event.timestamp_utc, a.entry.name, a.entry.description,
+                  json.dumps(a.entry.examples, ensure_ascii=False), source, digests[source], a.quote.source_line,
+                  start, end, a.quote.text, a.quote.memo, skipped, scope)
+        writer.writerow(neutralize_csv_cell(v) if isinstance(v, str) else v for v in values)
+    return output.getvalue(), len(assignments), skipped
 
 
 def compare_recorded_assignments(current: CodedProject, comparison: CodedProject) -> RecordedComparison:

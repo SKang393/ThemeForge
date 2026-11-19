@@ -1,6 +1,7 @@
 """Compare positive records from two separately saved fictional studies, not inferred negatives."""
 import csv
 from dataclasses import replace
+from hashlib import sha256
 import json
 from pathlib import Path
 import tempfile
@@ -127,3 +128,53 @@ class ManualRecordComparisonTests(unittest.TestCase):
                 with patch("themeforge.rigor_dialog.filedialog.asksaveasfilename", side_effect=AssertionError):
                     self.dialog._export_manual_records()
                 self.assertIn(message, self.dialog.status.get())
+
+    def test_single_saved_study_exports_exact_assignments_not_suggestions_or_current_session_label(self):
+        mixed = self.folder / "mixed.tfproj"
+        original = self.paths[1].read_bytes()
+        mixed.write_bytes(original)
+        with patch("themeforge.app.filedialog.askopenfilename", return_value=str(mixed)):
+            self.app.open_project()
+        self.app.researcher_name.set("Second reader")
+        self.assign(1, "3.4", "3.end")
+        self.app.researcher_name.set("Session label")
+        self.assertTrue(self.app.save_project())
+        before = mixed.read_bytes()
+        state = load_project(mixed)
+        with patch("themeforge.app.filedialog.askopenfilename", return_value=str(mixed)):
+            self.app.open_project()
+        destination = self.folder / "assignments.csv"
+        with patch("themeforge.rigor_dialog.filedialog.asksaveasfilename", return_value=str(destination)):
+            self.dialog._export_current_assignments()
+        with destination.open(encoding="utf-8", newline="") as stream:
+            rows = list(csv.DictReader(stream))
+        expected = {q.quote_id for t in state.result.themes for q in t.quotes if q.manual_definition_assignment}
+        self.assertEqual(len(rows), 4)
+        self.assertEqual({r["assignment_id"] for r in rows}, expected)
+        self.assertEqual({r["assigned_by"] for r in rows}, {"Blue", "Second reader"})
+        self.assertEqual({tuple(json.loads(r["examples_json"])) for r in rows}, {("Bell.",), ("Wait.",)})
+        self.assertTrue(any("\n" in r["passage"] for r in rows))
+        for row in rows:
+            self.assertEqual((row["code_name"], row["definition"], row["other_current_rows_excluded"]),
+                             ("Signal", "Pause.", "2"))
+            start, end = int(row["source_start"]), int(row["source_end"])
+            self.assertEqual(row["passage"], self.doc.text[start:end])
+            self.assertEqual(row["source_snapshot_sha256"], sha256(self.doc.text.encode()).hexdigest())
+            self.assertIn("not a negative code", row["scope"])
+        self.assertNotIn("relevance", rows[0])
+        with patch("themeforge.rigor_dialog.filedialog.asksaveasfilename", return_value=str(mixed)):
+            self.dialog._export_current_assignments()
+        self.assertIn("existing file was not changed", self.dialog.assignment_status.get())
+        self.assertEqual(mixed.read_bytes(), before)
+        self.assertEqual(self.paths[1].read_bytes(), original)
+
+    def test_single_study_with_unverifiable_or_no_manual_rows_does_not_export(self):
+        state = load_project(self.paths[1])
+        candidates = [t for t in state.result.themes if t.id.startswith("C")]
+        self.assertTrue(candidates)
+        for invalid, reason in ((replace(state, audit_events=()), "creation audit"),
+                                (replace(state, result=replace(state.result, themes=candidates)), "No current")):
+            self.app._restore_project(invalid, None)
+            with patch("themeforge.rigor_dialog.filedialog.asksaveasfilename", side_effect=AssertionError):
+                self.dialog._export_current_assignments()
+            self.assertIn(reason, self.dialog.assignment_status.get())
