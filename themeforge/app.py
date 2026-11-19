@@ -113,6 +113,9 @@ class ThemeForgeApp(tk.Tk):
         self._configure_styles()
         self._build_layout()
         self._render_transcript_tabs()
+        self._empty_state = self._project_state()
+        self._saved_state = self._empty_state
+        self.protocol("WM_DELETE_WINDOW", self.request_close)
 
     def _configure_styles(self) -> None:
         self.configure(background=self.palette["background"])
@@ -507,17 +510,8 @@ class ThemeForgeApp(tk.Tk):
 
     def _start_replacement_project(self, paths: list[Path], documents: list[TranscriptDocument]) -> None:
         action = "replace the transcripts" if paths else "remove all transcripts"
-        save = messagebox.askyesnocancel(
-            "Save the current study before leaving?",
-            f"To {action}, start a separate, unsaved project.\n\n"
-            "Yes: save the current study first.\nNo: leave without saving changes.\n"
-            "Cancel: keep working in the current study.",
-            parent=self, default=messagebox.CANCEL,
-        )
+        save = self._ask_save_before_leaving(f"To {action}, start a separate, unsaved project.")
         if save is None:
-            return
-        if save and self._has_pending_source_edits():
-            self.status_text.set("Apply or undo the unfinished theme, quote or document edits before saving and changing studies.")
             return
         entries = ()
         if self.codebook_entries:
@@ -536,10 +530,32 @@ class ThemeForgeApp(tk.Tk):
             return
         state = ProjectState(tuple(paths), None, tuple(documents), AnalysisSettings(codebook_entries=entries))
         self._restore_project(state, None)
-        for child in self.winfo_children():
-            if isinstance(child, RigorDialog):
-                child.destroy()  # The open comparison and audit belong to the outgoing study.
         self.status_text.set(f"New unsaved project. {len(documents)} transcript(s); {len(entries)} reused definition(s).")
+
+    def _ask_save_before_leaving(self, action: str) -> bool | None:
+        answer = messagebox.askyesnocancel(
+            "Save the current study before leaving?",
+            f"{action}\n\nYes: save the current study first.\nNo: leave without saving changes.\n"
+            "Cancel: keep working in the current study.",
+            parent=self, default=messagebox.CANCEL,
+        )
+        if answer and self._has_pending_source_edits():
+            self.status_text.set("Apply or undo the unfinished theme, quote or document edits before saving and leaving.")
+            return None
+        return answer
+
+    def _has_unsaved_work(self) -> bool:
+        try:
+            return self._has_pending_source_edits() or self._project_state() != self._saved_state
+        except (ValueError, tk.TclError):
+            return True  # A typed setting that cannot yet be saved still belongs to this study.
+
+    def request_close(self) -> None:
+        if self._has_unsaved_work():
+            save = self._ask_save_before_leaving("Close ThemeForge?")
+            if save is None or (save and not self.save_project()):
+                return
+        self.destroy()
 
     def _has_pending_source_edits(self) -> bool:
         theme = self._current_theme()
@@ -1018,12 +1034,29 @@ class ThemeForgeApp(tk.Tk):
         )
         if not path:
             return
+        incoming = Path(path)
         try:
-            self._restore_project(load_project(Path(path)), Path(path))
-        except (UnsupportedProjectFormatError, OSError, ValueError, KeyError, zipfile.BadZipFile) as exc:
+            # An unreadable incoming project must not force a save or discard.
+            state = load_project(incoming)
+            if self._has_unsaved_work():
+                save = self._ask_save_before_leaving(f"Open {incoming.name}?")
+                if save is None:
+                    return
+                if save:
+                    same = self.project_path is not None and self._same_project(self.project_path, incoming)
+                    if not self.save_project(reserved_path=None if same else incoming):
+                        return
+                    if same:
+                        return  # Do not restore the snapshot read before the successful save.
+            self._restore_project(state, incoming)
+        except (UnsupportedProjectFormatError, OSError, TypeError, ValueError, KeyError, zipfile.BadZipFile) as exc:
             messagebox.showerror("Open project failed", str(exc))
 
-    def save_project(self) -> bool:
+    @staticmethod
+    def _same_project(left: Path, right: Path) -> bool:
+        return left.resolve() == right.resolve() or (left.exists() and right.exists() and left.samefile(right))
+
+    def save_project(self, *, reserved_path: Path | None = None) -> bool:
         path = self.project_path
         if path is None:
             chosen = filedialog.asksaveasfilename(
@@ -1038,11 +1071,16 @@ class ThemeForgeApp(tk.Tk):
                 return False
             path = Path(chosen)
         try:
-            save_project(path, self._project_state())
+            if reserved_path is not None and self._same_project(path, reserved_path):
+                self.status_text.set("Not saved: choose a different file for the outgoing study before opening this project.")
+                return False
+            state = self._project_state()
+            save_project(path, state)
         except (OSError, ValueError, tk.TclError) as exc:
             messagebox.showerror("Save project failed", str(exc))
             return False
         self.project_path = path
+        self._saved_state = state
         self.status_text.set(f"Saved project {path.name}")
         return True
 
@@ -1071,9 +1109,11 @@ class ThemeForgeApp(tk.Tk):
         if self.project_path is None:
             return None
         try:
-            save_project(self.project_path, self._project_state())
-        except OSError as exc:
+            state = self._project_state()
+            save_project(self.project_path, state)
+        except (OSError, ValueError, tk.TclError) as exc:
             return f"autosave failed: {exc}"
+        self._saved_state = state
         return f"autosaved {self.project_path.name}"
 
     def _project_state(self) -> ProjectState:
@@ -1130,6 +1170,10 @@ class ThemeForgeApp(tk.Tk):
             self.quote_meta.set("Project opened. Analyze to highlight quote evidence.")
             self.quote_reason.set("Select a theme after analysis to review quote-selection rationale.")
             self._refresh_editor()
+        for child in self.winfo_children():
+            if isinstance(child, RigorDialog):
+                child.destroy()  # The open comparison and audit belong to the outgoing study.
+        self._saved_state = self._project_state() if path else self._empty_state
         self.status_text.set(f"Opened project {path.name}" if path else "New unsaved project")
 
     def _load_documents(self, paths: list[Path]) -> list[TranscriptDocument]:

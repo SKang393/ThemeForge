@@ -129,6 +129,11 @@ The next study starts as a separate unsaved project, without the old results,
 memos or audit log. You can explicitly reuse codebook definitions and examples;
 check that their text is appropriate for the next study.
 
+Opening another saved project or closing the main window also prompts if the
+current study has unsaved changes. To keep text still in a theme or memo
+editor, apply it first. Choosing **No** discards those edits. An unreadable
+project or a failed or canceled save leaves the current study open.
+
 Run the command-line analyzer with one transcript:
 
 ```powershell
