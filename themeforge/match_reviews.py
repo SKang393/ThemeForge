@@ -33,9 +33,13 @@ def match_snapshot(theme: Theme, quote: ThemeQuote, sources: TranscriptIndex) ->
     del row["memo"]  # A passage memo is not part of the proposed relationship.
     if quote.relevance is not None:
         row["relevance"] = float(quote.relevance)
-    return {"theme_id": theme.id, "theme_name": theme.name, "keywords": theme.keywords,
+    snapshot = {"theme_id": theme.id, "theme_name": theme.name, "keywords": theme.keywords,
             "parent_theme_id": theme.parent_theme_id, "definition": theme.validation.get("manual_codebook_definition"),
             "quote": row, "source_sha256": sources.digest(quote.source_name)}
+    # Do not invent an originating definition or change the identity of a legacy match.
+    if "generated_from_codebook_entry" in theme.validation:
+        snapshot["generated_from_codebook_entry"] = theme.validation["generated_from_codebook_entry"]
+    return snapshot
 
 
 def match_id(snapshot: dict) -> str:

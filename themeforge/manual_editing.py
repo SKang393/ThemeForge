@@ -427,6 +427,29 @@ def preserve_manual_themes(previous: AnalysisResult | None, generated: AnalysisR
     if not manual_themes:
         return generated
 
+    if generated.themes and all("generated_from_codebook_entry" in t.validation for t in generated.themes):
+        # C01 is an entry position, not a definition identity. Q0001 identifies a
+        # passage, not its relationship to one particular definition.
+        retained = [t if t.id.startswith("M") else replace(t, validation={
+            **t.validation, "reanalysis_role": "Retained earlier edits"}) for t in manual_themes]
+        taken = {t.id for t in retained} | {t.parent_theme_id for t in retained if t.parent_theme_id}
+        reserved = taken | {t.id for t in generated.themes}
+        fresh = []
+        for t in generated.themes:
+            group_id = t.id
+            if group_id in taken:
+                n = 2
+                while f"{t.id}-r{n}" in reserved:
+                    n += 1
+                group_id = f"{t.id}-r{n}"
+                reserved.add(group_id)
+            fresh.append(replace(t, id=group_id, validation={**t.validation,
+                "reanalysis_role": "Fresh codebook suggestion",
+                "review_status": "Fresh codebook match; researcher review required"}))
+        return replace(generated, themes=[*retained, *fresh], notes=[*generated.notes,
+            "Retained edited groups: " + ", ".join(t.id for t in retained) + ". Fresh codebook suggestions: "
+            + ", ".join(t.id for t in fresh) + ". Matching group positions or passage IDs do not transfer review."])
+
     manual_theme_ids = {theme.id for theme in manual_themes}
     manual_quote_ids = {quote.quote_id for theme in manual_themes for quote in theme.quotes}
     generated_themes = [
@@ -528,6 +551,8 @@ def _replace_quote_boundary(quote: ThemeQuote, selection: ManualSelection, text:
 
 def _refresh_theme(theme: Theme) -> Theme:
     validation = _manual_validation(theme.quotes)
+    if "generated_from_codebook_entry" in theme.validation:
+        validation["generated_from_codebook_entry"] = theme.validation["generated_from_codebook_entry"]
     if "manual_codebook_definition" in theme.validation:
         validation["manual_codebook_definition"] = theme.validation["manual_codebook_definition"]
     if theme.reported_score is None:

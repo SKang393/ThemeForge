@@ -1425,6 +1425,9 @@ class ThemeForgeApp(tk.Tk):
                 None if theme.reported_score is None else float(theme.validation.get("central_theme_alignment", 0)),
                 depth=1 if theme.parent_theme_id else 0,
             )
+            role = theme.validation.get("reanalysis_role")
+            if role in ("Retained earlier edits", "Fresh codebook suggestion"):
+                label = f"[{role.split()[0]}] {label}"
             self.theme_list.insert(tk.END, label)
             self.theme_list.itemconfig(tk.END, foreground=theme.color)
         self._apply_display_colors()
@@ -1668,7 +1671,8 @@ class ThemeForgeApp(tk.Tk):
         self._clear_similar_passages()
         theme = self.result.themes[index]
         self.current_theme_index = index
-        self.detail_title.set(theme.name)
+        role = theme.validation.get("reanalysis_role")
+        self.detail_title.set(f"{theme.name} | {role}" if role else theme.name)
         self.quote_meta.set(
             f"{format_validation_summary(theme.validation)} | Keywords: {', '.join(theme.keywords) if theme.keywords else 'None'}"
         )
