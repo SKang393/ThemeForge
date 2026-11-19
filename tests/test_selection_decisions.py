@@ -17,6 +17,81 @@ class HiddenApp(ThemeForgeApp):
         super()._build_layout()
 
 
+class ImportedSelectionTests(unittest.TestCase):
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.folder = Path(folder.name)
+        self.app = HiddenApp()
+        self.addCleanup(self.app.destroy)
+        self.passage = "Check the blue latch, twice."
+        self.text = f"Em: {self.passage}\nIra: 🧰 {self.passage} Leave the brass latch open."
+        self.source = self.folder / "synthetic.txt"
+        self.source.write_text(self.text, encoding="utf-8")
+        with patch("themeforge.app.filedialog.askopenfilenames", return_value=[str(self.source)]):
+            self.app.open_transcript()
+        self.widget = self.app.transcript_widgets[self.source.name]
+
+    def select_second_occurrence(self):
+        start = self.widget.search(self.passage, "2.0", "2.end")
+        self.widget.tag_add("sel", start, f"{start}+{len(self.passage)}c")
+
+    def test_first_freehand_code_exports_the_selected_occurrence(self):
+        self.app.researcher_name.set("Tester")
+        self.app.theme_name.set("Double check")
+        self.select_second_occurrence()
+        with patch("themeforge.app.analyze_documents", side_effect=AssertionError):
+            self.app.code_selection_to_new_theme()
+        self.assertIsNotNone(self.app.result)
+        theme, = self.app.result.themes
+        quote, = theme.quotes
+        start = self.text.rindex(self.passage)
+        end = start + len(self.passage)
+        self.assertEqual((theme.name, theme.score), ("Double check", None))
+        self.assertEqual((quote.text, quote.source_line, quote.source_start, quote.source_end),
+                         (self.passage, 2, start, end))
+        self.assertEqual(self.widget.get("selected_quote.first", "selected_quote.last"), self.passage)
+        self.assertEqual(self.app.result.quote_count, 0)
+        event, = self.app.audit_events
+        self.assertEqual((event.actor, event.action, event.target_id),
+                         ("Tester", "selection_assignment_recorded", quote.quote_id))
+        details = json.loads(event.details)
+        self.assertEqual((details["text"], details["start"], details["end"]), (self.passage, start, end))
+        for suffix in (".json", ".csv", ".md"):
+            path = self.folder / ("report" + suffix)
+            with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(path)):
+                self.app.save_report()
+        data = json.loads((self.folder / "report.json").read_text(encoding="utf-8"))
+        row, = data["themes"][0]["quotes"]
+        self.assertEqual((row["text"], row["source_name"], row["source_line"]), (self.passage, self.source.name, 2))
+        self.assertEqual((row["source_start"], row["source_end"], row["relevance"], row["source_location_status"]),
+                         (start, end, None, "exact_span"))
+        with (self.folder / "report.csv").open(encoding="utf-8", newline="") as stream:
+            row, = csv.DictReader(stream)
+        self.assertEqual((row["quote"], row["source_file"], row["source_line"]), (self.passage, self.source.name, "2"))
+        self.assertEqual((int(row["source_start"]), int(row["source_end"]), row["relevance"], row["source_location_status"]),
+                         (start, end, "", "exact_span"))
+        markdown = (self.folder / "report.md").read_text(encoding="utf-8")
+        for value in (f"> {self.passage}\n", "No automated analysis has been run", "Relevance: Not scored"):
+            self.assertIn(value, markdown)
+        self.app.undo_manual_edit()
+        self.assertEqual(self.app.result.themes, [])
+        self.assertIsNone(self.app._current_quote_match())
+        self.assertFalse(self.widget.tag_ranges("selected_quote"))
+        self.app.redo_manual_edit()
+        self.assertEqual(self.app._current_quote_match().quote, quote)
+
+    def test_missing_selection_or_coder_leaves_import_unmodified(self):
+        self.app.code_selection_to_new_theme()
+        self.assertIn("Select transcript text", self.app.status_text.get())
+        self.select_second_occurrence()
+        self.app.code_selection_to_new_theme()
+        self.assertIn("named coder", self.app.status_text.get())
+        self.assertIsNone(self.app.result)
+        self.assertFalse(self.app.audit_events)
+        self.assertFalse(self.app.edit_history.undo_stack)
+
+
 class SelectionDecisionTests(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory()

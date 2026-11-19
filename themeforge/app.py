@@ -527,7 +527,10 @@ class ThemeForgeApp(tk.Tk):
         self.input_paths = input_paths
         self.documents = documents
         self.project_path = None
-        self._reset_analysis_view("Apply a codebook entry to selected text, or Analyze for suggestions.")
+        self.result = None
+        self.edit_history = EditHistory()
+        self.theme_summary.set("No analysis yet")
+        self._clear_theme_view("Select transcript text to create a code or apply a codebook entry.")
         self.file_summary.set(file_selection_summary(self.input_paths))
         self._render_transcript_tabs()
         self.status_text.set("Files loaded")
@@ -945,7 +948,7 @@ class ThemeForgeApp(tk.Tk):
             return
         entry = entries[chosen]
         self.definition_box.current(chosen)
-        prior = self.result or AnalysisResult(__version__, len(self.documents), 0, [], [MANUAL_ONLY_NOTE])
+        prior = self._result_for_manual_coding()
         try:
             updated, theme_id, quote_id = apply_codebook_definition(prior, entry, document, selection, actor)
         except ValueError as exc:
@@ -959,8 +962,6 @@ class ThemeForgeApp(tk.Tk):
         self._render_themes()
         self._select_theme_by_id(theme_id)
         self._focus_quote_by_id(quote_id)
-        if MANUAL_ONLY_NOTE in updated.notes:
-            self.theme_summary.set("Manual coding | No automated analysis")
         self._record_audit_event("codebook_passage_assigned", "quote", quote_id,
             manual_assignment_details(entry, document.name, selection.source_start, selection.source_end, theme_id))
         if origin is not None:
@@ -980,19 +981,19 @@ class ThemeForgeApp(tk.Tk):
         self._apply_selection_coding(selection, theme.id, "")
 
     def code_selection_to_new_theme(self) -> None:
-        if self.result is None:
-            return
         selection = self._selected_transcript_text()
         if selection is None:
             self.status_text.set("Select transcript text first")
             return
         self._apply_selection_coding(selection, "", self.theme_name.get())
 
+    def _result_for_manual_coding(self) -> AnalysisResult:
+        return self.result or AnalysisResult(__version__, len(self.documents), 0, [], [MANUAL_ONLY_NOTE])
+
     def _apply_selection_coding(self, selection: ManualSelection, target_theme_id: str, new_theme_name: str,
                                 *, suggestion: SimilarPassage | None = None) -> None:
-        if self.result is None:
-            return
-        if any(t.id == target_theme_id and "manual_codebook_definition" in t.validation for t in self.result.themes):
+        prior = self._result_for_manual_coding()
+        if any(t.id == target_theme_id and "manual_codebook_definition" in t.validation for t in prior.themes):
             self.status_text.set("Use Apply codebook entry to confirm the definition and coder for this passage.")
             return
         documents = [d for d in self.documents if d.name == selection.source_name]
@@ -1001,13 +1002,13 @@ class ThemeForgeApp(tk.Tk):
             return
         retrieval_similarity = suggestion.similarity if suggestion is not None else None
         try:
-            updated = code_selected_text(self.result, target_theme_id, selection, new_theme_name,
+            updated = code_selected_text(prior, target_theme_id, selection, new_theme_name,
                                          document=documents[0], actor=self.researcher_name.get(),
                                          retrieval_similarity=retrieval_similarity)
         except ValueError as exc:
             self.status_text.set(str(exc))
             return
-        self.edit_history = self.edit_history.record(self.result)
+        self.edit_history = self.edit_history.record(prior)
         self.result = updated
         self._render_themes()
         if target_theme_id:
@@ -1209,9 +1210,11 @@ class ThemeForgeApp(tk.Tk):
             return
         self.result = change.result
         self.edit_history = change.history
-        self._render_themes()
         if self.result.themes:
+            self._render_themes()
             self._select_theme(min(self.current_theme_index or 0, len(self.result.themes) - 1))
+        else:
+            self._clear_theme_view("No coded passages.")
         self._record_audit_event("undo", "history", "manual_edits", f"themes={len(self.result.themes)}")
         self._set_manual_status("Manual edit undone")
 
@@ -1417,6 +1420,8 @@ class ThemeForgeApp(tk.Tk):
         if self.result is None:
             self._refresh_editor()
             return
+        if MANUAL_ONLY_NOTE in self.result.notes:
+            self.theme_summary.set("Manual coding | No automated analysis")
         for theme in self.result.themes:
             label = theme_list_label(
                 theme.name,
@@ -1433,19 +1438,19 @@ class ThemeForgeApp(tk.Tk):
         self._apply_display_colors()
         self._refresh_editor()
 
-    def _reset_analysis_view(self, quote_meta: str) -> None:
+    def _clear_theme_view(self, quote_meta: str) -> None:
         self.match_review_text.set("")
-        self.result = None
-        self.edit_history = EditHistory()
         self.current_theme_index = None
         self.current_quote_matches = []
         self.current_quote_index = -1
         self.theme_list.delete(0, tk.END)
-        self.theme_summary.set("No analysis yet")
+        self._clear_similar_passages()
+        self._clear_quote_tags()
+        self._set_editable_text_content(self.quote_memo_text, "")
         self.detail_title.set("Transcript evidence")
         self.quote_status.set(evidence_navigation_status(0, 0))
         self.quote_meta.set(quote_meta)
-        self.quote_reason.set("Select a theme after analysis to review quote-selection rationale.")
+        self.quote_reason.set("Select a coded passage to review its rationale.")
         self._refresh_editor()
 
     def _refresh_editor(self) -> None:
