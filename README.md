@@ -167,6 +167,17 @@ starts fresh, even if a quote ID repeats. Earlier notes, their exact excerpts,
 scores and reviewer names remain in **Rigor tools → Audit log** and its CSV export.
 Older readers do not display the review notes alongside the quotes.
 
+**Coding a passage you found in a match:** In the quote rationale panel, choose
+**Apply definition to this quote…**. The dialog shows the current quote in its
+transcript, even if a different passage was previously selected with the mouse.
+Choose an entry from the current codebook, compare its full definition and
+examples, then apply. No entry is inferred from the match label. The scored
+candidate remains separate from the named coder's unscored assignment; they
+are not two independent passages. Applying the same definition to the same
+span again creates neither a duplicate nor an endorsement by another coder.
+The Audit log links the original match to the new assignment. For a different
+span, select its text and use **Apply codebook entry…** instead.
+
 These manual assignments have no relevance score. Markdown labels them
 unscored, CSV leaves relevance blank, and JSON reports use `null`.
 The name-based intercoder comparison does not support these assignments and

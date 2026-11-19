@@ -423,6 +423,7 @@ class ThemeForgeApp(tk.Tk):
         review_row.grid(row=1, column=0, sticky="w")
         ttk.Button(review_row, text="Revisit later", command=lambda: self.review_current_match("deferred")).pack(side="left")
         ttk.Button(review_row, text="Not this match", command=lambda: self.review_current_match("declined")).pack(side="left")
+        ttk.Button(review_row, text="Apply definition to this quote…", command=self.code_match_to_definition).pack(side="left")
         ttk.Label(reason_frame, textvariable=self.match_review_text, style="Muted.TLabel", wraplength=520).grid(row=2, column=0, sticky="w")
 
         quote_memo = ttk.Labelframe(parent, text="Quote memo", style="Panel.TLabelframe", padding=(10, 8))
@@ -887,8 +888,24 @@ class ThemeForgeApp(tk.Tk):
         if not 0 <= index < len(self.codebook_entries):
             self.status_text.set("Load a codebook and choose an entry beside Apply codebook entry.")
             return
-        selection = self._selected_transcript_text()
-        documents = [d for d in self.documents if d.name == self._current_document_name()]
+        self._review_codebook_assignment(self._selected_transcript_text(), index)
+
+    def code_match_to_definition(self) -> None:
+        match = self._current_quote_match()
+        if not self.codebook_entries:
+            self.status_text.set("Load a codebook to apply a definition to the current quote.")
+            return
+        if (self.result is None or not match or self._current_document_name() != match.source_name
+                or not self._resolve_quote(match.quote).verified):
+            self.status_text.set("Select a source-verified quote in its transcript before applying a definition.")
+            return
+        q = match.quote
+        self._review_codebook_assignment(ManualSelection(q.source_name, q.text, q.source_line, q.source_start, q.source_end),
+                                         None, match)
+
+    def _review_codebook_assignment(self, selection: ManualSelection | None, index: int | None,
+                                    match: QuoteMatch | None = None) -> None:
+        documents = [d for d in self.documents if selection and d.name == selection.source_name]
         actor = self.researcher_name.get().strip()
         if not selection or len(documents) != 1 or not actor:
             self.status_text.set("Select text in one identifiable transcript and enter a researcher name or pseudonym first.")
@@ -902,11 +919,28 @@ class ThemeForgeApp(tk.Tk):
                 or document.text.count("\n", 0, selection.source_start) + 1 != selection.source_line):
             self.status_text.set("Selected text does not match the saved transcript; no assignment was made.")
             return
-        chosen = review_definition(self, entries, index, document, selection, actor)
+        before = self.result
+        origin = None
+        if match is not None:
+            if before is None:
+                return
+            theme = before.themes[match.theme_index]
+            origin = match_snapshot(theme, match.quote, self._display_sources)
+            score = match.quote.reported_relevance
+            score_text = f"{score:.3f}" if score is not None else "not scored"
+            source_note = (f"Current match: {theme.name} ({theme.id}), quote {match.quote.quote_id}. "
+                           f"Recorded relevance: {score_text}.\n"
+                           "Applying creates a separate, unscored assignment. The current match stays unchanged.")
+            chosen = review_definition(self, entries, None, document, selection, actor, source_note=source_note)
+        else:
+            chosen = review_definition(self, entries, index, document, selection, actor)
         if chosen is None:
             return
-        if (self.codebook_entries != entries or self._selected_transcript_text() != selection
-                or self.researcher_name.get().strip() != actor or document not in self.documents):
+        same_passage = (self._current_quote_match() == match and self._current_document_name() == selection.source_name
+                        if match is not None else self._selected_transcript_text() == selection)
+        if (not same_passage or self.result is not before or self.codebook_entries != entries
+                or self.researcher_name.get().strip() != actor
+                or [d for d in self.documents if d.name == selection.source_name] != [document]):
             self.status_text.set("The selection, source, coder or codebook changed. Review again before applying.")
             return
         entry = entries[chosen]
@@ -929,6 +963,10 @@ class ThemeForgeApp(tk.Tk):
             self.theme_summary.set("Manual coding | No automated analysis")
         self._record_audit_event("codebook_passage_assigned", "quote", quote_id,
             manual_assignment_details(entry, document.name, selection.source_start, selection.source_end, theme_id))
+        if origin is not None:
+            self._record_audit_event("assignment_source_match", "quote", quote_id, json.dumps({
+                "match": origin, "applied_theme_id": theme_id, "applied_definition": asdict(entry),
+                "assignment_score": None}, ensure_ascii=False))
         self._set_manual_status("Codebook definition applied manually")
 
     def code_selection_to_theme(self) -> None:

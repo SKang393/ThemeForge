@@ -17,15 +17,16 @@ def entry_label(index: int, entry: CodebookEntry) -> str:
 
 
 class DefinitionReview(tk.Toplevel):
-    def __init__(self, parent: tk.Misc, entries: Sequence[CodebookEntry], index: int,
-                 document: TranscriptDocument, selection: ManualSelection, actor: str):
+    def __init__(self, parent: tk.Misc, entries: Sequence[CodebookEntry], index: int | None,
+                 document: TranscriptDocument, selection: ManualSelection, actor: str, *, source_note: str = ""):
         super().__init__(parent)
         self.withdraw()
         self.transient(parent)
         self.title("Review codebook assignment")
         self.result: int | None = None
-        label = entries[index].name.strip().casefold()
-        self.indices = [i for i, entry in enumerate(entries) if entry.name.strip().casefold() == label]
+        self.entries = entries
+        label = entries[index].name.strip().casefold() if index is not None else None
+        self.indices = [i for i, entry in enumerate(entries) if label is None or entry.name.strip().casefold() == label]
         body = ttk.Frame(self, padding=12)
         body.pack(fill="both", expand=True)
         body.columnconfigure(0, weight=1)
@@ -37,7 +38,8 @@ class DefinitionReview(tk.Toplevel):
         location = f"Line {last_line}" if last_line == selection.source_line else f"Lines {selection.source_line}–{last_line}"
         self.location = ttk.Label(body, text=f"{document.name} | {location} | "
                                   f"Characters [{start}:{end}] | Coder: {actor}\n"
-                                  "Only the highlighted text will be assigned. Surrounding text is context.")
+                                  "Only the highlighted text will be assigned. Surrounding text is context."
+                                  + ("\n" + source_note if source_note else ""), wraplength=640)
         self.location.grid(row=0, column=0, sticky="w")
         self.passage = self._text(body, 1, 5)
         lo, hi = max(0, start - 240), min(len(document.text), end + 240)
@@ -50,21 +52,19 @@ class DefinitionReview(tk.Toplevel):
 
         ttk.Label(body, text="Compare the full definitions and examples for this label:").grid(row=2, column=0, sticky="w")
         self.definitions = self._text(body, 3, 8)
-        for i in self.indices:
-            self.definitions.insert("end", f"Entry {i + 1}\n" + definition_text(entries[i]) + "\n\n", f"entry{i}")
-        self.definitions.configure(state="disabled")
         ttk.Label(body, text="Definition to apply (no matching or scoring):").grid(row=4, column=0, sticky="w")
         self.choice = ttk.Combobox(body, state="readonly", exportselection=False,
                                    values=[entry_label(i, entries[i]) for i in self.indices])
         self.choice.grid(row=5, column=0, sticky="ew", pady=4)
-        self.choice.current(self.indices.index(index))
+        if index is not None:
+            self.choice.current(self.indices.index(index))
         self.choice.bind("<<ComboboxSelected>>", self.show_choice)
-        self.show_choice()
         actions = ttk.Frame(body)
         actions.grid(row=6, column=0, sticky="e")
         ttk.Button(actions, text="Cancel", command=self.destroy).pack(side="left", padx=4)
         self.apply_button = ttk.Button(actions, text="Apply selected definition", command=self.apply)
         self.apply_button.pack(side="left")
+        self.show_choice()
         self.bind("<Escape>", lambda _e: self.destroy())
         self.protocol("WM_DELETE_WINDOW", self.destroy)
 
@@ -81,10 +81,20 @@ class DefinitionReview(tk.Toplevel):
 
     def show_choice(self, _event=None):
         active = self.choice.current()
-        for n, i in enumerate(self.indices):
-            self.definitions.tag_configure(f"entry{i}", underline=n == active)
+        self.definitions.configure(state="normal")
+        self.definitions.delete("1.0", "end")
         if active >= 0:
-            self.definitions.see(f"entry{self.indices[active]}.first")
+            chosen = self.indices[active]
+            label = self.entries[chosen].name.strip().casefold()
+            for i in self.indices:
+                if self.entries[i].name.strip().casefold() == label:
+                    self.definitions.insert("end", f"Entry {i + 1}\n" + definition_text(self.entries[i]) + "\n\n", f"entry{i}")
+                    self.definitions.tag_configure(f"entry{i}", underline=i == chosen)
+            self.definitions.see(f"entry{chosen}.first")
+        else:
+            self.definitions.insert("end", "Choose a current codebook entry below. No definition is inferred from the match.")
+        self.definitions.configure(state="disabled")
+        self.apply_button.state(["!disabled"] if active >= 0 else ["disabled"])
 
     def apply(self):
         n = self.choice.current()
@@ -93,9 +103,9 @@ class DefinitionReview(tk.Toplevel):
             self.destroy()
 
 
-def review_definition(parent: tk.Misc, entries: Sequence[CodebookEntry], index: int, document: TranscriptDocument,
-                      selection: ManualSelection, actor: str) -> int | None:
-    dialog = DefinitionReview(parent, entries, index, document, selection, actor)
+def review_definition(parent: tk.Misc, entries: Sequence[CodebookEntry], index: int | None, document: TranscriptDocument,
+                      selection: ManualSelection, actor: str, *, source_note: str = "") -> int | None:
+    dialog = DefinitionReview(parent, entries, index, document, selection, actor, source_note=source_note)
     if parent.winfo_viewable():
         dialog.deiconify()
         dialog.wait_visibility()
