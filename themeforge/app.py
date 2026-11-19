@@ -803,15 +803,33 @@ class ThemeForgeApp(tk.Tk):
         target_id = self._target_theme_id()
         if target_id is None:
             return
-        source_id = self.result.themes[self.current_theme_index].id
-        updated = merge_theme(self.result, target_id, source_id)
-        if updated == self.result:
+        source = self.result.themes[self.current_theme_index]
+        target = next((t for t in self.result.themes if t.id == target_id), None)
+        if target is None or target.id == source.id:
+            return
+        if self._has_pending_source_edits():
+            self.status_text.set("Apply unfinished theme or memo edits before merging groups.")
+            return
+        actor = self.researcher_name.get().strip()
+        if not actor:
+            self.status_text.set("Enter your researcher name or pseudonym before merging groups.")
+            return
+        reason = simpledialog.askstring("Merge groups", f"Merge {source.name} ({source.id}) into "
+            f"{target.name} ({target.id}) as {actor}?\nShared passages count once. "
+            "Both original coding records will remain in the audit. Enter your reason:", parent=self)
+        if reason is None:
+            return
+        try:
+            updated, details = merge_theme(self.result, target_id, source.id, documents=self.documents,
+                                          actor=actor, reason=reason)
+        except ValueError as exc:
+            self.status_text.set(str(exc))
             return
         self.edit_history = self.edit_history.record(self.result)
         self.result = updated
         self._render_themes()
         self._select_theme_by_id(target_id)
-        self._record_audit_event("theme_merged", "theme", source_id, f"into_theme={target_id}")
+        self._record_audit_event("theme_merge_recorded", "theme", target_id, details)
         self._set_manual_status("Themes merged")
 
     def split_current_quote(self) -> None:

@@ -154,8 +154,8 @@ score and prior group details. Neither the moved assignment nor the two
 changed groups inherit a score; other quote rows retain theirs. If the target
 already has the same ID or passage at those offsets, both records stay intact.
 
-**Project compatibility:** Projects with exact manual codebook assignments or
-new quote moves use a separate nullable-score archive profile. Their current
+**Project compatibility:** Projects with exact manual codebook assignments,
+new quote moves or recorded merges use a separate nullable-score archive profile. Their current
 unscored fields contain JSON `null`, not zero or a negative score. Previous
 readers that expect `project.json` cannot open these files and may report a
 missing archive member. Ordinary numeric projects still use format 2.
@@ -167,6 +167,19 @@ changes open. Known earlier manual-code zero placeholders and move markers
 are not scores. Old reports may show them as `0.000` or `-1.000`; re-export
 from the updated app. An ordinary-looking historical move score cannot be
 corrected from the number alone.
+
+**Merge theme** uses your researcher name and asks for a reason. It counts the same exact
+passage once even when its two assignments have different quote IDs. The
+destination assignment keeps its own rationale, memo and score. A passage
+transferred from the source group has no score for the destination, and the
+merged group has no new cohesion score. A conflicting ID or an unverifiable
+source anchor stops the merge without changing either group.
+
+Quote reports describe the resulting assignments. For the two original
+records, open **Rigor → Audit log** and export the audit CSV. The
+`theme_merge_recorded` event includes both pre-merge groups, quote memos,
+rationales and scores, plus the IDs linking their passages. Earlier merges
+that recorded only the destination ID cannot reconstruct lost notes.
 
 **Choose files** replaces the transcript collection; it does not append to it.
 When replacing or removing transcripts, you can save the outgoing study, leave

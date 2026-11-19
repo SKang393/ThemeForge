@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import asdict, dataclass, replace
+from hashlib import sha256
 import json
 from uuid import uuid4
 
@@ -131,34 +132,72 @@ def reassignment_details(source: Theme, target: Theme, original: ThemeQuote, rea
                       ensure_ascii=False)
 
 
-def merge_theme(result: AnalysisResult, target_theme_id: str, source_theme_id: str) -> AnalysisResult:
-    if target_theme_id == source_theme_id:
-        return result
+def merge_theme(
+    result: AnalysisResult, target_theme_id: str, source_theme_id: str, *,
+    documents: list[TranscriptDocument], actor: str, reason: str,
+) -> tuple[AnalysisResult, str]:
+    """Merge active passages and return the exact pre-merge records for the project audit."""
     source = _find_theme(result, source_theme_id)
-    if source is None or _find_theme(result, target_theme_id) is None:
-        return result
+    target = _find_theme(result, target_theme_id)
+    if source is None or target is None or source is target or len({t.id for t in result.themes}) != len(result.themes):
+        raise ValueError("Choose two distinct, unambiguous groups to merge.")
+    if not actor.strip() or not reason.strip():
+        raise ValueError("A merge needs a named editor and a reason; nothing was merged.")
+    texts = {d.name: d.text for d in documents}
+    if len(texts) != len(documents):
+        raise ValueError("Source document names are ambiguous; nothing was merged.")
+    by_id = {}
+    dest_by_span = {}
+    quotes = list(target.quotes)
+    links = []
+    used_sources = set()
+    for group in (target, source):
+        seen_spans = set()
+        for q in group.quotes:
+            name, start, end = span = (q.source_name, q.source_start, q.source_end)
+            text = texts.get(name)
+            if (text is None or not 0 <= start < end <= len(text) or text[start:end] != q.text
+                    or text.count("\n", 0, start) + 1 != q.source_line):
+                raise ValueError("A quote anchor does not match the saved transcript; nothing was merged.")
+            if not q.quote_id or span in seen_spans or by_id.setdefault(q.quote_id, span) != span:
+                raise ValueError("A duplicate assignment or conflicting quote ID is ambiguous; nothing was merged.")
+            used_sources.add(name)
+            seen_spans.add(span)
+            if group is target:
+                dest_by_span[span] = q
+                continue
+            existing = dest_by_span.get(span)
+            links.append({"source_quote_id": q.quote_id, "destination_quote_id": existing.quote_id if existing else q.quote_id,
+                          "relationship": "already present" if existing else "transferred without score"})
+            if existing is None:
+                quotes.append(replace(q, relevance=None, rationale=(
+                    f"Manual merge by {actor.strip()}: {source.name} ({source.id}) into {target.name} ({target.id}). "
+                    f"Not scored for this group. Reason: {reason.strip()}\nPrior rationale under {source.name}: {q.rationale}")))
 
     themes: list[Theme] = []
     for theme in result.themes:
         if theme.id == target_theme_id:
-            parent_id = "" if theme.parent_theme_id == source_theme_id else theme.parent_theme_id
+            parent_id = source.parent_theme_id if _has_ancestor(result, target_theme_id, source_theme_id) else theme.parent_theme_id
             themes.append(
                 _refresh_theme(
                     replace(
                         theme,
                         parent_theme_id=parent_id,
-                        quotes=_unique_quotes([*theme.quotes, *source.quotes]),
+                        quotes=quotes, score=None,
                     )
                 )
             )
         elif theme.id != source_theme_id:
             parent_id = target_theme_id if theme.parent_theme_id == source_theme_id else theme.parent_theme_id
-            themes.append(
-                _refresh_theme(replace(theme, parent_theme_id=parent_id))
-                if parent_id != theme.parent_theme_id
-                else theme
-            )
-    return replace(result, themes=themes)
+            themes.append(replace(theme, parent_theme_id=parent_id) if parent_id != theme.parent_theme_id else theme)
+    note = (f"Merge by {actor.strip()}: {source.name} ({source.id}) into {target.name} ({target.id}). "
+            "Shared passages count once. Both original coding records are available in the project audit log.")
+    details = json.dumps({"reason": reason.strip(), "source_before": asdict(source), "destination_before": asdict(target),
+                          "passage_links": links, "source_sha256": {
+                              name: sha256(texts[name].encode("utf-8")).hexdigest() for name in sorted(used_sources)},
+                          "score_scope": "Original scores apply only to their pre-merge groups and assignments."},
+                         ensure_ascii=False)
+    return replace(result, themes=themes, notes=[*result.notes, note]), details
 
 
 def split_quote_to_theme(

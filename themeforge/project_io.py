@@ -50,7 +50,8 @@ class ProjectState:
 
     @property
     def needs_nullable_profile(self) -> bool:
-        return (any(e.action in {"codebook_passage_assigned", "quote_reassigned"} for e in self.audit_events)
+        return (any(e.action in {"codebook_passage_assigned", "quote_reassigned", "theme_merge_recorded"}
+                    for e in self.audit_events)
                 or self.result is not None and any(t.reported_score is None for t in self.result.themes))
 
 

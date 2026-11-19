@@ -1,3 +1,4 @@
+from dataclasses import replace
 import unittest
 
 from themeforge.analysis import AnalysisResult, Theme, ThemeQuote, TranscriptDocument
@@ -71,13 +72,20 @@ class ManualEditingTests(unittest.TestCase):
 
         self.assertEqual([item.quote_id for item in updated.themes[0].quotes], ["Q1"])
 
+    def _merge(self, result):
+        doc = TranscriptDocument("Transcript", "First Second")
+        groups = [replace(t, quotes=[replace(q, source_start=doc.text.index(q.text),
+                  source_end=doc.text.index(q.text) + len(q.text)) for q in t.quotes]) for t in result.themes]
+        return merge_theme(replace(result, themes=groups), "T01", "T02", documents=[doc],
+                           actor="Editor", reason="Use one group.")[0]
+
     def test_merge_theme_combines_quotes_and_removes_source_theme(self):
         result = AnalysisResult("1.3.0", 1, 2, [
             theme("T01", "One", [quote("Q1", "First")]),
             theme("T02", "Two", [quote("Q2", "Second")]),
         ], [])
 
-        updated = merge_theme(result, "T01", "T02")
+        updated = self._merge(result)
 
         self.assertEqual([item.id for item in updated.themes], ["T01"])
         self.assertEqual([item.quote_id for item in updated.themes[0].quotes], ["Q1", "Q2"])
@@ -93,7 +101,7 @@ class ManualEditingTests(unittest.TestCase):
             "T02",
         )
 
-        updated = merge_theme(result, "T01", "T02")
+        updated = self._merge(result)
 
         self.assertEqual([item.id for item in updated.themes], ["T01", "T03"])
         self.assertEqual(updated.themes[1].parent_theme_id, "T01")
