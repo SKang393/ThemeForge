@@ -156,6 +156,17 @@ interpretations remain unverified even for exact spans. Reports generated
 without the source documents cannot verify any locations. Older reports
 are unchanged; reopen the project and export again to see these checks.
 
+**Recording a match review:** Enter a reviewer name, select a source-verified
+quote, then choose **Not this match** (decline the pairing) or **Revisit later**
+(defer judgment). Give a reason. Unlike **Uncode quote**, neither action removes
+evidence or changes an assignment, score, count or agreement input. The latest
+note for that exact pairing appears beside its rationale and in Markdown, CSV
+and JSON reports. It is one reviewer's note, not team consensus. A blank review
+does not mean the passage was assessed or rejected. Running **Analyze** again
+starts fresh, even if a quote ID repeats. Earlier notes, their exact excerpts,
+scores and reviewer names remain in **Rigor tools → Audit log** and its CSV export.
+Older readers do not display the review notes alongside the quotes.
+
 These manual assignments have no relevance score. Markdown labels them
 unscored, CSV leaves relevance blank, and JSON reports use `null`.
 The name-based intercoder comparison does not support these assignments and

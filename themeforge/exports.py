@@ -8,12 +8,16 @@ from dataclasses import asdict
 
 from .analysis import AnalysisResult, ValidationValue
 from .analysis_types import TranscriptDocument
+from .audit import AuditEvent, neutralize_csv_cell
 from .manual_editing import MANUAL_ONLY_NOTE
+from .match_reviews import REVIEW_SCOPE, MatchReviews
 from .source_location import LOCATION_SCOPE, TranscriptIndex
 
 
-def export_markdown(result: AnalysisResult, documents: Iterable[TranscriptDocument] = ()) -> str:
+def export_markdown(result: AnalysisResult, documents: Iterable[TranscriptDocument] = (),
+                    audit_events: Iterable[AuditEvent] = ()) -> str:
     sources = TranscriptIndex(documents)
+    reviews = MatchReviews(audit_events)
     manual_only = MANUAL_ONLY_NOTE in result.notes
     mixed = any(t.reported_score is None for t in result.themes)
     origin = "These themes and quote matches are machine-generated suggestions."
@@ -34,6 +38,8 @@ def export_markdown(result: AnalysisResult, documents: Iterable[TranscriptDocume
         ),
         "",
         LOCATION_SCOPE + " Speaker labels, excerpts and counts are reported as recorded, including unresolved records.",
+        "",
+        REVIEW_SCOPE,
         "",
         "## Summary",
         "",
@@ -73,10 +79,12 @@ def export_markdown(result: AnalysisResult, documents: Iterable[TranscriptDocume
             loc = sources.locate(quote)
             citation = (f"[{theme.id} {theme.color}] Source: {quote.source_name} | Recorded line: {quote.source_line} | "
                         f"Recorded speaker: {quote.speaker} | Quote ID: {quote.quote_id} | Location: {loc.status}")
+            review = reviews.latest(theme, quote, sources)
+            review_text = f" {review.describe()}" if review else ""
             excerpt = quote.text.split("\n")
             lines.extend(
                 [
-                    f"- {citation}. {loc.note}",
+                    f"- {citation}. {loc.note}{review_text}",
                     "",
                     *(f"> {line}" for line in excerpt),
                     "",
@@ -85,7 +93,7 @@ def export_markdown(result: AnalysisResult, documents: Iterable[TranscriptDocume
                     "",
                 ]
             )
-            transcript_evidence.extend([f"- {citation}. {loc.note}", *(f"  > {line}" for line in excerpt)])
+            transcript_evidence.extend([f"- {citation}. {loc.note}{review_text}", *(f"  > {line}" for line in excerpt)])
 
     if result.themes:
         lines.extend(["## Color-Coded Transcript Evidence", ""])
@@ -100,10 +108,13 @@ def export_markdown(result: AnalysisResult, documents: Iterable[TranscriptDocume
     return "\n".join(lines).rstrip() + "\n"
 
 
-def export_json(result: AnalysisResult, documents: Iterable[TranscriptDocument] = ()) -> str:
+def export_json(result: AnalysisResult, documents: Iterable[TranscriptDocument] = (),
+                audit_events: Iterable[AuditEvent] = ()) -> str:
     sources = TranscriptIndex(documents)
+    reviews = MatchReviews(audit_events)
     payload = asdict(result)
     payload["source_location_scope"] = LOCATION_SCOPE
+    payload["match_review_scope"] = REVIEW_SCOPE
     for theme, item in zip(result.themes, payload["themes"], strict=True):
         item["score"] = theme.reported_score
         for quote, row in zip(theme.quotes, item["quotes"], strict=True):
@@ -111,11 +122,15 @@ def export_json(result: AnalysisResult, documents: Iterable[TranscriptDocument] 
             loc = sources.locate(quote)
             row["source_location_status"] = loc.status
             row["source_location_note"] = loc.note
+            review = reviews.latest(theme, quote, sources)
+            row["latest_match_review"] = asdict(review) if review else None
     return json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
 
 
-def export_quotes_csv(result: AnalysisResult, documents: Iterable[TranscriptDocument] = ()) -> str:
+def export_quotes_csv(result: AnalysisResult, documents: Iterable[TranscriptDocument] = (),
+                      audit_events: Iterable[AuditEvent] = ()) -> str:
     sources = TranscriptIndex(documents)
+    reviews = MatchReviews(audit_events)
     buffer = io.StringIO()
     writer = csv.writer(buffer, lineterminator="\n")
     writer.writerow(
@@ -136,6 +151,10 @@ def export_quotes_csv(result: AnalysisResult, documents: Iterable[TranscriptDocu
             "source_end",
             "source_location_status",
             "source_location_note",
+            "match_review_disposition",
+            "match_review_actor",
+            "match_review_reason",
+            "match_review_time_utc",
         ]
     )
 
@@ -143,6 +162,7 @@ def export_quotes_csv(result: AnalysisResult, documents: Iterable[TranscriptDocu
         keywords = "; ".join(theme.keywords)
         for quote in theme.quotes:
             loc = sources.locate(quote)
+            review = reviews.latest(theme, quote, sources)
             writer.writerow(
                 [
                     theme.id,
@@ -161,6 +181,10 @@ def export_quotes_csv(result: AnalysisResult, documents: Iterable[TranscriptDocu
                     quote.source_end,
                     loc.status,
                     loc.note,
+                    review.disposition if review else "",
+                    neutralize_csv_cell(review.actor) if review else "",
+                    neutralize_csv_cell(review.reason) if review else "",
+                    review.timestamp_utc if review else "",
                 ]
             )
 

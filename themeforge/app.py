@@ -45,6 +45,7 @@ from .manual_editing import (
     update_quote_boundary,
     update_theme_memo,
 )
+from .match_reviews import DISPOSITIONS, REVIEW_ACTION, MatchReviews, match_id, match_snapshot
 from .project_io import ProjectCopyRequired, ProjectState, UnsupportedProjectFormatError, load_project, save_project
 from .rigor_dialog import RigorContext, RigorDialog
 from .semantic_suggestions import SimilarPassage, find_similar_passages
@@ -94,6 +95,7 @@ class ThemeForgeApp(tk.Tk):
         self.documents: list[TranscriptDocument] = []
         self.result: AnalysisResult | None = None
         self.audit_events: list[AuditEvent] = []
+        self.match_reviews = MatchReviews()
         self.edit_history = EditHistory()
         self.transcript_widgets: dict[str, tk.Text] = {}
         self.transcript_frames: dict[str, ttk.Frame] = {}
@@ -111,6 +113,7 @@ class ThemeForgeApp(tk.Tk):
         self.detail_title = tk.StringVar(value="Transcript evidence")
         self.quote_status = tk.StringVar(value=evidence_navigation_status(0, 0))
         self.quote_meta = tk.StringVar(value="Open transcripts, then analyze to highlight quote evidence.")
+        self.match_review_text = tk.StringVar(value="")
         self.quote_reason = tk.StringVar(
             value="Select a theme, then use Previous quote or Next quote to review why each highlighted quote was selected."
         )
@@ -416,6 +419,11 @@ class ThemeForgeApp(tk.Tk):
         reason_frame.grid(row=3, column=0, sticky="ew", pady=(0, 8))
         reason_frame.columnconfigure(0, weight=1)
         ttk.Label(reason_frame, textvariable=self.quote_reason, style="Muted.TLabel", wraplength=520).grid(row=0, column=0, sticky="ew")
+        review_row = ttk.Frame(reason_frame, style="Surface.TFrame")
+        review_row.grid(row=1, column=0, sticky="w")
+        ttk.Button(review_row, text="Revisit later", command=lambda: self.review_current_match("deferred")).pack(side="left")
+        ttk.Button(review_row, text="Not this match", command=lambda: self.review_current_match("declined")).pack(side="left")
+        ttk.Label(reason_frame, textvariable=self.match_review_text, style="Muted.TLabel", wraplength=520).grid(row=2, column=0, sticky="w")
 
         quote_memo = ttk.Labelframe(parent, text="Quote memo", style="Panel.TLabelframe", padding=(10, 8))
         quote_memo.grid(row=4, column=0, sticky="ew", pady=(0, 8))
@@ -635,6 +643,11 @@ class ThemeForgeApp(tk.Tk):
         if self.language_mode.get() != "Auto":
             self.result.notes.append(f"Language review mode selected: {self.language_mode.get()}.")
 
+        self._record_audit_event(
+            "analysis_run", "project", self.project_path.name if self.project_path is not None else "unsaved",
+            f"documents={self.result.document_count}; themes={len(self.result.themes)}; quotes={self.result.quote_count}",
+        )
+        self.match_review_text.set("")
         self._render_themes()
         self._render_transcript_tabs()
         if self.result.themes:
@@ -653,12 +666,6 @@ class ThemeForgeApp(tk.Tk):
             theme_count=len(self.result.themes),
         )
         self.theme_summary.set(status)
-        self._record_audit_event(
-            "analysis_run",
-            "project",
-            self.project_path.name if self.project_path is not None else "unsaved",
-            f"documents={self.result.document_count}; themes={len(self.result.themes)}; quotes={self.result.quote_count}",
-        )
         autosave_status = self._autosave_project()
         self.status_text.set(f"{status}; {autosave_status}" if autosave_status else status)
 
@@ -1090,6 +1097,29 @@ class ThemeForgeApp(tk.Tk):
             suggestion=passage,
         )
 
+    def review_current_match(self, disposition: str) -> None:
+        theme, match = self._current_theme(), self._current_quote_match()
+        if not theme or not match or disposition not in DISPOSITIONS:
+            self.status_text.set("Select a source-verified match to review. No note was recorded.")
+            return
+        if not self.researcher_name.get().strip():
+            self.status_text.set("Enter a reviewer name or pseudonym before recording a match review.")
+            return
+        title = "Revisit later" if disposition == "deferred" else "Not this match"
+        reason = simpledialog.askstring(title, f"{theme.name} | {match.quote.source_name}:{match.quote.source_line}\n"
+            "Why mark this pairing? The record, code assignments and scores stay unchanged.", parent=self)
+        if not reason or not reason.strip():
+            return
+        snapshot = match_snapshot(theme, match.quote, self._display_sources)
+        details = json.dumps({"disposition": disposition, "reason": reason.strip(), "match": snapshot}, ensure_ascii=False)
+        self._record_audit_event(REVIEW_ACTION, "theme_quote_match", match_id(snapshot), details)
+        self._show_match_review(theme, match.quote)
+        self._set_manual_status("Review note recorded. No coding assignment changed")
+
+    def _show_match_review(self, theme: Theme, quote: ThemeQuote) -> None:
+        note = self.match_reviews.latest(theme, quote, self._display_sources)
+        self.match_review_text.set(note.describe() if note else "No current review note on this match.")
+
     def uncode_current_quote(self) -> None:
         if self.result is None or self.current_theme_index is None:
             return
@@ -1253,6 +1283,7 @@ class ThemeForgeApp(tk.Tk):
                 details=details,
             )
         )
+        self.match_reviews.observe(self.audit_events[-1])
         for child in self.winfo_children():
             if isinstance(child, RigorDialog):
                 child.refresh_current_state()
@@ -1291,6 +1322,8 @@ class ThemeForgeApp(tk.Tk):
         self.result = state.result
         self.researcher_name.set(state.researcher_name)
         self.audit_events = list(state.audit_events)
+        self.match_reviews = MatchReviews(self.audit_events)
+        self.match_review_text.set("")
         self.edit_history = EditHistory()
         self.theme_count.set(state.settings.theme_count)
         self.quotes_per_theme.set(state.settings.quotes_per_theme)
@@ -1360,6 +1393,7 @@ class ThemeForgeApp(tk.Tk):
         self._refresh_editor()
 
     def _reset_analysis_view(self, quote_meta: str) -> None:
+        self.match_review_text.set("")
         self.result = None
         self.edit_history = EditHistory()
         self.current_theme_index = None
@@ -1641,11 +1675,11 @@ class ThemeForgeApp(tk.Tk):
         target = Path(path)
         suffix = target.suffix.lower()
         if suffix == ".csv":
-            output = export_quotes_csv(self.result, self.documents)
+            output = export_quotes_csv(self.result, self.documents, self.audit_events)
         elif suffix == ".json":
-            output = export_json(self.result, self.documents)
+            output = export_json(self.result, self.documents, self.audit_events)
         else:
-            output = export_markdown(self.result, self.documents)
+            output = export_markdown(self.result, self.documents, self.audit_events)
 
         target.write_text(output, encoding="utf-8", newline="")
         self.status_text.set(f"Saved {target.name}")
@@ -1864,6 +1898,7 @@ class ThemeForgeApp(tk.Tk):
             widget.configure(state="disabled")
 
         if not self.current_quote_matches or self.current_quote_index < 0:
+            self.match_review_text.set("")
             self.quote_status.set(evidence_navigation_status(0, 0))
             if hasattr(self, "quote_memo_text"):
                 self._set_editable_text_content(self.quote_memo_text, "")
@@ -1880,6 +1915,7 @@ class ThemeForgeApp(tk.Tk):
             return
 
         loc = match.location
+        self._show_match_review(theme, match.quote)
         context_note = ""
         if widget is not None and frame is not None and loc.start:
             self.transcript_notebook.select(frame)

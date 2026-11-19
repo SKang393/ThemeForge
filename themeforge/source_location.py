@@ -3,6 +3,7 @@ from __future__ import annotations
 from bisect import bisect_left
 from collections.abc import Iterable
 from dataclasses import dataclass
+from hashlib import sha256
 import re
 from typing import Literal
 
@@ -25,6 +26,7 @@ class TranscriptIndex:
     """Check recorded locations without reading external files or substituting other occurrences."""
 
     def __init__(self, documents: Iterable[TranscriptDocument]):
+        self._digests: dict[str, str] = {}
         self._sources: dict[str, tuple[str, list[int]] | None] = {}
         for doc in documents:
             if doc.name in self._sources:
@@ -34,6 +36,14 @@ class TranscriptIndex:
 
     def has_unique_source(self, name: str) -> bool:
         return self._sources.get(name) is not None
+
+    def digest(self, name: str) -> str | None:
+        entry = self._sources.get(name)
+        if entry is None:
+            return None
+        if name not in self._digests:
+            self._digests[name] = sha256(entry[0].encode("utf-8")).hexdigest()
+        return self._digests[name]
 
     def locate(self, q: ThemeQuote) -> SourceLocation:
         entry = self._sources.get(q.source_name)
