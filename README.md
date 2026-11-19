@@ -122,6 +122,21 @@ python -m themeforge.app
 In the desktop app, use **Choose files** for transcripts and **Choose codebook**
 for optional deductive matching against researcher-defined themes.
 
+To code a passage **without running Analyze**, enter a researcher name or
+pseudonym, select the passage in its transcript tab, choose a codebook entry
+beside **Apply codebook entry**, and confirm its definition and examples.
+The assignment records the coder, selected wording, source offsets and the
+definition actually used. Entries with the same label but different definitions
+stay separate. Unselected text is not a rejection. Save or export immediately;
+running Analyze later adds separate suggestions, not endorsements.
+
+These manual assignments have no relevance score. Markdown labels them
+unscored, CSV leaves relevance blank, and JSON reports use `null`. The format-2
+project archive keeps a numeric placeholder for older readers, so use reports
+from this version rather than interpreting that stored number as a score.
+The name-based intercoder comparison does not support these assignments and
+will not calculate agreement for a project containing them.
+
 **Choose files** replaces the transcript collection; it does not append to it.
 When replacing or removing transcripts, you can save the outgoing study, leave
 without saving, or cancel. Apply unfinished theme or memo edits before saving.

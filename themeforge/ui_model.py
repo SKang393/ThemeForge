@@ -66,20 +66,22 @@ def analysis_status_text(document_count: int, quote_count: int, theme_count: int
     return f"{document_count} documents | {quote_count} quote units | {theme_count} themes"
 
 
-def theme_list_label(name: str, color: str, quote_count: int, focus_alignment: float, depth: int = 0) -> str:
+def theme_list_label(name: str, color: str, quote_count: int, focus_alignment: float | None, depth: int = 0) -> str:
     del color
     prefix = "  > " * max(0, depth)
-    return f"{prefix}{name}  |  {quote_count} quotes  |  {_percent(focus_alignment)} focus"
+    focus = "unscored" if focus_alignment is None else f"{_percent(focus_alignment)} focus"
+    return f"{prefix}{name}  |  {quote_count} quotes  |  {focus}"
 
 
 def format_validation_summary(validation: Mapping[str, ValidationValue]) -> str:
     if not validation:
         return "Researcher review required"
+    focus = "Not scored" if "manual_codebook_definition" in validation else f"Focus {_percent(validation.get('central_theme_alignment', 0))}"
     return (
         f"Evidence {validation.get('evidence_count', 0)} | "
         f"Sources {validation.get('source_count', 0)} | "
         f"Speakers {validation.get('speaker_count', 0)} | "
-        f"Focus {_percent(validation.get('central_theme_alignment', 0))} | "
+        f"{focus} | "
         f"{validation.get('review_status', 'Researcher review required')}"
     )
 

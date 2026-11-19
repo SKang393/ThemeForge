@@ -15,6 +15,7 @@ from .rigor import (
     CoderLabels,
     DocumentTextMismatchError,
     IntercoderReliabilityReport,
+    ManualDefinitionComparisonError,
     MatrixCell,
     MatrixQueryReport,
     NoSharedDocumentsError,
@@ -212,7 +213,7 @@ class RigorDialog(tk.Toplevel):
                 self._comparison_project,
                 CoderLabels(_label(self.context.coder_name, "Current coder"), self._comparison_label),
             )
-        except (DocumentTextMismatchError, NoSharedDocumentsError) as exc:
+        except (DocumentTextMismatchError, NoSharedDocumentsError, ManualDefinitionComparisonError) as exc:
             self.report = None
             self._render_intercoder()
             self.status.set(str(exc))

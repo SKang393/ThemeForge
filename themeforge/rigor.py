@@ -25,6 +25,13 @@ class NoSharedDocumentsError(Exception):
 
 
 @dataclass(frozen=True, slots=True)
+class ManualDefinitionComparisonError(Exception):
+    def __str__(self) -> str:
+        return ("Agreement unavailable: this comparison matches names, not the definitions "
+                "recorded in manual codebook assignments. Inspect their separate quote exports instead.")
+
+
+@dataclass(frozen=True, slots=True)
 class MatrixCellNotFoundError(Exception):
     theme_name: str
     axis_value: str
@@ -147,6 +154,8 @@ def intercoder_reliability(
     coder_b: CodedProject,
     labels: CoderLabels = DEFAULT_LABELS,
 ) -> IntercoderReliabilityReport:
+    if any(t.includes_manual_definition for result in (coder_a.result, coder_b.result) for t in result.themes):
+        raise ManualDefinitionComparisonError()
     shared_documents = _shared_documents(coder_a.documents, coder_b.documents)
     units = tuple(
         unit

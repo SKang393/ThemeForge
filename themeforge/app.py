@@ -24,8 +24,11 @@ from .exports import export_json, export_markdown, export_quotes_csv
 from .io import load_transcript_text
 from .manual_editing import (
     EditHistory,
+    MANUAL_ONLY_NOTE,
     ManualSelection,
+    apply_codebook_definition,
     code_selected_text,
+    definition_text,
     merge_theme,
     preserve_manual_themes,
     reassign_quote,
@@ -372,6 +375,10 @@ class ThemeForgeApp(tk.Tk):
         coding_row.columnconfigure(1, weight=1)
         ttk.Button(coding_row, text="Code selection", style="Secondary.TButton", command=self.code_selection_to_theme).grid(row=0, column=0, sticky="ew", padx=(0, 6))
         ttk.Button(coding_row, text="New code from selection", style="Secondary.TButton", command=self.code_selection_to_new_theme).grid(row=0, column=1, sticky="ew")
+        self.definition_box = ttk.Combobox(coding_row, state="readonly", width=18)
+        self.definition_box.grid(row=1, column=0, sticky="ew", padx=(0, 6), pady=(6, 0))
+        ttk.Button(coding_row, text="Apply codebook entry…", command=self.code_selection_to_definition).grid(
+            row=1, column=1, sticky="ew", pady=(6, 0))
         history_row = ttk.Frame(editor, style="Surface.TFrame")
         history_row.grid(row=16, column=0, sticky="ew", pady=(8, 0))
         history_row.columnconfigure(0, weight=1)
@@ -499,7 +506,7 @@ class ThemeForgeApp(tk.Tk):
         self.input_paths = input_paths
         self.documents = documents
         self.project_path = None
-        self._reset_analysis_view("Analyze to highlight quote evidence across the uploaded transcripts.")
+        self._reset_analysis_view("Apply a codebook entry to selected text, or Analyze for suggestions.")
         self.file_summary.set(file_selection_summary(self.input_paths))
         self._render_transcript_tabs()
         self.status_text.set("Files loaded")
@@ -582,18 +589,20 @@ class ThemeForgeApp(tk.Tk):
             return
 
         try:
-            self.codebook_path = Path(path)
-            self.codebook_entries = load_codebook_entries(self.codebook_path)
+            entries = load_codebook_entries(Path(path))
         except (OSError, ValueError, zipfile.BadZipFile) as exc:
             messagebox.showerror("Open codebook failed", str(exc))
             return
 
+        self.codebook_path, self.codebook_entries = Path(path), entries
+        self._refresh_definition_box()
         self.codebook_summary.set(codebook_selection_summary(self.codebook_path, len(self.codebook_entries)))
         self.status_text.set("Codebook loaded")
 
     def remove_codebook(self) -> None:
         self.codebook_path = None
         self.codebook_entries = ()
+        self._refresh_definition_box()
         self.codebook_summary.set(codebook_selection_summary(None))
         self.status_text.set("Codebook removed")
 
@@ -798,6 +807,53 @@ class ThemeForgeApp(tk.Tk):
         )
         self._set_manual_status("Quote split into a new theme")
 
+    def _refresh_definition_box(self) -> None:
+        self.definition_box.configure(values=tuple(f"{i}. {e.name}" for i, e in enumerate(self.codebook_entries, 1)))
+        self.definition_box.set("")
+
+    def code_selection_to_definition(self) -> None:
+        index = self.definition_box.current()
+        if not 0 <= index < len(self.codebook_entries):
+            self.status_text.set("Load a codebook and choose an entry beside Apply codebook entry.")
+            return
+        selection = self._selected_transcript_text()
+        document = next((d for d in self.documents if d.name == self._current_document_name()), None)
+        actor = self.researcher_name.get().strip()
+        if not selection or document is None or not actor:
+            self.status_text.set("Select transcript text and enter a researcher name or pseudonym first.")
+            return
+        if self._has_pending_source_edits():
+            self.status_text.set("Apply unfinished theme or memo edits before coding another passage.")
+            return
+        entry = self.codebook_entries[index]
+        if not messagebox.askyesno("Apply this definition?", f"{definition_text(entry)}\n\n"
+                f"Apply to the selected passage in {document.name} as {actor}? No matching or scoring will run."):
+            return
+        prior = self.result or AnalysisResult(__version__, len(self.documents), 0, [], [MANUAL_ONLY_NOTE])
+        try:
+            updated, theme_id, quote_id = apply_codebook_definition(prior, entry, document, selection, actor)
+        except ValueError as exc:
+            self.status_text.set(str(exc))
+            return
+        if not quote_id:
+            self.status_text.set("This exact passage already has this manual definition.")
+            return
+        self.edit_history = self.edit_history.record(prior)
+        self.result = updated
+        self._render_themes()
+        self._select_theme_by_id(theme_id)
+        for index, match in enumerate(self.current_quote_matches):
+            if match.quote.quote_id == quote_id:
+                self.current_quote_index = index
+                self._focus_current_quote()
+                break
+        if MANUAL_ONLY_NOTE in updated.notes:
+            self.theme_summary.set("Manual coding | No automated analysis")
+        self._record_audit_event("codebook_passage_assigned", "quote", quote_id,
+            f"{document.name}: chars {selection.source_start}-{selection.source_end}; "
+            f"theme={theme_id}\n{definition_text(entry)}")
+        self._set_manual_status("Codebook definition applied manually")
+
     def code_selection_to_theme(self) -> None:
         if self.result is None:
             return
@@ -819,6 +875,9 @@ class ThemeForgeApp(tk.Tk):
 
     def _apply_selection_coding(self, selection: ManualSelection, target_theme_id: str, new_theme_name: str) -> None:
         if self.result is None:
+            return
+        if any(t.id == target_theme_id and "manual_codebook_definition" in t.validation for t in self.result.themes):
+            self.status_text.set("Use Apply codebook entry to confirm the definition and coder for this passage.")
             return
         updated = code_selected_text(
             self.result,
@@ -1132,6 +1191,7 @@ class ThemeForgeApp(tk.Tk):
         self.input_paths = list(state.transcript_paths)
         self.codebook_path = state.codebook_path
         self.codebook_entries = state.settings.codebook_entries
+        self._refresh_definition_box()
         self.documents = list(state.documents)
         self.result = state.result
         self.researcher_name.set(state.researcher_name)
@@ -1159,7 +1219,7 @@ class ThemeForgeApp(tk.Tk):
                 quote_count=self.result.quote_count,
                 theme_count=len(self.result.themes),
             )
-            self.theme_summary.set(status)
+            self.theme_summary.set("Manual coding | No automated analysis" if MANUAL_ONLY_NOTE in self.result.notes else status)
         else:
             self.current_theme_index = None
             self.current_quote_matches = []
@@ -1196,7 +1256,7 @@ class ThemeForgeApp(tk.Tk):
                 theme.name,
                 theme.color,
                 theme.quote_count,
-                float(theme.validation.get("central_theme_alignment", 0)),
+                None if theme.includes_manual_definition else float(theme.validation.get("central_theme_alignment", 0)),
                 depth=1 if theme.parent_theme_id else 0,
             )
             self.theme_list.insert(tk.END, label)
@@ -1318,23 +1378,21 @@ class ThemeForgeApp(tk.Tk):
         return f"{theme.id}: {theme.name}" if theme else ""
 
     def _selected_transcript_text(self) -> ManualSelection | None:
-        for source_name, widget in self.transcript_widgets.items():
-            try:
-                start = widget.index(tk.SEL_FIRST)
-                end = widget.index(tk.SEL_LAST)
-            except tk.TclError:
-                continue
-            text = widget.get(start, end).strip()
-            if not text:
-                return None
-            return ManualSelection(
-                source_name=source_name,
-                text=text,
-                source_line=int(start.split(".", 1)[0]),
-                source_start=int(widget.count("1.0", start, "chars")[0]),
-                source_end=int(widget.count("1.0", end, "chars")[0]),
-            )
-        return None
+        source_name = self._current_document_name()
+        widget = self.transcript_widgets.get(source_name)
+        if widget is None:
+            return None
+        try:
+            start = widget.index(tk.SEL_FIRST)
+            raw = widget.get(start, tk.SEL_LAST)
+        except tk.TclError:
+            return None
+        text = raw.strip()
+        if not text:
+            return None
+        # Python source offsets, not Tcl UTF-16 counts. Trim both the text and its offsets.
+        prefix = widget.get("1.0", start) + raw[:len(raw) - len(raw.lstrip())]
+        return ManualSelection(source_name, text, prefix.count("\n") + 1, len(prefix), len(prefix) + len(text))
 
     def _select_theme_by_id(self, theme_id: str) -> None:
         if self.result is None:

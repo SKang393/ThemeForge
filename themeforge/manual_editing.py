@@ -3,9 +3,13 @@ from __future__ import annotations
 # noqa: SIZE_OK - immutable manual-coding operations share result refresh helpers.
 
 from copy import deepcopy
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
+import json
+from uuid import uuid4
 
-from .analysis_types import AnalysisResult, Theme, ThemeQuote, TranscriptDocument, ValidationValue
+from .analysis_types import AnalysisResult, CodebookEntry, Theme, ThemeQuote, TranscriptDocument, ValidationValue
+
+MANUAL_ONLY_NOTE = "No automated analysis has been run. Unselected passages have not been assessed."
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,6 +187,44 @@ def code_selected_text(
         for theme in result.themes
     ]
     return replace(result, themes=themes)
+
+
+def definition_text(entry: CodebookEntry) -> str:
+    lines = [f"Code: {entry.name}", f"Definition: {entry.description or '(not supplied)'}"]
+    return "\n".join([*lines, *(f"Example: {example}" for example in entry.examples)])
+
+
+def apply_codebook_definition(
+    result: AnalysisResult, entry: CodebookEntry, document: TranscriptDocument,
+    selection: ManualSelection, actor: str,
+) -> tuple[AnalysisResult, str, str]:
+    """Group by the exact loaded definition, never by its label or row number."""
+    start, end = selection.source_start, selection.source_end
+    if not actor.strip() or not (0 <= start < end <= len(document.text)) or (
+        document.name != selection.source_name or document.text[start:end] != selection.text
+        or not selection.text.strip() or document.text.count("\n", 0, start) + 1 != selection.source_line
+    ):
+        raise ValueError("A named coder and an exact selection in the active transcript are required.")
+    snapshot = json.dumps(asdict(entry), ensure_ascii=False, sort_keys=True)
+    target = next((t for t in result.themes if t.validation.get("manual_codebook_definition") == snapshot), None)
+    if target and any(q.manual_definition_assignment and
+                      (q.source_name, q.source_start, q.source_end) == (document.name, start, end)
+                      for q in target.quotes):
+        return result, target.id, ""
+    quote = ThemeQuote(
+        quote_id=f"MQD{uuid4().hex}", speaker="Not attributed (manual selection)",
+        text=selection.text, relevance=0.0, source_line=selection.source_line, source_name=document.name,
+        source_start=start, source_end=end,
+        rationale=(f"Original manual codebook assignment by {actor.strip()} at {document.name} "
+                   f"[{start}:{end}]. Not scored.\n{definition_text(entry)}"),
+    )
+    if target is None:
+        updated = _add_manual_theme(result, quote, entry.name)
+        target = updated.themes[-1]
+        bound = _refresh_theme(replace(target, validation={"manual_codebook_definition": snapshot}))
+        return replace(updated, themes=[*updated.themes[:-1], bound]), bound.id, quote.quote_id
+    bound = _refresh_theme(replace(target, quotes=[*target.quotes, quote]))
+    return replace(result, themes=[bound if t.id == target.id else t for t in result.themes]), bound.id, quote.quote_id
 
 
 def uncode_quote(result: AnalysisResult, theme_id: str, quote_id: str) -> AnalysisResult:
@@ -389,6 +431,10 @@ def _add_manual_theme(result: AnalysisResult, quote: ThemeQuote, name: str) -> A
 
 
 def _replace_quote_boundary(quote: ThemeQuote, selection: ManualSelection, text: str) -> ThemeQuote:
+    boundary_note = "Researcher updated this quote boundary from selected transcript text."
+    rationale = boundary_note
+    if quote.manual_definition_assignment:
+        rationale = quote.rationale.removesuffix("\n" + boundary_note) + "\n" + boundary_note
     return replace(
         quote,
         text=text,
@@ -396,15 +442,19 @@ def _replace_quote_boundary(quote: ThemeQuote, selection: ManualSelection, text:
         source_line=selection.source_line,
         source_start=selection.source_start,
         source_end=selection.source_end,
-        rationale="Researcher updated this quote boundary from selected transcript text.",
+        rationale=rationale,
     )
 
 
 def _refresh_theme(theme: Theme) -> Theme:
+    validation = _manual_validation(theme.quotes)
+    if "manual_codebook_definition" in theme.validation:
+        validation["manual_codebook_definition"] = theme.validation["manual_codebook_definition"]
+        validation.pop("central_theme_alignment", None)
     return replace(
         theme,
         quote_count=len(theme.quotes),
-        validation=_manual_validation(theme.quotes),
+        validation=validation,
     )
 
 
@@ -426,7 +476,7 @@ def _manual_validation(quotes: list[ThemeQuote]) -> dict[str, ValidationValue]:
         "evidence_count": len(quotes),
         "displayed_quote_count": len(quotes),
         "source_count": len({quote.source_name for quote in quotes}),
-        "speaker_count": len({quote.speaker for quote in quotes}),
+        "speaker_count": len({quote.speaker for quote in quotes if not quote.manual_definition_assignment}),
         "central_theme_alignment": 0.0,
         "review_status": "Researcher edited",
     }

@@ -76,6 +76,11 @@ class ThemeQuote:
     source_end: int = 0
     memo: str = ""
 
+    @property
+    def manual_definition_assignment(self) -> bool:
+        # This ID family is allocated only to explicitly applied codebook definitions.
+        return self.quote_id.startswith("MQD")
+
 
 @dataclass(frozen=True, slots=True)
 class Theme:
@@ -89,6 +94,10 @@ class Theme:
     validation: dict[str, ValidationValue] = field(default_factory=dict)
     memo: str = ""
     parent_theme_id: str = ""
+
+    @property
+    def includes_manual_definition(self) -> bool:
+        return "manual_codebook_definition" in self.validation or any(q.manual_definition_assignment for q in self.quotes)
 
 
 @dataclass(frozen=True, slots=True)
