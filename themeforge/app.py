@@ -44,7 +44,7 @@ from .manual_editing import (
     update_quote_boundary,
     update_theme_memo,
 )
-from .project_io import ProjectState, UnsupportedProjectFormatError, load_project, save_project
+from .project_io import ProjectCopyRequired, ProjectState, UnsupportedProjectFormatError, load_project, save_project
 from .rigor_dialog import RigorContext, RigorDialog
 from .semantic_suggestions import SimilarPassage, find_similar_passages
 from .ui_model import (
@@ -1163,7 +1163,21 @@ class ThemeForgeApp(tk.Tk):
                 self.status_text.set("Not saved: choose a different file for the outgoing study before opening this project.")
                 return False
             state = self._project_state()
-            save_project(path, state)
+            try:
+                save_project(path, state, new_only=self.project_path is None and state.needs_nullable_profile)
+            except ProjectCopyRequired:
+                chosen = filedialog.asksaveasfilename(
+                    title="Save a separate nullable-score project (original stays unchanged)",
+                    initialdir=path.parent, initialfile=f"{path.stem}-unscored.tfproj",
+                    defaultextension=".tfproj", filetypes=[("ThemeForge project", "*.tfproj")])
+                if not chosen:
+                    self.status_text.set("Copy not saved. Changes remain open; the original project is unchanged.")
+                    return False
+                path = Path(chosen)
+                if reserved_path is not None and self._same_project(path, reserved_path):
+                    self.status_text.set("Not saved: choose a different file for the outgoing study.")
+                    return False
+                save_project(path, state, new_only=True)
         except (OSError, ValueError, tk.TclError) as exc:
             messagebox.showerror("Save project failed", str(exc))
             return False
@@ -1199,6 +1213,8 @@ class ThemeForgeApp(tk.Tk):
         try:
             state = self._project_state()
             save_project(self.project_path, state)
+        except ProjectCopyRequired as exc:
+            return str(exc)
         except (OSError, ValueError, tk.TclError) as exc:
             return f"autosave failed: {exc}"
         self._saved_state = state

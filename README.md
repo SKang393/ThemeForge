@@ -131,9 +131,7 @@ stay separate. Unselected text is not a rejection. Save or export immediately;
 running Analyze later adds separate suggestions, not endorsements.
 
 These manual assignments have no relevance score. Markdown labels them
-unscored, CSV leaves relevance blank, and JSON reports use `null`. The format-2
-project archive keeps a numeric placeholder for older readers, so use reports
-from this version rather than interpreting that stored number as a score.
+unscored, CSV leaves relevance blank, and JSON reports use `null`.
 The name-based intercoder comparison does not support these assignments and
 will not calculate agreement for a project containing them.
 
@@ -156,13 +154,19 @@ score and prior group details. Neither the moved assignment nor the two
 changed groups inherit a score; other quote rows retain theirs. If the target
 already has the same ID or passage at those offsets, both records stay intact.
 
-**Older readers can preserve the project without correctly reporting its scores.**
-This version stores `-1` in format-2 numeric fields for scores unset by a move.
-Older Markdown and CSV reports can print `-1.000`, and older JSON reports
-can emit `-1.0`. None is a relevance judgment. Export moved assignments with
-the updated app: Markdown says **Not scored**, CSV leaves the field blank, and
-JSON uses `null`. Earlier moves that retained ordinary-looking scores cannot
-be corrected retrospectively from those scores alone.
+**Project compatibility:** Projects with exact manual codebook assignments or
+new quote moves use a separate nullable-score archive profile. Their current
+unscored fields contain JSON `null`, not zero or a negative score. Previous
+readers that expect `project.json` cannot open these files and may report a
+missing archive member. Ordinary numeric projects still use format 2.
+
+You can open older format-1 and format-2 projects without modifying them.
+When an older project needs the new profile, **Save project** asks for a new
+filename. Autosave does not replace the original, and cancelling leaves the
+changes open. Known earlier manual-code zero placeholders and move markers
+are not scores. Old reports may show them as `0.000` or `-1.000`; re-export
+from the updated app. An ordinary-looking historical move score cannot be
+corrected from the number alone.
 
 **Choose files** replaces the transcript collection; it does not append to it.
 When replacing or removing transcripts, you can save the outgoing study, leave

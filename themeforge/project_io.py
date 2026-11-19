@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 import json
+import math
 import os
 from pathlib import Path
 import tempfile
@@ -20,6 +21,12 @@ from .analysis_types import (
 
 PROJECT_FORMAT_VERSION = 2
 PROJECT_JSON = "project.json"
+NULLABLE_PROFILE = "2-nullable-scores"
+NULLABLE_MEMBER = "project-nullable-scores.json"
+
+
+class ProjectCopyRequired(ValueError):
+    """An older project must not be replaced with one its reader cannot open."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,10 +48,36 @@ class ProjectState:
     researcher_name: str = ""
     audit_events: tuple[AuditEvent, ...] = ()
 
+    @property
+    def needs_nullable_profile(self) -> bool:
+        return (any(e.action in {"codebook_passage_assigned", "quote_reassigned"} for e in self.audit_events)
+                or self.result is not None and any(t.reported_score is None for t in self.result.themes))
+
+
+def _data_member(archive: zipfile.ZipFile) -> str:
+    members = [n for n in archive.namelist() if n in (PROJECT_JSON, NULLABLE_MEMBER)]
+    if len(members) != 1:
+        raise ValueError("Expected one recognizable project data member; the archive is ambiguous or unsupported.")
+    return members[0]
+
 
 def save_project(path: Path, state: ProjectState, *, new_only: bool = False) -> None:
+    path = Path(path)
+    nullable = state.needs_nullable_profile
+    if not new_only and path.exists():
+        try:
+            with zipfile.ZipFile(path) as existing:
+                old_member = _data_member(existing)
+        except zipfile.BadZipFile as exc:
+            raise ValueError("The existing project is unreadable; choose a new file instead.") from exc
+        if nullable and old_member != NULLABLE_MEMBER:
+            raise ProjectCopyRequired("Older project unchanged. Use Save project to create a separate nullable-score copy.")
+        nullable = nullable or old_member == NULLABLE_MEMBER
+    elif nullable:
+        new_only = True  # Never overwrite a competing file while creating the first copy.
+    member = NULLABLE_MEMBER if nullable else PROJECT_JSON
     payload = {
-        "format_version": PROJECT_FORMAT_VERSION,
+        "format_version": NULLABLE_PROFILE if nullable else PROJECT_FORMAT_VERSION,
         "transcript_paths": [str(item) for item in state.transcript_paths],
         "codebook_path": str(state.codebook_path) if state.codebook_path is not None else None,
         "documents": [asdict(document) for document in state.documents],
@@ -55,13 +88,12 @@ def save_project(path: Path, state: ProjectState, *, new_only: bool = False) -> 
     }
     # Serialize before touching disk, then replace only a complete sibling archive.
     serialized = json.dumps(payload, ensure_ascii=False, indent=2)
-    path = Path(path)
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(mode="w+b", prefix=f".{path.name}.", suffix=".tmp", dir=path.parent, delete=False) as stream:
             temporary = Path(stream.name)
             with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-                archive.writestr(PROJECT_JSON, serialized)
+                archive.writestr(member, serialized)
             stream.flush()
             os.fsync(stream.fileno())
         if not new_only:
@@ -77,31 +109,25 @@ def save_project(path: Path, state: ProjectState, *, new_only: bool = False) -> 
 
 def load_project(path: Path) -> ProjectState:
     with zipfile.ZipFile(path) as archive:
-        payload = json.loads(archive.read(PROJECT_JSON).decode("utf-8"))
+        member = _data_member(archive)
+        payload = json.loads(archive.read(member).decode("utf-8"))
 
     raw_format_version = payload.get("format_version", 1)
-    try:
-        format_version = int(raw_format_version)
-    except (TypeError, ValueError):
-        raise UnsupportedProjectFormatError(
-            format_version=str(raw_format_version),
-            supported_version=PROJECT_FORMAT_VERSION,
-        ) from None
-    _reject_unsupported_format(format_version)
+    nullable = member == NULLABLE_MEMBER
+    if nullable:
+        if raw_format_version != NULLABLE_PROFILE:
+            raise UnsupportedProjectFormatError(str(raw_format_version), PROJECT_FORMAT_VERSION)
+    elif not isinstance(raw_format_version, (int, str)) or str(raw_format_version) not in ("1", "2"):
+        raise UnsupportedProjectFormatError(str(raw_format_version), PROJECT_FORMAT_VERSION)
     return ProjectState(
         transcript_paths=tuple(Path(item) for item in payload.get("transcript_paths", [])),
         codebook_path=_optional_path(payload.get("codebook_path")),
         documents=tuple(_document_from_json(item) for item in payload.get("documents", []) if isinstance(item, dict)),
         settings=_settings_from_json(payload.get("settings", {})),
-        result=_result_from_json(payload.get("result")),
+        result=_result_from_json(payload.get("result"), nullable=nullable),
         researcher_name=str(payload.get("researcher_name", "")),
         audit_events=tuple(_audit_event_from_json(item) for item in payload.get("audit_events", []) if isinstance(item, dict)),
     )
-
-
-def _reject_unsupported_format(format_version: int) -> None:
-    if format_version > PROJECT_FORMAT_VERSION:
-        raise UnsupportedProjectFormatError(format_version=format_version, supported_version=PROJECT_FORMAT_VERSION)
 
 
 def _optional_path(value: str | None) -> Path | None:
@@ -177,28 +203,65 @@ def _audit_event_from_json(payload: dict[str, object]) -> AuditEvent:  # noqa: O
 def _result_to_json(result: AnalysisResult | None) -> dict[str, object] | None:  # noqa: OBJECT_OK - JSON boundary.
     if result is None:
         return None
-    return asdict(result)
+    payload = asdict(result)
+    for theme, item in zip(result.themes, payload["themes"], strict=True):
+        _write_score(item, "score", theme.reported_score)
+        for quote, row in zip(theme.quotes, item["quotes"], strict=True):
+            _write_score(row, "relevance", quote.reported_relevance)
+    return payload
 
 
-def _result_from_json(payload: dict[str, object] | None) -> AnalysisResult | None:  # noqa: OBJECT_OK - JSON boundary.
+def _write_score(item: dict, key: str, reported: float | None) -> None:
+    # A mixed group can retain a pre-edit numeric value that is not its current score.
+    if reported is None and item[key] is not None:
+        item[f"unreported_stored_{key}"] = item[key]
+    item[key] = reported
+
+
+def _read_score(item: dict, key: str, nullable: bool, *, legacy_zero: bool, legacy_move: bool) -> float | None:
+    if nullable and key not in item:
+        raise ValueError(f"Missing required {key} in nullable-score project.")
+    value = item.get(key)
+    prior = f"unreported_stored_{key}"
+    if nullable and prior in item:
+        if value is not None or item[prior] is None:
+            raise ValueError(f"Conflicting stored and current {key}.")
+        value = item[prior]
+    if value is None:
+        return None
+    if not nullable and isinstance(value, str):
+        value = float(value)  # Legacy readers accepted numeric strings.
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise ValueError(f"Invalid numeric {key}.")
+    if not nullable and ((legacy_zero and value == 0) or (legacy_move and value == -1)):
+        return None
+    return float(value)
+
+
+def _result_from_json(payload: dict[str, object] | None, *, nullable: bool) -> AnalysisResult | None:  # noqa: OBJECT_OK - JSON boundary.
     if payload is None:
         return None
-    themes = [
-        Theme(
+    themes = []
+    for theme in payload.get("themes", []):
+        if not isinstance(theme, dict):
+            continue
+        validation = _validation_from_json(theme.get("validation", {}))
+        decoded = Theme(
             id=str(theme["id"]),
             name=str(theme["name"]),
             color=str(theme["color"]),
             keywords=[str(item) for item in theme.get("keywords", [])],
             quote_count=int(theme.get("quote_count", 0)),
-            score=float(theme.get("score", 0.0)),
-            quotes=[_quote_from_json(item) for item in theme.get("quotes", [])],
-            validation=_validation_from_json(theme.get("validation", {})),
+            score=_read_score(theme, "score", nullable, legacy_zero="manual_codebook_definition" in validation,
+                              legacy_move=validation.get("score_scope") == "Not scored"),
+            quotes=[_quote_from_json(item, nullable=nullable) for item in theme.get("quotes", [])],
+            validation=validation,
             memo=str(theme.get("memo", "")),
             parent_theme_id=str(theme.get("parent_theme_id", "")),
         )
-        for theme in payload.get("themes", [])
-        if isinstance(theme, dict)
-    ]
+        if nullable and theme["score"] != decoded.reported_score:
+            raise ValueError("Group score conflicts with its recorded score scope.")
+        themes.append(decoded)
     return AnalysisResult(
         version=str(payload.get("version", "")),
         document_count=int(payload.get("document_count", 0)),
@@ -209,19 +272,25 @@ def _result_from_json(payload: dict[str, object] | None) -> AnalysisResult | Non
     )
 
 
-def _quote_from_json(payload: dict[str, object]) -> ThemeQuote:  # noqa: OBJECT_OK - JSON boundary.
-    return ThemeQuote(
-        quote_id=str(payload.get("quote_id", "")),
+def _quote_from_json(payload: dict[str, object], *, nullable: bool) -> ThemeQuote:  # noqa: OBJECT_OK - JSON boundary.
+    quote_id = str(payload.get("quote_id", ""))
+    rationale = str(payload.get("rationale", "Selected as a candidate quote for researcher review."))
+    decoded = ThemeQuote(
+        quote_id=quote_id,
         speaker=str(payload.get("speaker", "")),
         text=str(payload.get("text", "")),
-        relevance=float(payload.get("relevance", 0.0)),
+        relevance=_read_score(payload, "relevance", nullable, legacy_zero=quote_id.startswith("MQD"),
+                              legacy_move=rationale.startswith("Manual move by ")),
         source_line=int(payload.get("source_line", 0)),
         source_name=str(payload.get("source_name", "Transcript")),
-        rationale=str(payload.get("rationale", "Selected as a candidate quote for researcher review.")),
+        rationale=rationale,
         source_start=int(payload.get("source_start", 0)),
         source_end=int(payload.get("source_end", 0)),
         memo=str(payload.get("memo", "")),
     )
+    if nullable and payload["relevance"] != decoded.reported_relevance:
+        raise ValueError("Quote relevance conflicts with its recorded score scope.")
+    return decoded
 
 
 def _validation_from_json(payload: object) -> dict[str, ValidationValue]:  # noqa: OBJECT_OK - JSON boundary.

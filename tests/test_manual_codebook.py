@@ -9,7 +9,7 @@ from unittest.mock import patch
 import zipfile
 
 from themeforge.app import ThemeForgeApp
-from themeforge.project_io import load_project
+from themeforge.project_io import NULLABLE_MEMBER, NULLABLE_PROFILE, load_project
 from themeforge.rigor import CodedProject, ManualDefinitionComparisonError, intercoder_reliability
 
 
@@ -83,7 +83,11 @@ class ManualCodebookTests(unittest.TestCase):
         with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(project)):
             self.assertTrue(self.app.save_project())
         with zipfile.ZipFile(project) as archive:
-            self.assertEqual(json.loads(archive.read("project.json"))["format_version"], 2)
+            self.assertNotIn("project.json", archive.namelist())
+            payload = json.loads(archive.read(NULLABLE_MEMBER))
+            self.assertEqual(payload["format_version"], NULLABLE_PROFILE)
+            self.assertIsNone(payload["result"]["themes"][0]["score"])
+            self.assertIsNone(payload["result"]["themes"][0]["quotes"][0]["relevance"])
         with patch("themeforge.app.filedialog.askopenfilename", return_value=str(project)):
             self.app.open_project()
         self.assertEqual(self.app.result.themes, [theme])

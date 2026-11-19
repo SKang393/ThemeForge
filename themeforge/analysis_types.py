@@ -3,8 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 ValidationValue = str | int | float
-# Format 2 requires numeric fields. Negative values are outside the scoring range.
-NOT_SCORED = -1.0
 
 @dataclass(frozen=True, slots=True)
 class CodebookEntry:
@@ -70,7 +68,7 @@ class ThemeQuote:
     quote_id: str
     speaker: str
     text: str
-    relevance: float
+    relevance: float | None
     source_line: int
     source_name: str = "Transcript"
     rationale: str = "Selected as a candidate quote for researcher review."
@@ -85,7 +83,7 @@ class ThemeQuote:
 
     @property
     def reported_relevance(self) -> float | None:
-        return None if self.manual_definition_assignment or self.relevance < 0 else self.relevance
+        return None if self.manual_definition_assignment or self.relevance is None or self.relevance < 0 else self.relevance
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,7 +93,7 @@ class Theme:
     color: str
     keywords: list[str]
     quote_count: int
-    score: float
+    score: float | None
     quotes: list[ThemeQuote] = field(default_factory=list)
     validation: dict[str, ValidationValue] = field(default_factory=dict)
     memo: str = ""
@@ -107,7 +105,7 @@ class Theme:
 
     @property
     def reported_score(self) -> float | None:
-        if self.score < 0 or self.includes_manual_definition or any(q.relevance < 0 for q in self.quotes):
+        if self.score is None or self.score < 0 or self.includes_manual_definition or any(q.reported_relevance is None for q in self.quotes):
             return None
         return self.score
 

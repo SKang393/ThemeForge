@@ -130,3 +130,28 @@ class QuoteReassignmentTests(unittest.TestCase):
         report = json.loads(self.export(".json"))
         self.assertEqual(report["themes"][0]["quotes"][0]["relevance"], 0.82)
         self.assertEqual(self.app.audit_events, [event])
+
+    def test_scored_project_upgrade_requires_a_separate_copy_even_after_autosave_or_save_failure(self):
+        before = self.first.read_bytes()
+        self.app._restore_project(load_project(self.first), self.first)
+        self.move("Treat the passage as permission.")
+        self.assertIn("Older project unchanged", self.app.status_text.get())
+        changed = self.app._project_state()
+        self.assertTrue(self.app._has_unsaved_work())
+        copy = self.folder / "nullable.tfproj"
+        for choice in ("", str(self.first)):
+            with patch("themeforge.app.filedialog.asksaveasfilename", return_value=choice), patch("themeforge.app.messagebox.showerror"):
+                self.assertFalse(self.app.save_project())
+            self.assertEqual(self.app.project_path, self.first)
+            self.assertEqual(self.app._project_state(), changed)
+        with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(copy)), \
+                patch("themeforge.project_io.os.fsync", side_effect=OSError("disk full")), patch("themeforge.app.messagebox.showerror"):
+            self.assertFalse(self.app.save_project())
+        self.assertEqual(list(self.folder.iterdir()), [self.first])
+        self.assertTrue(self.app._has_unsaved_work())
+        with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(copy)):
+            self.assertTrue(self.app.save_project())
+        self.assertEqual(self.first.read_bytes(), before)
+        self.assertEqual(self.app.project_path, copy)
+        self.assertFalse(self.app._has_unsaved_work())
+        self.assertEqual(load_project(copy), changed)

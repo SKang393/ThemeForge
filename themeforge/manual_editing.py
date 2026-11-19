@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass, replace
 import json
 from uuid import uuid4
 
-from .analysis_types import NOT_SCORED, AnalysisResult, CodebookEntry, Theme, ThemeQuote, TranscriptDocument, ValidationValue
+from .analysis_types import AnalysisResult, CodebookEntry, Theme, ThemeQuote, TranscriptDocument, ValidationValue
 
 MANUAL_ONLY_NOTE = "No automated analysis has been run. Unselected passages have not been assessed."
 
@@ -105,7 +105,7 @@ def reassign_quote(
         raise ValueError(conflict)
     if not actor.strip() or not reason.strip():
         raise ValueError("A move needs a named editor and a reason; nothing was moved.")
-    moved_quote = replace(original, relevance=NOT_SCORED, rationale=(
+    moved_quote = replace(original, relevance=None, rationale=(
         f"Manual move by {actor.strip()}: {source.name} ({source.id}) to {target.name} ({target.id}). "
         f"Not scored for the destination. Reason: {reason.strip()}\n"
         f"Previous rationale under {source.name} ({source.id}): {original.rationale}"))
@@ -113,9 +113,9 @@ def reassign_quote(
     themes: list[Theme] = []
     for theme in result.themes:
         if theme.id == source_theme_id:  # noqa: IF_VARIANT_OK - ID routing, not a closed variant.
-            themes.append(_refresh_theme(replace(theme, score=NOT_SCORED, quotes=[q for q in theme.quotes if q.quote_id != quote_id])))
+            themes.append(_refresh_theme(replace(theme, score=None, quotes=[q for q in theme.quotes if q.quote_id != quote_id])))
         elif theme.id == target_theme_id:
-            themes.append(_refresh_theme(replace(theme, score=NOT_SCORED, quotes=[*theme.quotes, moved_quote])))
+            themes.append(_refresh_theme(replace(theme, score=None, quotes=[*theme.quotes, moved_quote])))
         else:
             themes.append(theme)
     return replace(result, themes=themes)
@@ -258,7 +258,7 @@ def apply_codebook_definition(
         return result, target.id, ""
     quote = ThemeQuote(
         quote_id=f"MQD{uuid4().hex}", speaker="Not attributed (manual selection)",
-        text=selection.text, relevance=0.0, source_line=selection.source_line, source_name=document.name,
+        text=selection.text, relevance=None, source_line=selection.source_line, source_name=document.name,
         source_start=start, source_end=end,
         rationale=manual_assignment_rationale(entry, document.name, start, end, actor),
     )
