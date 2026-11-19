@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 import json
+import os
 from pathlib import Path
+import tempfile
 import zipfile
 
 from .audit import AuditEvent
@@ -40,7 +42,7 @@ class ProjectState:
     audit_events: tuple[AuditEvent, ...] = ()
 
 
-def save_project(path: Path, state: ProjectState) -> None:
+def save_project(path: Path, state: ProjectState, *, new_only: bool = False) -> None:
     payload = {
         "format_version": PROJECT_FORMAT_VERSION,
         "transcript_paths": [str(item) for item in state.transcript_paths],
@@ -51,8 +53,26 @@ def save_project(path: Path, state: ProjectState) -> None:
         "researcher_name": state.researcher_name,
         "audit_events": [asdict(event) for event in state.audit_events],
     }
-    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr(PROJECT_JSON, json.dumps(payload, ensure_ascii=False, indent=2))
+    # Serialize before touching disk, then replace only a complete sibling archive.
+    serialized = json.dumps(payload, ensure_ascii=False, indent=2)
+    path = Path(path)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w+b", prefix=f".{path.name}.", suffix=".tmp", dir=path.parent, delete=False) as stream:
+            temporary = Path(stream.name)
+            with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr(PROJECT_JSON, serialized)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if not new_only:
+            os.replace(temporary, path)
+        elif os.name == "nt":
+            os.rename(temporary, path)  # Windows fails atomically if the destination already exists.
+        else:
+            os.link(temporary, path)  # POSIX rename would replace an existing file.
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def load_project(path: Path) -> ProjectState:
