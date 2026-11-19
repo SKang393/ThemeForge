@@ -68,11 +68,11 @@ def main() -> int:
 
     match args.format:
         case "markdown":
-            output = export_markdown(result)
+            output = export_markdown(result, documents)
         case "json":
-            output = export_json(result)
+            output = export_json(result, documents)
         case "csv":
-            output = export_quotes_csv(result)
+            output = export_quotes_csv(result, documents)
         case unreachable:
             assert_never(unreachable)
 

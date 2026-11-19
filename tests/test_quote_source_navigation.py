@@ -1,5 +1,7 @@
+import csv
+import io
 import json
-from dataclasses import replace
+from dataclasses import asdict, replace
 from pathlib import Path
 import tempfile
 import unittest
@@ -7,6 +9,7 @@ from unittest.mock import patch
 
 from themeforge.analysis_types import AnalysisResult, AnalysisSettings, Theme, ThemeQuote, TranscriptDocument
 from themeforge.app import ThemeForgeApp
+from themeforge.exports import export_json
 from themeforge.project_io import ProjectState, load_project, save_project
 
 
@@ -106,3 +109,42 @@ class QuoteSourceNavigationTests(unittest.TestCase):
         self.assertIsNone(self.selected())
         self.assertIn("No unique named source", self.app.quote_meta.get())
         self.assertEqual(path.read_bytes(), original)
+
+    def test_saved_reports_distinguish_exact_text_only_conflicting_and_unverifiable_records(self):
+        legacy = replace(self.stale, quote_id="Legacy", text="I did not file the shift log.", source_start=0, source_end=0)
+        ambiguous = replace(self.good, quote_id="Ambiguous", source_start=0, source_end=0)
+        wrong_line = replace(self.good, quote_id="WrongLine", source_line=1)
+        missing = replace(self.good, quote_id="Missing", source_name="Other workshop")
+        quotes = [self.good, legacy, self.stale, ambiguous, wrong_line, missing]
+        statuses = ["exact_span", "text_only", "conflict", "unverifiable", "conflict", "unverifiable"]
+        state, path, original = self.open_rows(quotes)
+        outputs = {}
+        for ext in ("json", "csv", "md"):
+            target = self.folder / f"report.{ext}"
+            with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(target)):
+                self.app.save_report()
+            outputs[ext] = target.read_text(encoding="utf-8")
+        json_rows = json.loads(outputs["json"])["themes"][0]["quotes"]
+        csv_rows = list(csv.DictReader(io.StringIO(outputs["csv"])))
+        self.assertEqual(len(json_rows), len(quotes))
+        self.assertEqual(len(csv_rows), len(quotes))
+        for q, status, j, c in zip(quotes, statuses, json_rows, csv_rows, strict=True):
+            self.assertEqual({k: j[k] for k in asdict(q)}, asdict(q))
+            self.assertEqual((c["quote_id"], c["speaker"], c["quote"]), (q.quote_id, q.speaker, q.text))
+            self.assertEqual((int(c["source_start"]), int(c["source_end"])), (q.source_start, q.source_end))
+            for row in (j, c):
+                self.assertEqual(row["source_location_status"], status)
+                self.assertEqual(row["source_location_note"], j["source_location_note"])
+            # Both Markdown citation lists must qualify the same recorded quote ID.
+            citations = [line for line in outputs["md"].splitlines() if f"Quote ID: {q.quote_id} |" in line]
+            self.assertEqual(len(citations), 2)
+            self.assertTrue(all(f"Location: {status}" in line for line in citations))
+        self.assertIn("does not verify speaker identity or whether a code fits", outputs["md"])
+        self.assertFalse(self.app.audit_events)
+        self.assertEqual(self.app.result, state.result)
+        self.assertEqual(path.read_bytes(), original)
+        self.assertEqual(load_project(path), state)
+        # A result on its own or two indistinguishably named snapshots cannot verify source evidence.
+        for docs in ((), (self.doc, self.doc)):
+            rows = json.loads(export_json(state.result, docs))["themes"][0]["quotes"]
+            self.assertTrue(all(r["source_location_status"] == "unverifiable" for r in rows))

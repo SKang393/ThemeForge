@@ -144,6 +144,18 @@ document. On a conflict, the app shows the recorded line as context when
 available, without highlighting it as the cited passage. Navigation
 does not rewrite saved records or correct earlier exports.
 
+**Reading exported citations:** Markdown, CSV and JSON reports check every
+stored quote against the transcript text in the project or CLI input. An
+`exact_span` matches the full text, recorded offsets and line. A `text_only`
+location has unique matching text on the recorded line but no stored offsets.
+A `conflict` means the saved location contradicts the source. An
+`unverifiable` location lacks enough information, for example when two
+transcripts share a name. Conflicting and unverifiable excerpts are retained
+for review, not presented as verified quotations. Speaker labels and code
+interpretations remain unverified even for exact spans. Reports generated
+without the source documents cannot verify any locations. Older reports
+are unchanged; reopen the project and export again to see these checks.
+
 These manual assignments have no relevance score. Markdown labels them
 unscored, CSV leaves relevance blank, and JSON reports use `null`.
 The name-based intercoder comparison does not support these assignments and

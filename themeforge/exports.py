@@ -3,13 +3,17 @@ from __future__ import annotations
 import csv
 import io
 import json
+from collections.abc import Iterable
 from dataclasses import asdict
 
 from .analysis import AnalysisResult, ValidationValue
+from .analysis_types import TranscriptDocument
 from .manual_editing import MANUAL_ONLY_NOTE
+from .source_location import LOCATION_SCOPE, TranscriptIndex
 
 
-def export_markdown(result: AnalysisResult) -> str:
+def export_markdown(result: AnalysisResult, documents: Iterable[TranscriptDocument] = ()) -> str:
+    sources = TranscriptIndex(documents)
     manual_only = MANUAL_ONLY_NOTE in result.notes
     mixed = any(t.reported_score is None for t in result.themes)
     origin = "These themes and quote matches are machine-generated suggestions."
@@ -29,6 +33,8 @@ def export_markdown(result: AnalysisResult) -> str:
             "theme names before reporting findings."
         ),
         "",
+        LOCATION_SCOPE + " Speaker labels, excerpts and counts are reported as recorded, including unresolved records.",
+        "",
         "## Summary",
         "",
         f"- Documents in project: {result.document_count}" if manual_only else f"- Documents analyzed: {result.document_count}",
@@ -44,6 +50,7 @@ def export_markdown(result: AnalysisResult) -> str:
         lines.append("- Researcher review required before using suggested themes as findings.")
     lines.append("")
 
+    transcript_evidence = []
     for index, theme in enumerate(result.themes, start=1):
         lines.extend(
             [
@@ -63,33 +70,26 @@ def export_markdown(result: AnalysisResult) -> str:
         )
 
         for quote in theme.quotes:
+            loc = sources.locate(quote)
+            citation = (f"[{theme.id} {theme.color}] Source: {quote.source_name} | Recorded line: {quote.source_line} | "
+                        f"Recorded speaker: {quote.speaker} | Quote ID: {quote.quote_id} | Location: {loc.status}")
+            excerpt = quote.text.split("\n")
             lines.extend(
                 [
-                    f"> {quote.text}",
+                    f"- {citation}. {loc.note}",
                     "",
-                    (
-                        f"- [{theme.id} {theme.color}] Speaker: {quote.speaker} | "
-                        f"Quote ID: {quote.quote_id} | Source: {quote.source_name} | "
-                        f"Line: {quote.source_line} | Relevance: "
-                        + ("Not scored" if quote.reported_relevance is None else f"{quote.relevance:.3f}")
-                    ),
+                    *(f"> {line}" for line in excerpt),
+                    "",
+                    "- Relevance: " + ("Not scored" if quote.reported_relevance is None else f"{quote.relevance:.3f}"),
                     f"- Selection rationale: {quote.rationale}",
                     "",
                 ]
             )
+            transcript_evidence.extend([f"- {citation}. {loc.note}", *(f"  > {line}" for line in excerpt)])
 
     if result.themes:
         lines.extend(["## Color-Coded Transcript Evidence", ""])
-        for theme in result.themes:
-            for quote in theme.quotes:
-                lines.extend(
-                    [
-                        f"- [{theme.id} {theme.color}] Source: {quote.source_name} | "
-                        f"Line: {quote.source_line} | Speaker: {quote.speaker} | "
-                        f"Quote ID: {quote.quote_id}",
-                        f"  > {quote.text}",
-                    ]
-                )
+        lines.extend(transcript_evidence)
         lines.append("")
 
     if result.notes:
@@ -100,16 +100,22 @@ def export_markdown(result: AnalysisResult) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def export_json(result: AnalysisResult) -> str:
+def export_json(result: AnalysisResult, documents: Iterable[TranscriptDocument] = ()) -> str:
+    sources = TranscriptIndex(documents)
     payload = asdict(result)
+    payload["source_location_scope"] = LOCATION_SCOPE
     for theme, item in zip(result.themes, payload["themes"], strict=True):
         item["score"] = theme.reported_score
         for quote, row in zip(theme.quotes, item["quotes"], strict=True):
             row["relevance"] = quote.reported_relevance
+            loc = sources.locate(quote)
+            row["source_location_status"] = loc.status
+            row["source_location_note"] = loc.note
     return json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
 
 
-def export_quotes_csv(result: AnalysisResult) -> str:
+def export_quotes_csv(result: AnalysisResult, documents: Iterable[TranscriptDocument] = ()) -> str:
+    sources = TranscriptIndex(documents)
     buffer = io.StringIO()
     writer = csv.writer(buffer, lineterminator="\n")
     writer.writerow(
@@ -126,12 +132,17 @@ def export_quotes_csv(result: AnalysisResult) -> str:
             "quote",
             "selection_rationale",
             "validation_review_status",
+            "source_start",
+            "source_end",
+            "source_location_status",
+            "source_location_note",
         ]
     )
 
     for theme in result.themes:
         keywords = "; ".join(theme.keywords)
         for quote in theme.quotes:
+            loc = sources.locate(quote)
             writer.writerow(
                 [
                     theme.id,
@@ -146,6 +157,10 @@ def export_quotes_csv(result: AnalysisResult) -> str:
                     quote.text,
                     quote.rationale,
                     theme.validation.get("review_status", "Researcher review required"),
+                    quote.source_start,
+                    quote.source_end,
+                    loc.status,
+                    loc.note,
                 ]
             )
 

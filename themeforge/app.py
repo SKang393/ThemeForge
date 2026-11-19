@@ -48,6 +48,7 @@ from .manual_editing import (
 from .project_io import ProjectCopyRequired, ProjectState, UnsupportedProjectFormatError, load_project, save_project
 from .rigor_dialog import RigorContext, RigorDialog
 from .semantic_suggestions import SimilarPassage, find_similar_passages
+from .source_location import TranscriptIndex
 from .ui_model import (
     APP_THEMES,
     about_text,
@@ -1516,9 +1517,7 @@ class ThemeForgeApp(tk.Tk):
             child.destroy()
 
         self.transcript_widgets = {}
-        self._display_sources: dict[str, str | None] = {}
-        for doc in self.documents:
-            self._display_sources[doc.name] = doc.text if doc.name not in self._display_sources else None
+        self._display_sources = TranscriptIndex(self.documents)
         self.transcript_frames = {}
         self.transcript_frame_sources = {}
         self.stripe_canvases = {}
@@ -1642,11 +1641,11 @@ class ThemeForgeApp(tk.Tk):
         target = Path(path)
         suffix = target.suffix.lower()
         if suffix == ".csv":
-            output = export_quotes_csv(self.result)
+            output = export_quotes_csv(self.result, self.documents)
         elif suffix == ".json":
-            output = export_json(self.result)
+            output = export_json(self.result, self.documents)
         else:
-            output = export_markdown(self.result)
+            output = export_markdown(self.result, self.documents)
 
         target.write_text(output, encoding="utf-8", newline="")
         self.status_text.set(f"Saved {target.name}")
@@ -1848,24 +1847,15 @@ class ThemeForgeApp(tk.Tk):
 
     def _resolve_quote(self, quote: ThemeQuote) -> QuoteLocation:
         widget = self.transcript_widgets.get(quote.source_name)
-        source = self._display_sources.get(quote.source_name)
-        if widget is None or source is None or not quote.text:
+        if widget is None:
             return QuoteLocation("No unique named source or nonempty recorded excerpt.")
-        start, end = quote.source_start, quote.source_end
-        legacy = start == end == 0
-        if legacy:
-            start = source.find(quote.text)
-            if start < 0 or source.find(quote.text, start + 1) >= 0:
-                return QuoteLocation("No stored offsets and no unique full-text match.")
-            end = start + len(quote.text)
-        if not (0 <= start < end <= len(source) and end - start == len(quote.text) and source[start:end] == quote.text):
-            return QuoteLocation("The recorded offsets do not match the full stored excerpt.")
-        a, b = f"1.0 + {start} chars", f"1.0 + {end} chars"
+        loc = self._display_sources.locate(quote)
+        if loc.start is None or loc.end is None:
+            return QuoteLocation(loc.note)
+        a, b = f"1.0 + {loc.start} chars", f"1.0 + {loc.end} chars"
         if int(widget.index(a).split(".", 1)[0]) != quote.source_line or widget.get(a, b) != quote.text:
             return QuoteLocation("The recorded line or full excerpt does not match the source location.")
-        if legacy:
-            return QuoteLocation("Text-only location: unique full excerpt on the recorded line; original offsets unavailable.", a, b)
-        return QuoteLocation("Recorded span matches the source text; judge the code against the surrounding passage.", a, b, True)
+        return QuoteLocation(loc.note, a, b, loc.status == "exact_span")
 
     def _focus_current_quote(self) -> None:
         for widget in self.transcript_widgets.values():
@@ -1898,7 +1888,7 @@ class ThemeForgeApp(tk.Tk):
             widget.tag_add("selected_quote", loc.start, loc.end)
             widget.tag_raise("selected_quote")
             widget.see(loc.start)
-        elif (widget is not None and frame is not None and self._display_sources.get(match.source_name) is not None
+        elif (widget is not None and frame is not None and self._display_sources.has_unique_source(match.source_name)
               and 1 <= match.quote.source_line <= int(widget.index("end-1c").split(".", 1)[0])):
             self.transcript_notebook.select(frame)
             widget.see(f"{match.quote.source_line}.0")

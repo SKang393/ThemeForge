@@ -46,6 +46,8 @@ class CliTests(unittest.TestCase):
             self.assertIn("Central theme priority used", markdown)
             self.assertIn("Source: teacher.txt", markdown)
             self.assertIn("Source: parent.txt", markdown)
+            self.assertIn("Location: exact_span", markdown)
+            self.assertNotIn("Location: unverifiable", markdown)
 
     def test_cli_reports_pdf_error_without_traceback(self):
         with tempfile.TemporaryDirectory() as tmpdir:
