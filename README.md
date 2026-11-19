@@ -133,6 +133,17 @@ definition actually used. Entries with the same label but different definitions
 stay separate. Unselected text is not a rejection. Save or export immediately;
 running Analyze later adds separate suggestions, not endorsements.
 
+**Reviewing candidate quotes:** Previous/Next visits the stored records,
+including ones the app cannot locate. A recorded source span is highlighted
+only when the full excerpt and line match at its saved offsets. This verifies
+the location, not the speaker attribution or whether the code fits the text.
+The app does not substitute another speaker's identical wording or a matching
+prefix. An older quote with no offsets can show a read-only text location if its
+full wording occurs exactly once on the recorded line and nowhere else in the
+document. On a conflict, the app shows the recorded line as context when
+available, without highlighting it as the cited passage. Navigation
+does not rewrite saved records or correct earlier exports.
+
 These manual assignments have no relevance score. Markdown labels them
 unscored, CSV leaves relevance blank, and JSON reports use `null`.
 The name-based intercoder comparison does not support these assignments and

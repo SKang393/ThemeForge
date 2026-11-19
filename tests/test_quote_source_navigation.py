@@ -1,0 +1,108 @@
+import json
+from dataclasses import replace
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+
+from themeforge.analysis_types import AnalysisResult, AnalysisSettings, Theme, ThemeQuote, TranscriptDocument
+from themeforge.app import ThemeForgeApp
+from themeforge.project_io import ProjectState, load_project, save_project
+
+
+class HiddenApp(ThemeForgeApp):
+    def _build_layout(self):
+        self.withdraw()
+        super()._build_layout()
+
+
+class QuoteSourceNavigationTests(unittest.TestCase):
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.folder = Path(folder.name)
+        self.app = HiddenApp()
+        self.addCleanup(self.app.destroy)
+        phrase = "I filed the shift log."
+        negative = "I did not file the shift log."
+        self.monologue = "The performer described every label on the table before indicating what happened at the end: "
+        self.doc = TranscriptDocument("Workshop",
+            f"Ren: {phrase}\nJo: {negative}\nLee: 💡 {phrase}\nKim: {self.monologue}the bell sounded.")
+        start = self.doc.text.rindex(phrase)
+        self.good = ThemeQuote("Q1", "Lee", phrase, .95, 3, self.doc.name, "A lexical suggestion only.",
+                               start, start + len(phrase), "Check who acted.")
+        p = self.doc.text.index(negative)
+        self.stale = replace(self.good, quote_id="Q2", speaker="Jo", source_line=2, source_start=p, source_end=p+len(phrase))
+        p = self.doc.text.index(self.monologue)
+        bad = self.monologue + "the bell stayed silent."
+        self.prefix = replace(self.good, quote_id="Q3", speaker="Kim", text=bad, source_start=p, source_line=4, source_end=p+len(bad))
+
+    def open_rows(self, quotes):
+        group = Theme("C01", "Self-submission", "#345678", [], len(quotes), .95, quotes)
+        state = ProjectState((), None, (self.doc,), AnalysisSettings(),
+                             AnalysisResult("example", 1, 4, [group], []), "Coder")
+        path = self.folder / "unchanged.tfproj"
+        save_project(path, state, new_only=True)
+        original = path.read_bytes()
+        with patch("themeforge.app.filedialog.askopenfilename", return_value=str(path)):
+            self.app.open_project()
+        return state, path, original
+
+    def selected(self):
+        widget = self.app.transcript_widgets[self.doc.name]
+        anchors = widget.tag_ranges("selected_quote")
+        return (widget.index(anchors[0]), widget.get(*anchors)) if anchors else None
+
+    def test_stale_span_and_partial_prefix_do_not_highlight_another_speaker_or_omit_records(self):
+        state, path, original = self.open_rows([self.stale, self.good, self.prefix])
+        widget = self.app.transcript_widgets[self.doc.name]
+        self.assertIn("1 of 3", self.app.quote_status.get())
+        self.assertIn("Recorded speaker: Jo", self.app.quote_meta.get())
+        self.assertIn("offsets do not match", self.app.quote_meta.get())
+        self.assertIn("recorded line as context only", self.app.quote_meta.get())
+        self.assertIn(self.stale.text, self.app.quote_reason.get())
+        self.assertIsNone(self.selected())
+        self.assertEqual(len(widget.tag_ranges("theme_C01")), 2)  # Only Lee's valid span.
+        self.assertEqual(str(self.app.quote_memo_text.cget("state")), "disabled")
+        self.app.uncode_current_quote()
+        self.assertEqual(self.app.result, state.result)
+        self.app.next_quote()
+        self.assertEqual(self.selected()[0].split(".")[0], "3")
+        self.assertEqual(self.selected()[1], self.good.text)
+        self.assertIn("Recorded span matches", self.app.quote_meta.get())
+        self.assertEqual(self.app._current_quote_match().quote, self.good)
+        self.app.next_quote()
+        self.assertIn("3 of 3", self.app.quote_status.get())
+        self.assertIsNone(self.selected())
+        self.assertIn("bell stayed silent.", self.app.quote_reason.get())
+        self.assertIsNone(self.app._current_quote_match())
+        self.assertFalse(self.app.audit_events)
+        self.assertEqual(path.read_bytes(), original)
+        self.assertEqual(load_project(path), state)
+        report = self.folder / "stored.json"
+        with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(report)):
+            self.app.save_report()
+        rows = json.loads(report.read_text(encoding="utf-8"))["themes"][0]["quotes"]
+        self.assertEqual([(r["quote_id"], r["source_start"], r["text"]) for r in rows],
+                         [(q.quote_id, q.source_start, q.text) for q in state.result.themes[0].quotes])
+
+    def test_missing_offsets_require_unique_complete_text_and_recorded_line_and_remain_read_only(self):
+        repeated = replace(self.good, source_start=0, source_end=0)
+        unique = replace(self.stale, text="I did not file the shift log.", source_start=0, source_end=0)
+        wrong_line = replace(unique, quote_id="Q3", source_line=4)
+        no_source = replace(unique, quote_id="Q4", source_name="Missing source")
+        _, path, original = self.open_rows([repeated, unique, wrong_line, no_source])
+        self.assertIsNone(self.selected())
+        self.assertIn("no unique full-text match", self.app.quote_meta.get())
+        self.app.next_quote()
+        self.assertEqual(self.selected(), ("2.4", unique.text))
+        self.assertIn("Text-only location", self.app.quote_meta.get())
+        self.assertIn("Read-only", self.app.quote_meta.get())
+        self.assertIsNone(self.app._current_quote_match())
+        self.app.next_quote()
+        self.assertIsNone(self.selected())
+        self.assertIn("recorded line", self.app.quote_meta.get())
+        self.app.next_quote()
+        self.assertIsNone(self.selected())
+        self.assertIn("No unique named source", self.app.quote_meta.get())
+        self.assertEqual(path.read_bytes(), original)

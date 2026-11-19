@@ -62,12 +62,19 @@ from .ui_model import (
 
 
 @dataclass(frozen=True, slots=True)
+class QuoteLocation:
+    note: str
+    start: str = ""
+    end: str = ""
+    verified: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class QuoteMatch:
     theme_index: int
     quote_index: int
     source_name: str
-    start: str
-    end: str
+    location: QuoteLocation
     quote: ThemeQuote
 
 
@@ -754,7 +761,10 @@ class ThemeForgeApp(tk.Tk):
             return
         match = self._current_quote_match()
         target_id = self._target_theme_id()
-        if match is None or target_id is None:
+        if match is None:
+            self.status_text.set("No verified source anchor for this quote; nothing was moved.")
+            return
+        if target_id is None:
             return
         source = self.result.themes[self.current_theme_index]
         target = next((t for t in self.result.themes if t.id == target_id), None)
@@ -1043,6 +1053,7 @@ class ThemeForgeApp(tk.Tk):
         )
         frame = self.transcript_frames.get(passage.source_name)
         if location is None or frame is None:
+            self.similar_note.set("Source location could not be verified. No suggestion highlight was placed.")
             return
         widget, start, end = location
         widget.configure(state="normal")
@@ -1083,7 +1094,7 @@ class ThemeForgeApp(tk.Tk):
             return
         match = self._current_quote_match()
         if match is None:
-            self.status_text.set("No quote selected to uncode")
+            self.status_text.set("Select a source-verified quote to uncode; no record was changed.")
             return
         theme_id = self.result.themes[self.current_theme_index].id
         updated = uncode_quote(self.result, theme_id, match.quote.quote_id)
@@ -1407,7 +1418,8 @@ class ThemeForgeApp(tk.Tk):
     def _current_quote_match(self) -> QuoteMatch | None:
         if not self.current_quote_matches or self.current_quote_index < 0:
             return None
-        return self.current_quote_matches[self.current_quote_index]
+        match = self.current_quote_matches[self.current_quote_index]
+        return match if match.location.verified else None
 
     def _target_theme_id(self) -> str | None:
         value = self.target_theme.get()
@@ -1504,6 +1516,9 @@ class ThemeForgeApp(tk.Tk):
             child.destroy()
 
         self.transcript_widgets = {}
+        self._display_sources: dict[str, str | None] = {}
+        for doc in self.documents:
+            self._display_sources[doc.name] = doc.text if doc.name not in self._display_sources else None
         self.transcript_frames = {}
         self.transcript_frame_sources = {}
         self.stripe_canvases = {}
@@ -1821,50 +1836,36 @@ class ThemeForgeApp(tk.Tk):
         if self.result is None or theme_index >= len(self.result.themes):
             return []
 
-        matches: list[QuoteMatch] = []
         theme = self.result.themes[theme_index]
-        for quote_index, quote in enumerate(theme.quotes):
-            location = self._locate_quote(quote)
-            if location is None:
-                continue
-            _widget, start, end = location
-            matches.append(
-                QuoteMatch(
-                    theme_index=theme_index,
-                    quote_index=quote_index,
-                    source_name=quote.source_name,
-                    start=start,
-                    end=end,
-                    quote=quote,
-                )
-            )
-        return matches
+        return [QuoteMatch(theme_index, i, q.source_name, self._resolve_quote(q), q) for i, q in enumerate(theme.quotes)]
 
     def _locate_quote(self, quote: ThemeQuote) -> tuple[tk.Text, str, str] | None:
-        widget = self.transcript_widgets.get(quote.source_name)
-        if widget is None:
+        # Coding stripes, automatic highlights and suggestion actions need a recorded anchor.
+        if quote.source_end <= quote.source_start:
             return None
+        loc = self._resolve_quote(quote)
+        return (self.transcript_widgets[quote.source_name], loc.start, loc.end) if loc.verified else None
 
-        offset_start = f"1.0 + {quote.source_start} chars"
-        if quote.source_end > quote.source_start:
-            offset_end = f"1.0 + {quote.source_end} chars"
-            if widget.get(offset_start, offset_end) == quote.text:
-                return widget, offset_start, offset_end
-
-        starts = [offset_start, f"{max(1, quote.source_line)}.0", "1.0"]
-        snippets = [quote.text]
-        if len(quote.text) > 80:
-            snippets.append(quote.text[:80].strip())
-
-        for snippet in snippets:
-            if not snippet:
-                continue
-            for start_at in starts:
-                start = widget.search(snippet, start_at, stopindex=tk.END)
-                if start:
-                    end = f"{start}+{len(snippet)}c"
-                    return widget, start, end
-        return None
+    def _resolve_quote(self, quote: ThemeQuote) -> QuoteLocation:
+        widget = self.transcript_widgets.get(quote.source_name)
+        source = self._display_sources.get(quote.source_name)
+        if widget is None or source is None or not quote.text:
+            return QuoteLocation("No unique named source or nonempty recorded excerpt.")
+        start, end = quote.source_start, quote.source_end
+        legacy = start == end == 0
+        if legacy:
+            start = source.find(quote.text)
+            if start < 0 or source.find(quote.text, start + 1) >= 0:
+                return QuoteLocation("No stored offsets and no unique full-text match.")
+            end = start + len(quote.text)
+        if not (0 <= start < end <= len(source) and end - start == len(quote.text) and source[start:end] == quote.text):
+            return QuoteLocation("The recorded offsets do not match the full stored excerpt.")
+        a, b = f"1.0 + {start} chars", f"1.0 + {end} chars"
+        if int(widget.index(a).split(".", 1)[0]) != quote.source_line or widget.get(a, b) != quote.text:
+            return QuoteLocation("The recorded line or full excerpt does not match the source location.")
+        if legacy:
+            return QuoteLocation("Text-only location: unique full excerpt on the recorded line; original offsets unavailable.", a, b)
+        return QuoteLocation("Recorded span matches the source text; judge the code against the surrounding passage.", a, b, True)
 
     def _focus_current_quote(self) -> None:
         for widget in self.transcript_widgets.values():
@@ -1885,28 +1886,40 @@ class ThemeForgeApp(tk.Tk):
         theme = self.result.themes[match.theme_index] if self.result else None
         widget = self.transcript_widgets.get(match.source_name)
         frame = self.transcript_frames.get(match.source_name)
-        if widget is None or frame is None or theme is None:
+        if theme is None:
             return
 
-        widget.configure(state="normal")
-        widget.tag_add("selected_quote", match.start, match.end)
-        widget.tag_raise("selected_quote")
-        widget.see(match.start)
-        widget.configure(state="disabled")
-        self.transcript_notebook.select(frame)
+        loc = match.location
+        context_note = ""
+        if widget is not None and frame is not None and loc.start:
+            self.transcript_notebook.select(frame)
+            widget.tag_configure("selected_quote", background=self.palette["selected_quote"],
+                                 foreground=self.palette["highlight_foreground"], underline=not loc.verified)
+            widget.tag_add("selected_quote", loc.start, loc.end)
+            widget.tag_raise("selected_quote")
+            widget.see(loc.start)
+        elif (widget is not None and frame is not None and self._display_sources.get(match.source_name) is not None
+              and 1 <= match.quote.source_line <= int(widget.index("end-1c").split(".", 1)[0])):
+            self.transcript_notebook.select(frame)
+            widget.see(f"{match.quote.source_line}.0")
+            context_note = " Showing the recorded line as context only."
 
-        overlap_text = self._overlap_text(match.quote)
+        overlap_text = self._overlap_text(match.quote) if loc.verified else ""
         self.quote_status.set(evidence_navigation_status(self.current_quote_index, len(self.current_quote_matches)))
         self.quote_meta.set(
             (
-                f"{theme.name} | {match.quote.speaker} | {match.quote.source_name}: "
+                f"{theme.name} | Recorded speaker: {match.quote.speaker} | {match.quote.source_name}: "
                 f"line {match.quote.source_line} | {match.quote.quote_id}"
             )
-            + overlap_text
+            + overlap_text + "\n" + loc.note + context_note + ("" if loc.verified else " Read-only record.")
         )
-        self.quote_reason.set(match.quote.rationale)
+        excerpt = match.quote.text if len(match.quote.text) <= 300 else match.quote.text[:300] + "… (full text in project/report)"
+        self.quote_reason.set(match.quote.rationale if loc.start else
+                              f"No source highlight. Stored excerpt: {excerpt}\nRecorded rationale: {match.quote.rationale}")
         if hasattr(self, "quote_memo_text"):
             self._set_editable_text_content(self.quote_memo_text, match.quote.memo)
+            if not loc.verified:
+                self.quote_memo_text.configure(state="disabled")
 
     def _overlap_text(self, quote: ThemeQuote) -> str:
         if self.result is None:
@@ -1914,7 +1927,9 @@ class ThemeForgeApp(tk.Tk):
         theme_names = [
             theme.name
             for theme in self.result.themes
-            if any(item.quote_id == quote.quote_id for item in theme.quotes)
+            if any((item.source_name, item.source_start, item.source_end, item.source_line, item.text) ==
+                   (quote.source_name, quote.source_start, quote.source_end, quote.source_line, quote.text)
+                   for item in theme.quotes)
         ]
         if len(theme_names) <= 1:
             return ""
