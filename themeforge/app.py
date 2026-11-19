@@ -483,24 +483,73 @@ class ThemeForgeApp(tk.Tk):
             return
 
         try:
-            self.input_paths = [Path(path) for path in paths]
-            self.documents = self._load_documents(self.input_paths)
+            input_paths = [Path(path) for path in paths]
+            documents = self._load_documents(input_paths)
         except (OSError, ValueError, zipfile.BadZipFile) as exc:
             messagebox.showerror("Open transcripts failed", str(exc))
             return
 
+        if self.documents or self.result is not None or self.audit_events:
+            self._start_replacement_project(input_paths, documents)
+            return
+        # Importing the first sources keeps the setup, not a saved template's path.
+        self.input_paths = input_paths
+        self.documents = documents
+        self.project_path = None
         self._reset_analysis_view("Analyze to highlight quote evidence across the uploaded transcripts.")
         self.file_summary.set(file_selection_summary(self.input_paths))
         self._render_transcript_tabs()
         self.status_text.set("Files loaded")
 
     def remove_transcripts(self) -> None:
-        self.input_paths = []
-        self.documents = []
-        self._reset_analysis_view("Open transcripts, then analyze to highlight quote evidence.")
-        self.file_summary.set(file_selection_summary([]))
-        self._render_transcript_tabs()
-        self.status_text.set("Transcript files removed")
+        if self.documents or self.result is not None or self.audit_events:
+            self._start_replacement_project([], [])
+
+    def _start_replacement_project(self, paths: list[Path], documents: list[TranscriptDocument]) -> None:
+        action = "replace the transcripts" if paths else "remove all transcripts"
+        save = messagebox.askyesnocancel(
+            "Save the current study before leaving?",
+            f"To {action}, start a separate, unsaved project.\n\n"
+            "Yes: save the current study first.\nNo: leave without saving changes.\n"
+            "Cancel: keep working in the current study.",
+            parent=self, default=messagebox.CANCEL,
+        )
+        if save is None:
+            return
+        if save and self._has_pending_source_edits():
+            self.status_text.set("Apply or undo the unfinished theme, quote or document edits before saving and changing studies.")
+            return
+        entries = ()
+        if self.codebook_entries:
+            keep = messagebox.askyesnocancel(
+                "Reuse the current codebook?",
+                "Copy the codebook definitions and examples to the new project? Examples may contain "
+                "source excerpts. No results, memos or audit events will be copied.\n\n"
+                "Yes: reuse definitions and examples.\nNo: start without a codebook.\nCancel: stay here.",
+                parent=self, default=messagebox.NO,
+            )
+            if keep is None:
+                return
+            if keep:
+                entries = self.codebook_entries
+        if save and not self.save_project():
+            return
+        state = ProjectState(tuple(paths), None, tuple(documents), AnalysisSettings(codebook_entries=entries))
+        self._restore_project(state, None)
+        for child in self.winfo_children():
+            if isinstance(child, RigorDialog):
+                child.destroy()  # The open comparison and audit belong to the outgoing study.
+        self.status_text.set(f"New unsaved project. {len(documents)} transcript(s); {len(entries)} reused definition(s).")
+
+    def _has_pending_source_edits(self) -> bool:
+        theme = self._current_theme()
+        match = self._current_quote_match()
+        document = next((d for d in self.documents if d.name == self._current_document_name()), None)
+        return bool((theme and (self.theme_name.get() != theme.name or
+                     self.theme_keywords.get() != ", ".join(theme.keywords) or
+                     self.theme_memo_text.get("1.0", "end-1c") != theme.memo)) or
+                    (match and self.quote_memo_text.get("1.0", "end-1c") != match.quote.memo) or
+                    (document and self.document_memo_text.get("1.0", "end-1c") != document.memo))
 
     def open_codebook(self) -> None:
         path = filedialog.askopenfilename(
@@ -974,7 +1023,7 @@ class ThemeForgeApp(tk.Tk):
         except (UnsupportedProjectFormatError, OSError, ValueError, KeyError, zipfile.BadZipFile) as exc:
             messagebox.showerror("Open project failed", str(exc))
 
-    def save_project(self) -> None:
+    def save_project(self) -> bool:
         path = self.project_path
         if path is None:
             chosen = filedialog.asksaveasfilename(
@@ -986,15 +1035,16 @@ class ThemeForgeApp(tk.Tk):
                 ],
             )
             if not chosen:
-                return
+                return False
             path = Path(chosen)
         try:
             save_project(path, self._project_state())
-        except OSError as exc:
+        except (OSError, ValueError, tk.TclError) as exc:
             messagebox.showerror("Save project failed", str(exc))
-            return
+            return False
         self.project_path = path
         self.status_text.set(f"Saved project {path.name}")
+        return True
 
     def _set_manual_status(self, action: str) -> None:
         autosave_status = self._autosave_project()
@@ -1037,7 +1087,7 @@ class ThemeForgeApp(tk.Tk):
             audit_events=tuple(self.audit_events),
         )
 
-    def _restore_project(self, state: ProjectState, path: Path) -> None:
+    def _restore_project(self, state: ProjectState, path: Path | None) -> None:
         self.project_path = path
         self.input_paths = list(state.transcript_paths)
         self.codebook_path = state.codebook_path
@@ -1058,6 +1108,8 @@ class ThemeForgeApp(tk.Tk):
         self.language_mode.set(state.settings.language_mode)
         self.file_summary.set(file_selection_summary(self.input_paths))
         self.codebook_summary.set(codebook_selection_summary(self.codebook_path, len(self.codebook_entries)))
+        self._clear_similar_passages()
+        self._set_editable_text_content(self.quote_memo_text, "")
         self._render_themes()
         self._render_transcript_tabs()
         if self.result is not None and self.result.themes:
@@ -1078,7 +1130,7 @@ class ThemeForgeApp(tk.Tk):
             self.quote_meta.set("Project opened. Analyze to highlight quote evidence.")
             self.quote_reason.set("Select a theme after analysis to review quote-selection rationale.")
             self._refresh_editor()
-        self.status_text.set(f"Opened project {path.name}")
+        self.status_text.set(f"Opened project {path.name}" if path else "New unsaved project")
 
     def _load_documents(self, paths: list[Path]) -> list[TranscriptDocument]:
         name_counts: dict[str, int] = {}

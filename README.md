@@ -122,6 +122,13 @@ python -m themeforge.app
 In the desktop app, use **Choose files** for transcripts and **Choose codebook**
 for optional deductive matching against researcher-defined themes.
 
+**Choose files** replaces the transcript collection; it does not append to it.
+When replacing or removing transcripts, you can save the outgoing study, leave
+without saving, or cancel. Apply unfinished theme or memo edits before saving.
+The next study starts as a separate unsaved project, without the old results,
+memos or audit log. You can explicitly reuse codebook definitions and examples;
+check that their text is appropriate for the next study.
+
 Run the command-line analyzer with one transcript:
 
 ```powershell
