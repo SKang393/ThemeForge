@@ -124,7 +124,10 @@ for optional deductive matching against researcher-defined themes.
 
 To code a passage **without running Analyze**, enter a researcher name or
 pseudonym, select the passage in its transcript tab, choose a codebook entry
-beside **Apply codebook entry**, and confirm its definition and examples.
+beside **Apply codebook entry**, and review the highlighted passage in its
+transcript context. The review window shows every definition and example that
+shares the chosen label. You can change the entry there without changing the
+passage. Only **Apply selected definition** records a decision; Cancel does not.
 The assignment records the coder, selected wording, source offsets and the
 definition actually used. Entries with the same label but different definitions
 stay separate. Unselected text is not a rejection. Save or export immediately;

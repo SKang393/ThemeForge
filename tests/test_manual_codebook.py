@@ -9,6 +9,8 @@ from unittest.mock import patch
 import zipfile
 
 from themeforge.app import ThemeForgeApp
+from themeforge.analysis_types import CodebookEntry
+from themeforge.definition_review import DefinitionReview
 from themeforge.project_io import NULLABLE_MEMBER, NULLABLE_PROFILE, load_project
 from themeforge.rigor import CodedProject, ManualDefinitionComparisonError, intercoder_reliability
 
@@ -46,7 +48,7 @@ class ManualCodebookTests(unittest.TestCase):
         self.app.definition_box.current(index)
 
     def apply(self, confirm=True):
-        with patch("themeforge.app.messagebox.askyesno", return_value=confirm) as prompt:
+        with patch("themeforge.app.review_definition", return_value=self.app.definition_box.current() if confirm else None) as prompt:
             self.app.code_selection_to_definition()
         return prompt
 
@@ -57,12 +59,32 @@ class ManualCodebookTests(unittest.TestCase):
         return path.read_text(encoding="utf-8")
 
     def test_exact_duplicate_named_definition_and_source_survive_save_analyze_and_exports(self):
-        self.select()
+        self.assertIn("Ending the rehearsal", self.app.definition_box.cget("values")[0])
+        self.select(0)  # Start on the wrong same-label entry.
+        before = self.app._selected_transcript_text()
+        def compare(dialog):
+            self.assertFalse(dialog.winfo_viewable())
+            self.assertEqual(dialog.indices, [0, 1])
+            content = dialog.definitions.get("1.0", "end-1c")
+            for value in ("Ending the rehearsal", "The bell sounds", "Waiting for permission", "Wait for the lamp"):
+                self.assertIn(value, content)
+            self.assertIn("Line 2", dialog.location.cget("text"))
+            self.assertIn("Coder A", dialog.location.cget("text"))
+            self.assertEqual(dialog.passage.get("evidence.first", "evidence.last"), self.passage)
+            self.assertTrue(dialog.passage.get("1.0", "evidence.first").endswith("Jo: \U0001f4a1  "))
+            dialog.choice.current(1)
+            dialog.show_choice()
+            self.assertIsNone(self.app.result)
+            self.assertFalse(self.app.audit_events)
+            self.assertEqual(self.app._selected_transcript_text(), before)
+
+        self.review(compare, apply=False)
+        self.assertIsNone(self.app.result)
+        self.assertFalse(self.app.audit_events)
+        self.assertEqual(self.app.definition_box.current(), 0)
         with patch("themeforge.app.analyze_documents", side_effect=AssertionError):
-            prompt = self.apply()
-            self.assertIn("Waiting for permission", prompt.call_args.args[1])
-            self.assertIn("Wait for the lamp", prompt.call_args.args[1])
-            self.assertNotIn("Ending the rehearsal", prompt.call_args.args[1])
+            self.review(compare, apply=True)
+            self.assertEqual(self.app.definition_box.current(), 1)
             self.select()
             self.apply()
         self.assertEqual(len(self.app.result.themes), 1)
@@ -108,6 +130,56 @@ class ManualCodebookTests(unittest.TestCase):
         coded = CodedProject(saved.documents, saved.result)
         with self.assertRaisesRegex(ManualDefinitionComparisonError, "matches names, not the definitions"):
             intercoder_reliability(coded, coded)
+
+    def review(self, inspect, *, apply):
+        # Exercise the actual modal without mapping a test window.
+        failures = []
+        visited = []
+        def choose():
+            dialog = next(w for w in self.app.winfo_children() if isinstance(w, DefinitionReview))
+            visited.append(True)
+            try:
+                inspect(dialog)
+                if apply:
+                    dialog.apply_button.invoke()
+            except Exception as exc:
+                failures.append(exc)
+            finally:
+                if dialog.winfo_exists():
+                    dialog.destroy()
+        token = self.app.after_idle(choose)
+        try:
+            self.app.code_selection_to_definition()
+        finally:
+            self.app.after_cancel(token)
+        if failures:
+            raise failures[0]
+        self.assertTrue(visited)
+
+    def test_examples_only_difference_and_multiline_passage_keep_exact_original_entry(self):
+        self.app.codebook_entries = (
+            CodebookEntry("Signal", "A cue.", ("Cue to finish.",)), CodebookEntry("Unrelated"),
+            CodebookEntry("Signal", "A cue.", ("Cue to wait.",)))
+        self.app._refresh_definition_box()
+        self.app.definition_box.current(0)
+        widget = self.app.transcript_widgets["studio.txt"]
+        widget.tag_add("sel", "1.5", "2.end")
+        selected = self.app._selected_transcript_text()
+        def choose(dialog):
+            self.assertEqual(dialog.indices, [0, 2])
+            self.assertIn("Lines 1–2", dialog.location.cget("text"))
+            self.assertEqual(dialog.passage.get("evidence.first", "evidence.last"), selected.text)
+            for label in ("Entry 1", "Entry 3", "Cue to finish.", "Cue to wait."):
+                self.assertIn(label, dialog.definitions.get("1.0", "end-1c"))
+            self.assertNotIn("Unrelated", dialog.definitions.get("1.0", "end-1c"))
+            dialog.choice.current(1)
+        self.review(choose, apply=True)
+        theme, = self.app.result.themes
+        quote, = theme.quotes
+        self.assertEqual(json.loads(theme.validation["manual_codebook_definition"])["examples"], ["Cue to wait."])
+        self.assertEqual((quote.source_start, quote.source_end, quote.text),
+                         (selected.source_start, selected.source_end, selected.text))
+        self.assertEqual([e.target_id for e in self.app.audit_events], [quote.quote_id])
 
     def test_no_coder_or_cancel_does_not_create_workspace(self):
         self.select()

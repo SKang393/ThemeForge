@@ -55,7 +55,7 @@ class ManualRecordComparisonTests(unittest.TestCase):
         widget.tag_remove("sel", "1.0", "end")
         widget.tag_add("sel", start, end)
         self.app.definition_box.current(index)
-        with patch("themeforge.app.messagebox.askyesno", return_value=True):
+        with patch("themeforge.app.review_definition", return_value=index):
             self.app.code_selection_to_definition()
 
     def choose(self, path):

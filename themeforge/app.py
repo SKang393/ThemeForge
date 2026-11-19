@@ -21,6 +21,7 @@ from .analysis import (
 )
 from .audit import AuditEvent, create_audit_event
 from .codebook import load_codebook_entries
+from .definition_review import entry_label, review_definition
 from .exports import export_json, export_markdown, export_quotes_csv
 from .io import load_transcript_text
 from .manual_editing import (
@@ -29,7 +30,6 @@ from .manual_editing import (
     ManualSelection,
     apply_codebook_definition,
     code_selected_text,
-    definition_text,
     manual_assignment_details,
     merge_theme,
     preserve_manual_themes,
@@ -379,7 +379,7 @@ class ThemeForgeApp(tk.Tk):
         coding_row.columnconfigure(1, weight=1)
         ttk.Button(coding_row, text="Code selection", style="Secondary.TButton", command=self.code_selection_to_theme).grid(row=0, column=0, sticky="ew", padx=(0, 6))
         ttk.Button(coding_row, text="New code from selection", style="Secondary.TButton", command=self.code_selection_to_new_theme).grid(row=0, column=1, sticky="ew")
-        self.definition_box = ttk.Combobox(coding_row, state="readonly", width=18)
+        self.definition_box = ttk.Combobox(coding_row, state="readonly", width=18, exportselection=False)
         self.definition_box.grid(row=1, column=0, sticky="ew", padx=(0, 6), pady=(6, 0))
         ttk.Button(coding_row, text="Apply codebook entry…", command=self.code_selection_to_definition).grid(
             row=1, column=1, sticky="ew", pady=(6, 0))
@@ -861,7 +861,7 @@ class ThemeForgeApp(tk.Tk):
         self._set_manual_status("Quote split into a new theme")
 
     def _refresh_definition_box(self) -> None:
-        self.definition_box.configure(values=tuple(f"{i}. {e.name}" for i, e in enumerate(self.codebook_entries, 1)))
+        self.definition_box.configure(values=tuple(entry_label(i, e) for i, e in enumerate(self.codebook_entries)))
         self.definition_box.set("")
 
     def code_selection_to_definition(self) -> None:
@@ -870,18 +870,29 @@ class ThemeForgeApp(tk.Tk):
             self.status_text.set("Load a codebook and choose an entry beside Apply codebook entry.")
             return
         selection = self._selected_transcript_text()
-        document = next((d for d in self.documents if d.name == self._current_document_name()), None)
+        documents = [d for d in self.documents if d.name == self._current_document_name()]
         actor = self.researcher_name.get().strip()
-        if not selection or document is None or not actor:
-            self.status_text.set("Select transcript text and enter a researcher name or pseudonym first.")
+        if not selection or len(documents) != 1 or not actor:
+            self.status_text.set("Select text in one identifiable transcript and enter a researcher name or pseudonym first.")
             return
         if self._has_pending_source_edits():
             self.status_text.set("Apply unfinished theme or memo edits before coding another passage.")
             return
-        entry = self.codebook_entries[index]
-        if not messagebox.askyesno("Apply this definition?", f"{definition_text(entry)}\n\n"
-                f"Apply to the selected passage in {document.name} as {actor}? No matching or scoring will run."):
+        entries = self.codebook_entries
+        document = documents[0]
+        if (document.text[selection.source_start:selection.source_end] != selection.text
+                or document.text.count("\n", 0, selection.source_start) + 1 != selection.source_line):
+            self.status_text.set("Selected text does not match the saved transcript; no assignment was made.")
             return
+        chosen = review_definition(self, entries, index, document, selection, actor)
+        if chosen is None:
+            return
+        if (self.codebook_entries != entries or self._selected_transcript_text() != selection
+                or self.researcher_name.get().strip() != actor or document not in self.documents):
+            self.status_text.set("The selection, source, coder or codebook changed. Review again before applying.")
+            return
+        entry = entries[chosen]
+        self.definition_box.current(chosen)
         prior = self.result or AnalysisResult(__version__, len(self.documents), 0, [], [MANUAL_ONLY_NOTE])
         try:
             updated, theme_id, quote_id = apply_codebook_definition(prior, entry, document, selection, actor)
@@ -1518,6 +1529,7 @@ class ThemeForgeApp(tk.Tk):
                 padx=16,
                 pady=14,
                 undo=False,
+                exportselection=False,
                 borderwidth=0,
                 highlightthickness=1,
                 font=("Segoe UI", 10),
