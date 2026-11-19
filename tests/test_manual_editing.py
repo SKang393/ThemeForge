@@ -56,7 +56,7 @@ class ManualEditingTests(unittest.TestCase):
             theme("T02", "Two", []),
         ], [])
 
-        updated = reassign_quote(result, "T01", "Q2", "T02")
+        updated = reassign_quote(result, "T01", "Q2", "T02", actor="Coder", reason="Better fit.")
 
         self.assertEqual([item.quote_id for item in updated.themes[0].quotes], ["Q1"])
         self.assertEqual([item.quote_id for item in updated.themes[1].quotes], ["Q2"])

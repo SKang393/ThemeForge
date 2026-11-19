@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 ValidationValue = str | int | float
+# Format 2 requires numeric fields. Negative values are outside the scoring range.
+NOT_SCORED = -1.0
 
 @dataclass(frozen=True, slots=True)
 class CodebookEntry:
@@ -81,6 +83,10 @@ class ThemeQuote:
         # This ID family is allocated only to explicitly applied codebook definitions.
         return self.quote_id.startswith("MQD")
 
+    @property
+    def reported_relevance(self) -> float | None:
+        return None if self.manual_definition_assignment or self.relevance < 0 else self.relevance
+
 
 @dataclass(frozen=True, slots=True)
 class Theme:
@@ -98,6 +104,12 @@ class Theme:
     @property
     def includes_manual_definition(self) -> bool:
         return "manual_codebook_definition" in self.validation or any(q.manual_definition_assignment for q in self.quotes)
+
+    @property
+    def reported_score(self) -> float | None:
+        if self.score < 0 or self.includes_manual_definition or any(q.relevance < 0 for q in self.quotes):
+            return None
+        return self.score
 
 
 @dataclass(frozen=True, slots=True)

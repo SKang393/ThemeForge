@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass, replace
 import json
 from uuid import uuid4
 
-from .analysis_types import AnalysisResult, CodebookEntry, Theme, ThemeQuote, TranscriptDocument, ValidationValue
+from .analysis_types import NOT_SCORED, AnalysisResult, CodebookEntry, Theme, ThemeQuote, TranscriptDocument, ValidationValue
 
 MANUAL_ONLY_NOTE = "No automated analysis has been run. Unselected passages have not been assessed."
 
@@ -72,27 +72,63 @@ def rename_theme(theme: Theme, name: str, keywords_text: str) -> Theme:
     )
 
 
+def quote_move_conflict(source: Theme, target: Theme, quote: ThemeQuote) -> str:
+    if sum(q.quote_id == quote.quote_id for q in source.quotes) != 1:
+        return "The source assignment is ambiguous; nothing was moved."
+    anchor = (quote.source_name, quote.source_start, quote.source_end)
+    for existing in target.quotes:
+        same_span = quote.source_end > quote.source_start and anchor == (
+            existing.source_name, existing.source_start, existing.source_end)
+        if existing.quote_id == quote.quote_id or same_span:
+            return "The destination already has this quote ID or exact passage; both assignments were kept."
+    return ""
+
+
 def reassign_quote(
     result: AnalysisResult,
     source_theme_id: str,
     quote_id: str,
     target_theme_id: str,
+    *, actor: str = "", reason: str = "",
 ) -> AnalysisResult:
     if source_theme_id == target_theme_id:
         return result
-    moved_quote = _find_quote(result, source_theme_id, quote_id)
-    if moved_quote is None or _find_theme(result, target_theme_id) is None:
+    source = _find_theme(result, source_theme_id)
+    target = _find_theme(result, target_theme_id)
+    if source is None or target is None:
         return result
+    original = _find_quote(result, source_theme_id, quote_id)
+    if original is None:
+        return result
+    conflict = quote_move_conflict(source, target, original)
+    if conflict:
+        raise ValueError(conflict)
+    if not actor.strip() or not reason.strip():
+        raise ValueError("A move needs a named editor and a reason; nothing was moved.")
+    moved_quote = replace(original, relevance=NOT_SCORED, rationale=(
+        f"Manual move by {actor.strip()}: {source.name} ({source.id}) to {target.name} ({target.id}). "
+        f"Not scored for the destination. Reason: {reason.strip()}\n"
+        f"Previous rationale under {source.name} ({source.id}): {original.rationale}"))
 
     themes: list[Theme] = []
     for theme in result.themes:
         if theme.id == source_theme_id:  # noqa: IF_VARIANT_OK - ID routing, not a closed variant.
-            themes.append(_refresh_theme(replace(theme, quotes=[quote for quote in theme.quotes if quote.quote_id != quote_id])))
+            themes.append(_refresh_theme(replace(theme, score=NOT_SCORED, quotes=[q for q in theme.quotes if q.quote_id != quote_id])))
         elif theme.id == target_theme_id:
-            themes.append(_refresh_theme(replace(theme, quotes=[*theme.quotes, moved_quote])))
+            themes.append(_refresh_theme(replace(theme, score=NOT_SCORED, quotes=[*theme.quotes, moved_quote])))
         else:
             themes.append(theme)
     return replace(result, themes=themes)
+
+
+def reassignment_details(source: Theme, target: Theme, original: ThemeQuote, reason: str) -> str:
+    def group(theme: Theme) -> dict:
+        return {"id": theme.id, "name": theme.name, "previous_stored_score": theme.score,
+                "manual_definition_snapshot": theme.validation.get("manual_codebook_definition")}
+    return json.dumps({"from_theme": group(source), "to_theme": group(target), "reason": reason.strip(),
+                       "original_quote": asdict(original),
+                       "score_scope": "Stored values before the move only; no destination score was calculated."},
+                      ensure_ascii=False)
 
 
 def merge_theme(result: AnalysisResult, target_theme_id: str, source_theme_id: str) -> AnalysisResult:
@@ -441,7 +477,7 @@ def _add_manual_theme(result: AnalysisResult, quote: ThemeQuote, name: str) -> A
 def _replace_quote_boundary(quote: ThemeQuote, selection: ManualSelection, text: str) -> ThemeQuote:
     boundary_note = "Researcher updated this quote boundary from selected transcript text."
     rationale = boundary_note
-    if quote.manual_definition_assignment:
+    if quote.reported_relevance is None:
         rationale = quote.rationale.removesuffix("\n" + boundary_note) + "\n" + boundary_note
     return replace(
         quote,
@@ -458,7 +494,9 @@ def _refresh_theme(theme: Theme) -> Theme:
     validation = _manual_validation(theme.quotes)
     if "manual_codebook_definition" in theme.validation:
         validation["manual_codebook_definition"] = theme.validation["manual_codebook_definition"]
+    if theme.reported_score is None:
         validation.pop("central_theme_alignment", None)
+        validation["score_scope"] = "Not scored"
     return replace(
         theme,
         quote_count=len(theme.quotes),

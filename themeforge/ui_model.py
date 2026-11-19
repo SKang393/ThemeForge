@@ -76,7 +76,8 @@ def theme_list_label(name: str, color: str, quote_count: int, focus_alignment: f
 def format_validation_summary(validation: Mapping[str, ValidationValue]) -> str:
     if not validation:
         return "Researcher review required"
-    focus = "Not scored" if "manual_codebook_definition" in validation else f"Focus {_percent(validation.get('central_theme_alignment', 0))}"
+    unscored = validation.get("score_scope") == "Not scored" or "manual_codebook_definition" in validation
+    focus = "Not scored" if unscored else f"Focus {_percent(validation.get('central_theme_alignment', 0))}"
     return (
         f"Evidence {validation.get('evidence_count', 0)} | "
         f"Sources {validation.get('source_count', 0)} | "

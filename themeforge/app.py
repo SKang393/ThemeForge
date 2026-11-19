@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 import zipfile
 
 from . import __version__
@@ -32,7 +32,9 @@ from .manual_editing import (
     manual_assignment_details,
     merge_theme,
     preserve_manual_themes,
+    quote_move_conflict,
     reassign_quote,
+    reassignment_details,
     rename_theme,
     set_theme_parent,
     split_quote_to_theme,
@@ -753,15 +755,46 @@ class ThemeForgeApp(tk.Tk):
         target_id = self._target_theme_id()
         if match is None or target_id is None:
             return
-        source_id = self.result.themes[self.current_theme_index].id
-        updated = reassign_quote(self.result, source_id, match.quote.quote_id, target_id)
+        source = self.result.themes[self.current_theme_index]
+        target = next((t for t in self.result.themes if t.id == target_id), None)
+        if target is None or target.id == source.id:
+            return
+        if self._has_pending_source_edits():
+            self.status_text.set("Apply unfinished theme or memo edits before moving a quote.")
+            return
+        q = match.quote
+        conflict = quote_move_conflict(source, target, q)
+        if conflict:
+            self.status_text.set(conflict)
+            return
+        documents = [d for d in self.documents if d.name == q.source_name]
+        if (len(documents) != 1 or not 0 <= q.source_start < q.source_end <= len(documents[0].text)
+                or documents[0].text[q.source_start:q.source_end] != q.text
+                or documents[0].text.count("\n", 0, q.source_start) + 1 != q.source_line):
+            self.status_text.set("This quote's exact source anchor could not be verified; nothing was moved.")
+            return
+        actor = self.researcher_name.get().strip()
+        if not actor:
+            self.status_text.set("Enter your researcher name or pseudonym before moving a quote.")
+            return
+        reason = simpledialog.askstring("Move quote", f"Move {q.quote_id} from {source.name} ({source.id}) "
+            f"to {target.name} ({target.id}) as {actor}?\nThe destination will not inherit the prior score. "
+            "Enter your reason:", parent=self)
+        if reason is None:
+            return
+        try:
+            updated = reassign_quote(self.result, source.id, q.quote_id, target.id, actor=actor, reason=reason)
+        except ValueError as exc:
+            self.status_text.set(str(exc))
+            return
         if updated == self.result:
             return
         self.edit_history = self.edit_history.record(self.result)
         self.result = updated
         self._render_themes()
         self._select_theme_by_id(target_id)
-        self._record_audit_event("quote_moved", "quote", match.quote.quote_id, f"from_theme={source_id}; to_theme={target_id}")
+        self._focus_quote_by_id(q.quote_id)
+        self._record_audit_event("quote_reassigned", "quote", q.quote_id, reassignment_details(source, target, q, reason))
         self._set_manual_status("Quote moved")
 
     def merge_current_theme(self) -> None:
@@ -843,11 +876,7 @@ class ThemeForgeApp(tk.Tk):
         self.result = updated
         self._render_themes()
         self._select_theme_by_id(theme_id)
-        for index, match in enumerate(self.current_quote_matches):
-            if match.quote.quote_id == quote_id:
-                self.current_quote_index = index
-                self._focus_current_quote()
-                break
+        self._focus_quote_by_id(quote_id)
         if MANUAL_ONLY_NOTE in updated.notes:
             self.theme_summary.set("Manual coding | No automated analysis")
         self._record_audit_event("codebook_passage_assigned", "quote", quote_id,
@@ -1256,7 +1285,7 @@ class ThemeForgeApp(tk.Tk):
                 theme.name,
                 theme.color,
                 theme.quote_count,
-                None if theme.includes_manual_definition else float(theme.validation.get("central_theme_alignment", 0)),
+                None if theme.reported_score is None else float(theme.validation.get("central_theme_alignment", 0)),
                 depth=1 if theme.parent_theme_id else 0,
             )
             self.theme_list.insert(tk.END, label)
@@ -1393,6 +1422,13 @@ class ThemeForgeApp(tk.Tk):
         # Python source offsets, not Tcl UTF-16 counts. Trim both the text and its offsets.
         prefix = widget.get("1.0", start) + raw[:len(raw) - len(raw.lstrip())]
         return ManualSelection(source_name, text, prefix.count("\n") + 1, len(prefix), len(prefix) + len(text))
+
+    def _focus_quote_by_id(self, quote_id: str) -> None:
+        for index, match in enumerate(self.current_quote_matches):
+            if match.quote.quote_id == quote_id:
+                self.current_quote_index = index
+                self._focus_current_quote()
+                return
 
     def _select_theme_by_id(self, theme_id: str) -> None:
         if self.result is None:
@@ -1542,7 +1578,7 @@ class ThemeForgeApp(tk.Tk):
         else:
             output = export_markdown(self.result)
 
-        target.write_text(output, encoding="utf-8")
+        target.write_text(output, encoding="utf-8", newline="")
         self.status_text.set(f"Saved {target.name}")
 
     def _rigor_context(self) -> RigorContext:

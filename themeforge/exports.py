@@ -11,12 +11,12 @@ from .manual_editing import MANUAL_ONLY_NOTE
 
 def export_markdown(result: AnalysisResult) -> str:
     manual_only = MANUAL_ONLY_NOTE in result.notes
-    mixed = any(t.includes_manual_definition for t in result.themes)
+    mixed = any(t.reported_score is None for t in result.themes)
     origin = "These themes and quote matches are machine-generated suggestions."
     if manual_only:
         origin = MANUAL_ONLY_NOTE
     elif mixed:
-        origin = "Manual codebook assignments and machine suggestions are separate."
+        origin = "Manual coding decisions and machine suggestions are separate. Unscored records have no current numeric score."
     lines = [
         "# Qualitative Thematic Coding Report",
         "",
@@ -52,7 +52,7 @@ def export_markdown(result: AnalysisResult) -> str:
                 f"- Theme ID: {theme.id}",
                 f"- Theme color: {theme.color}",
                 f"- Quote units in theme: {theme.quote_count}",
-                "- Cohesion score: Not scored for this coding group" if theme.includes_manual_definition
+                "- Cohesion score: Not scored for this coding group" if theme.reported_score is None
                 else f"- Cohesion score: {theme.score:.3f}",
                 f"- Keywords: {', '.join(theme.keywords) if theme.keywords else 'None'}",
                 f"- Validation: {_format_validation(theme.validation)}",
@@ -71,7 +71,7 @@ def export_markdown(result: AnalysisResult) -> str:
                         f"- [{theme.id} {theme.color}] Speaker: {quote.speaker} | "
                         f"Quote ID: {quote.quote_id} | Source: {quote.source_name} | "
                         f"Line: {quote.source_line} | Relevance: "
-                        + ("Not scored" if quote.manual_definition_assignment else f"{quote.relevance:.3f}")
+                        + ("Not scored" if quote.reported_relevance is None else f"{quote.relevance:.3f}")
                     ),
                     f"- Selection rationale: {quote.rationale}",
                     "",
@@ -103,11 +103,9 @@ def export_markdown(result: AnalysisResult) -> str:
 def export_json(result: AnalysisResult) -> str:
     payload = asdict(result)
     for theme, item in zip(result.themes, payload["themes"], strict=True):
-        if theme.includes_manual_definition:
-            item["score"] = None
+        item["score"] = theme.reported_score
         for quote, row in zip(theme.quotes, item["quotes"], strict=True):
-            if quote.manual_definition_assignment:
-                row["relevance"] = None
+            row["relevance"] = quote.reported_relevance
     return json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
 
 
@@ -144,7 +142,7 @@ def export_quotes_csv(result: AnalysisResult) -> str:
                     quote.speaker,
                     quote.source_name,
                     quote.source_line,
-                    "" if quote.manual_definition_assignment else f"{quote.relevance:.3f}",
+                    "" if quote.reported_relevance is None else f"{quote.relevance:.3f}",
                     quote.text,
                     quote.rationale,
                     theme.validation.get("review_status", "Researcher review required"),
@@ -157,7 +155,8 @@ def export_quotes_csv(result: AnalysisResult) -> str:
 def _format_validation(validation: dict[str, ValidationValue]) -> str:
     if not validation:
         return "Researcher review required"
-    alignment = "not scored" if "manual_codebook_definition" in validation else validation.get("central_theme_alignment", 0)
+    unscored = validation.get("score_scope") == "Not scored" or "manual_codebook_definition" in validation
+    alignment = "not scored" if unscored else validation.get("central_theme_alignment", 0)
     return (
         f"evidence={validation.get('evidence_count', 0)}, "
         f"sources={validation.get('source_count', 0)}, "

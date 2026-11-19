@@ -148,6 +148,22 @@ lexical suggestions, are excluded and counted separately.
 Choose a new CSV filename. Spreadsheet-sensitive text cells receive a leading
 apostrophe; the offsets always refer to the original transcript.
 
+**Move quote** requires a researcher name or pseudonym and prompts for why
+the passage belongs under the destination theme. It retains the quote ID,
+exact source location and memo. The new rationale distinguishes the move from
+the previous selection. The audit log keeps the original quote, its stored
+score and prior group details. Neither the moved assignment nor the two
+changed groups inherit a score; other quote rows retain theirs. If the target
+already has the same ID or passage at those offsets, both records stay intact.
+
+**Older readers can preserve the project without correctly reporting its scores.**
+This version stores `-1` in format-2 numeric fields for scores unset by a move.
+Older Markdown and CSV reports can print `-1.000`, and older JSON reports
+can emit `-1.0`. None is a relevance judgment. Export moved assignments with
+the updated app: Markdown says **Not scored**, CSV leaves the field blank, and
+JSON uses `null`. Earlier moves that retained ordinary-looking scores cannot
+be corrected retrospectively from those scores alone.
+
 **Choose files** replaces the transcript collection; it does not append to it.
 When replacing or removing transcripts, you can save the outgoing study, leave
 without saving, or cancel. Apply unfinished theme or memo edits before saving.
