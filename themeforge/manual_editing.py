@@ -194,6 +194,15 @@ def definition_text(entry: CodebookEntry) -> str:
     return "\n".join([*lines, *(f"Example: {example}" for example in entry.examples)])
 
 
+def manual_assignment_details(entry: CodebookEntry, source: str, start: int, end: int, theme_id: str) -> str:
+    return f"{source}: chars {start}-{end}; theme={theme_id}\n{definition_text(entry)}"
+
+
+def manual_assignment_rationale(entry: CodebookEntry, source: str, start: int, end: int, actor: str) -> str:
+    return (f"Original manual codebook assignment by {actor.strip()} at {source} "
+            f"[{start}:{end}]. Not scored.\n{definition_text(entry)}")
+
+
 def apply_codebook_definition(
     result: AnalysisResult, entry: CodebookEntry, document: TranscriptDocument,
     selection: ManualSelection, actor: str,
@@ -215,8 +224,7 @@ def apply_codebook_definition(
         quote_id=f"MQD{uuid4().hex}", speaker="Not attributed (manual selection)",
         text=selection.text, relevance=0.0, source_line=selection.source_line, source_name=document.name,
         source_start=start, source_end=end,
-        rationale=(f"Original manual codebook assignment by {actor.strip()} at {document.name} "
-                   f"[{start}:{end}]. Not scored.\n{definition_text(entry)}"),
+        rationale=manual_assignment_rationale(entry, document.name, start, end, actor),
     )
     if target is None:
         updated = _add_manual_theme(result, quote, entry.name)

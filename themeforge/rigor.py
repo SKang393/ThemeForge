@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Final
 
 from .analysis_types import AnalysisResult, QuoteUnit, ThemeQuote, TranscriptDocument, TranscriptSegment
+from .audit import AuditEvent
 from .quote_units import extract_quote_units
 from .transcript_parser import parse_transcript
 
@@ -28,7 +29,7 @@ class NoSharedDocumentsError(Exception):
 class ManualDefinitionComparisonError(Exception):
     def __str__(self) -> str:
         return ("Agreement unavailable: this comparison matches names, not the definitions "
-                "recorded in manual codebook assignments. Inspect their separate quote exports instead.")
+                "recorded in manual codebook assignments. Use Export recorded manual assignments for a record comparison.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +72,7 @@ class MatrixQueryReport:
 class CodedProject:
     documents: Sequence[TranscriptDocument]
     result: AnalysisResult
+    audit_events: Sequence[AuditEvent] = ()
 
 
 @dataclass(frozen=True, slots=True)

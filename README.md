@@ -137,6 +137,17 @@ from this version rather than interpreting that stored number as a score.
 The name-based intercoder comparison does not support these assignments and
 will not calculate agreement for a project containing them.
 
+For a descriptive comparison, open **Rigor tools → Intercoder**, choose the
+other saved project, and select **Export recorded manual assignments**. The CSV
+shows whether each exact definition and source span was recorded in both
+projects or just one. It requires identical source names and text, distinct
+declared coders, and separately recorded, traceable assignments. It does not
+interpret an unselected passage as a negative decision or supply a denominator
+for agreement or establish coder independence. Other quote rows, including
+lexical suggestions, are excluded and counted separately.
+Choose a new CSV filename. Spreadsheet-sensitive text cells receive a leading
+apostrophe; the offsets always refer to the original transcript.
+
 **Choose files** replaces the transcript collection; it does not append to it.
 When replacing or removing transcripts, you can save the outgoing study, leave
 without saving, or cancel. Apply unfinished theme or memo edits before saving.

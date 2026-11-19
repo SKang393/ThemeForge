@@ -29,6 +29,7 @@ from .manual_editing import (
     apply_codebook_definition,
     code_selected_text,
     definition_text,
+    manual_assignment_details,
     merge_theme,
     preserve_manual_themes,
     reassign_quote,
@@ -850,8 +851,7 @@ class ThemeForgeApp(tk.Tk):
         if MANUAL_ONLY_NOTE in updated.notes:
             self.theme_summary.set("Manual coding | No automated analysis")
         self._record_audit_event("codebook_passage_assigned", "quote", quote_id,
-            f"{document.name}: chars {selection.source_start}-{selection.source_end}; "
-            f"theme={theme_id}\n{definition_text(entry)}")
+            manual_assignment_details(entry, document.name, selection.source_start, selection.source_end, theme_id))
         self._set_manual_status("Codebook definition applied manually")
 
     def code_selection_to_theme(self) -> None:
