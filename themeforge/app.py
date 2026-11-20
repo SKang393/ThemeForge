@@ -1431,7 +1431,7 @@ class ThemeForgeApp(tk.Tk):
                 depth=1 if theme.parent_theme_id else 0,
             )
             role = theme.validation.get("reanalysis_role")
-            if role in ("Retained earlier edits", "Fresh codebook suggestion"):
+            if role in ("Retained earlier edits", "Retained hierarchy parent", "Fresh codebook suggestion"):
                 label = f"[{role.split()[0]}] {label}"
             self.theme_list.insert(tk.END, label)
             self.theme_list.itemconfig(tk.END, foreground=theme.color)
@@ -1481,7 +1481,10 @@ class ThemeForgeApp(tk.Tk):
         if hasattr(self, "parent_theme_box"):
             self.parent_theme_box.configure(values=parent_values)
         parent_label = self._theme_label(theme.parent_theme_id)
-        self.parent_theme.set(parent_label if parent_label in parent_values else "Top-level")
+        if theme.parent_theme_id and not parent_label:
+            self.parent_theme.set(f"Unavailable parent ({theme.parent_theme_id})")
+        else:
+            self.parent_theme.set(parent_label if parent_label in parent_values else "Top-level")
         if hasattr(self, "target_theme_box"):
             self.target_theme_box.configure(values=tuple(target_values))
         if target_values and self.target_theme.get() not in target_values:

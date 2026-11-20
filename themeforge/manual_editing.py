@@ -427,49 +427,88 @@ def preserve_manual_themes(previous: AnalysisResult | None, generated: AnalysisR
     if not manual_themes:
         return generated
 
-    if generated.themes and all("generated_from_codebook_entry" in t.validation for t in generated.themes):
+    codebook_run = bool(generated.themes) and all(
+        "generated_from_codebook_entry" in t.validation for t in generated.themes
+    )
+    if codebook_run:
         # C01 is an entry position, not a definition identity. Q0001 identifies a
         # passage, not its relationship to one particular definition.
         retained = [t if t.id.startswith("M") else replace(t, validation={
             **t.validation, "reanalysis_role": "Retained earlier edits"}) for t in manual_themes]
-        taken = {t.id for t in retained} | {t.parent_theme_id for t in retained if t.parent_theme_id}
-        reserved = taken | {t.id for t in generated.themes}
-        fresh = []
-        for t in generated.themes:
-            group_id = t.id
-            if group_id in taken:
-                n = 2
-                while f"{t.id}-r{n}" in reserved:
-                    n += 1
-                group_id = f"{t.id}-r{n}"
-                reserved.add(group_id)
-            fresh.append(replace(t, id=group_id, validation={**t.validation,
-                "reanalysis_role": "Fresh codebook suggestion",
-                "review_status": "Fresh codebook match; researcher review required"}))
-        return replace(generated, themes=[*retained, *fresh], notes=[*generated.notes,
-            "Retained edited groups: " + ", ".join(t.id for t in retained) + ". Fresh codebook suggestions: "
-            + ", ".join(t.id for t in fresh) + ". Matching group positions or passage IDs do not transfer review."])
+        candidates = [
+            replace(t, validation={**t.validation, "reanalysis_role": "Fresh codebook suggestion",
+                                   "review_status": "Fresh codebook match; researcher review required"})
+            for t in generated.themes
+        ]
+    else:
+        retained = manual_themes
+        manual_theme_ids = {t.id for t in retained}
+        manual_quote_ids = {q.quote_id for t in retained for q in t.quotes}
+        candidates = []
+        for theme in generated.themes:
+            if theme.id in manual_theme_ids or not theme.quotes:
+                continue
+            quotes = [q for q in theme.quotes if q.quote_id not in manual_quote_ids]
+            if len(quotes) == len(theme.quotes):
+                candidates.append(theme)  # The full cluster can be larger than its displayed examples.
+            elif quotes:
+                candidates.append(_refresh_generated_theme(replace(theme, quotes=quotes)))
 
-    manual_theme_ids = {theme.id for theme in manual_themes}
-    manual_quote_ids = {quote.quote_id for theme in manual_themes for quote in theme.quotes}
-    generated_themes = [
-        _refresh_generated_theme(
-            replace(
-                theme,
-                quotes=[quote for quote in theme.quotes if quote.quote_id not in manual_quote_ids],
-            )
-        )
-        for theme in generated.themes
-        if theme.id not in manual_theme_ids
-    ]
-    return replace(
-        generated,
-        themes=[*manual_themes, *[theme for theme in generated_themes if theme.quotes]],
-        notes=[
-            *generated.notes,
-            f"Preserved {len(manual_themes)} researcher-edited theme(s) during reanalysis.",
-        ],
-    )
+    parents, fresh = _preserve_hierarchy_parents(previous, retained, candidates)
+    notes = list(generated.notes)
+    if codebook_run:
+        notes.append("Retained edited groups: " + ", ".join(t.id for t in retained) + ". Fresh codebook suggestions: "
+                     + ", ".join(t.id for t in fresh) + ". Matching group positions or passage IDs do not transfer review.")
+    else:
+        notes.append(f"Preserved {len(retained)} researcher-edited theme(s) during reanalysis.")
+    if parents:
+        notes.append("Earlier suggestions kept as hierarchy parents: " + ", ".join(t.id for t in parents)
+                     + ". Their evidence and scores describe the earlier grouping.")
+    return replace(generated, themes=[*retained, *parents, *fresh], notes=notes)
+
+
+def _retained_parent(theme: Theme) -> Theme:
+    return replace(theme, validation={
+        **theme.validation,
+        "reanalysis_role": "Retained hierarchy parent",
+        "review_status": "Earlier suggestion retained for hierarchy. Researcher review required.",
+    })
+
+
+def _preserve_hierarchy_parents(previous: AnalysisResult, retained: list[Theme],
+                                candidates: list[Theme]) -> tuple[list[Theme], list[Theme]]:
+    by_id = {t.id: t for t in previous.themes}
+    retained_ids = {t.id for t in retained}
+    pending = [t.parent_theme_id for t in retained if t.parent_theme_id]
+    parent_ids: set[str] = set()
+    while pending:
+        parent_id = pending.pop()
+        if parent_id in parent_ids:
+            continue
+        parent_ids.add(parent_id)
+        parent = by_id.get(parent_id)
+        if parent and parent.parent_theme_id:
+            pending.append(parent.parent_theme_id)
+
+    parents = {t.id: _retained_parent(t) for t in previous.themes if t.id in parent_ids and t.id not in retained_ids}
+    # Reserve even unresolved older references. A new suggestion cannot supply the missing identity.
+    taken = retained_ids | parent_ids
+    reserved = taken | {t.id for t in candidates}
+    fresh = []
+    for candidate in candidates:
+        group_id = candidate.id
+        if group_id in parents and parents[group_id] == _retained_parent(candidate):
+            # The underlying group matches, including evidence and definition. One copy serves both uses.
+            del parents[group_id]
+        elif group_id in taken:
+            n = 2
+            while f"{group_id}-r{n}" in reserved:
+                n += 1
+            group_id = f"{group_id}-r{n}"
+            reserved.add(group_id)
+            candidate = replace(candidate, id=group_id)
+        fresh.append(candidate)
+    return list(parents.values()), fresh
 
 
 def _find_theme(result: AnalysisResult, theme_id: str) -> Theme | None:

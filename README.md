@@ -226,6 +226,15 @@ JSON `null`, and no numeric score in Markdown. Earlier versions wrote `1.000`
 for these actions. Existing scores and reports are not retrospectively changed;
 a numeric 1 alone does not identify a manual decision.
 
+When you place a manual code under a suggested theme, running **Analyze** again
+keeps the parent you chose. If the new run changes or omits that group, the
+theme list marks the earlier parent **Retained**. Its quotes and scores describe
+the earlier run. Current suggestions can cite the same passages. The JSON report
+records the parent ID, group and passage memos, and source offsets.
+If an older project is missing the saved parent, the selector shows
+**Unavailable parent** with its ID. You can choose another parent or **Top-level**
+and save the hierarchy.
+
 **Merge theme** uses your researcher name and asks for a reason. It counts the same exact
 passage once even when its two assignments have different quote IDs. The
 destination assignment keeps its own rationale, memo and score. A passage
