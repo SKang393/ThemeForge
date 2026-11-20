@@ -421,8 +421,12 @@ Python, a model download, or an online service. Install ThemeForge from source
 with `themeforge[nlp]` to enable sentence-transformer embeddings and
 `kiwipiepy` morphology.
 
-CSV codebooks should include a `theme`, `code`, `name`, or `category` column.
-Optional `description` and `example` or `quote` columns supply terms for matching.
+CSV codebooks need at least one named row under `theme`, `code`, `name`, or
+`category`. ThemeForge reads a definition from `description`, `definition`, or
+`memo` and one example per row from `example`, `quote`, or `evidence`.
+Both are optional. Headers ignore case and surrounding spaces. For each field,
+the first nonblank value in the listed alias order is used. If a file has no
+named entries, the import fails and the current codebook stays active.
 Put inclusion and exclusion criteria inside the description. Separate criterion
 and parent columns are ignored by the CSV importer.
 In a definition, `Exclude:` starts guidance for the reader. `Include:` resumes
@@ -431,7 +435,7 @@ estimates.” uses the repair test for retrieval. A passage mentioning an
 estimate can still be suggested if it also matches the test. The original
 definition stays available for review, and the example field supplies positive
 search terms.
-TXT, DOCX, RTF, and text-based PDF codebooks can also use labeled lines such as
+TXT, MD, DOCX, RTF, and text-based PDF codebooks can also use labeled lines such as
 `Theme:`, `Description:`, and `Example:`.
 
 Run tests:

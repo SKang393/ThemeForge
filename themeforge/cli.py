@@ -38,7 +38,7 @@ def main() -> int:
     parser.add_argument(
         "--codebook",
         type=Path,
-        help="Optional CSV, TXT, DOCX, RTF, or text-based PDF codebook with theme names and descriptions",
+        help="Optional CSV, TXT, MD, DOCX, RTF, or text-based PDF codebook with code names and definitions",
     )
     for flag in ("--include-speaker", "--exclude-speaker"):
         parser.add_argument(flag, action="append", nargs=2, metavar=("FILENAME", "LABEL"), default=[],

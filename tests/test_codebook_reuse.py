@@ -11,7 +11,9 @@ from unittest.mock import patch
 import zipfile
 
 from test_evidence_handoff import descendants, export, press
+from themeforge.analysis_types import CodebookEntry
 from themeforge.app import ThemeForgeApp
+from themeforge.codebook import load_codebook_entries
 from themeforge.definition_review import CodebookReuseDialog
 from themeforge.project_io import load_project
 from themeforge.rigor_dialog import RigorDialog
@@ -176,7 +178,77 @@ class CodebookReuseTests(unittest.TestCase):
         self.assertIn(EXAMPLE, self.transfer("Names, definitions and examples", "Cancel"))
         self.assertEqual((self.app.project_path, self.app._project_state()), (path, first))
         self.assertIn(EXAMPLE, self.transfer("Names, definitions and examples"))
-        copied = self.save(self.folder / "with-examples.tfproj")
+        copy = self.folder / "with-examples.tfproj"
+        copied = self.save(copy)
+        self.open(copy)
+        self.assertEqual(self.app._project_state(), copied)
         self.assertEqual(copied.settings.codebook_entries, first.settings.codebook_entries)
         self.assertEqual(copied.audit_events, ())
         self.assertIsNone(copied.result)
+
+    def test_report_csvs_cannot_replace_the_reviewed_codebook(self):
+        self.first_project()
+        evidence = self.folder / "table.csv"  # Supported evidence exported by first_project.
+        self.app.definition_box.current(1)
+        self.app.transcript_widgets[SOURCE].tag_add("sel", "1.6", "1.end")
+        with patch("themeforge.app.review_definition", return_value=1):
+            press(self.app, "Apply codebook entry…")
+        project = self.folder / "reviewed-assignments.tfproj"
+        with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(project)):
+            press(self.app, "Save as…")
+        self.open(project)
+        assignments = self.folder / "assignments.csv"
+        press(self.app, "Rigor tools")
+        dialog, = [w for w in self.app.winfo_children() if isinstance(w, RigorDialog)]
+        assignment, = export(dialog, "Export this project's manual codebook assignments", assignments)
+        dialog.destroy()
+        self.assertEqual(assignment["passage"], PASSAGE)
+        state = self.app._project_state()
+        summary = self.app.codebook_summary.get()
+        saved = project.read_bytes()
+        for report in (evidence, assignments):
+            with self.subTest(report=report.name), \
+                    patch("themeforge.app.filedialog.askopenfilename", return_value=str(report)), \
+                    patch("themeforge.app.messagebox.showerror") as error:
+                press(self.app, "Choose codebook")
+                error.assert_called_once()
+                detail = error.call_args.args[1]
+                for label in ("theme", "code", "name", "category", "definition", "example", "hierarchy"):
+                    self.assertIn(label, detail)
+                self.assertNotIn(PASSAGE, detail)
+                self.assertIn("Kept the current codebook", self.app.status_text.get())
+                self.assertEqual(self.app._project_state(), state)
+                self.assertEqual(self.app.codebook_summary.get(), summary)
+                self.assertEqual(project.read_bytes(), saved)
+        row, = self.rows("Export supported matches CSV")
+        self.assertEqual((row["quote"], row["match_review_reason"]), (PASSAGE, A_REASON))
+
+    def test_valid_aliases_and_ignored_csv_columns(self):
+        path = self.folder / "codes.csv"
+        path.write_text(
+            "theme, CATEGORY ,description, MEMO ,example, EVIDENCE ,include,exclude,parent\n"
+            ",,,Skip this unnamed row.,,,,,\n"
+            '  ,Inventory,  ,"Count, then log. Include: tallies. Exclude: guesses.",  ,Tray counted.,other,other,root\n',
+            encoding="utf-8-sig",
+        )
+        with patch("themeforge.app.filedialog.askopenfilename", return_value=str(path)):
+            press(self.app, "Choose codebook")
+        self.assertEqual(self.app.codebook_entries,
+                         (CodebookEntry("Inventory", "Count, then log. Include: tallies. Exclude: guesses.",
+                                        ("Tray counted.",)),))
+        self.assertIn("Loaded 1 codebook entry.", self.app.status_text.get())
+        self.assertIn("Separate criteria and hierarchy columns are ignored", self.app.status_text.get())
+
+    def test_files_without_usable_definitions_are_rejected(self):
+        for filename, content, diagnostic in (
+                ("empty.csv", "", "Missing code name column"),
+                ("header.csv", "code,memo\n", "No named codebook entries"),
+                ("blank.csv", "code,memo\n  ,sample\n", "No named codebook entries"),
+                ("malformed.csv", 'name,description\nInventory,Tally\nRepair,"unfinished\n', "Could not read the codebook CSV"),
+                ("empty.txt", "Theme:\nDescription: no label\n", "No named codebook entries"),
+                ("report.json", '{"themes": []}', "Choose a CSV")):
+            with self.subTest(filename=filename):
+                path = self.folder / filename
+                path.write_text(content, encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, diagnostic):
+                    load_codebook_entries(path)

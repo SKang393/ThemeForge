@@ -671,14 +671,20 @@ class ThemeForgeApp(tk.Tk):
         try:
             entries = load_codebook_entries(Path(path))
         except (OSError, ValueError, zipfile.BadZipFile) as exc:
-            messagebox.showerror("Open codebook failed", str(exc))
+            self.status_text.set("Codebook import failed. Kept the current codebook." if self.codebook_entries
+                                 else "Codebook import failed.")
+            messagebox.showerror("Open codebook failed", str(exc), parent=self)
             return
 
         self.codebook_path, self.codebook_entries = Path(path), entries
         self._refresh_definition_box()
         self._show_match_review()
         self.codebook_summary.set(codebook_selection_summary(self.codebook_path, len(self.codebook_entries)))
-        self.status_text.set("Codebook loaded")
+        count = len(entries)
+        status = f"Loaded {count} codebook " + ("entry." if count == 1 else "entries.")
+        if self.codebook_path.suffix.lower() == ".csv":
+            status += " Put Include: and Exclude: in definitions. Separate criteria and hierarchy columns are ignored."
+        self.status_text.set(status)
 
     def remove_codebook(self) -> None:
         self.codebook_path = None
