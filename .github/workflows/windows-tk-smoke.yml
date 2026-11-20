@@ -1,0 +1,35 @@
+name: Windows Tk smoke
+
+on:
+  push:
+    branches: [review/cloud-coding-windows-smoke]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  coding-workflows:
+    if: github.event.repository.private == false
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      # These synthetic studies use real Tk widgets and supply dialog responses in code.
+      - name: Check coding, discovery and review exports
+        env:
+          PYTHONPATH: tests
+          PYTHONHASHSEED: '0'
+          HF_HUB_OFFLINE: '1'
+        run: >-
+          python -m unittest -v
+          test_selection_decisions.ImportedSelectionTests.test_first_freehand_code_exports_the_selected_occurrence
+          test_discovery_hierarchy.DiscoveryHierarchyTests.test_reused_then_absent_parent_id_preserves_the_chosen_group
+          test_supported_matches.SupportedMatchTests.test_discover_review_assign_reopen_and_export
+          test_paired_match_reviews.PairedMatchReviewTests.test_independent_reviews_survive_reopen_and_comparison
