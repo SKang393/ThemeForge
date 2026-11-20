@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 import re
 
 from .analysis_constants import (
@@ -14,36 +15,32 @@ from .analysis_constants import (
     TIMESTAMP_RE,
     URL_RE,
 )
-from .analysis_types import TranscriptSegment
+from .analysis_types import TranscriptDocument, TranscriptSegment
 from .text_utils import normalize_space
+
+
+def document_segments(documents: Iterable[TranscriptDocument]) -> list[TranscriptSegment]:
+    return [turn for doc in documents for turn in parse_transcript(doc.text, doc.name or "Transcript")]
+
+
 def parse_transcript(text: str, source_name: str = "Transcript") -> list[TranscriptSegment]:
     """Parse a plain text transcript into speaker turns."""
     segments: list[TranscriptSegment] = []
     current_speaker = "Unknown"
-    current_text: list[str] = []
-    current_line = 1
+    turn_start: int | None = None
+    turn_end = 0
+    turn_line = 1
     current_has_speaker = False
     speaker_lookup: dict[str, str] = {}
-    search_offset = 0
+    cursor = 0
+    cursor_line = 1
 
     def flush() -> None:
-        nonlocal search_offset
-        if current_text:
-            merged = " ".join(part.strip() for part in current_text if part.strip())
-            if merged:
-                source_start, source_end = _find_normalized_span(text, merged, search_offset)
-                if source_end > source_start:
-                    search_offset = source_end
-                segments.append(
-                    TranscriptSegment(
-                        speaker=current_speaker.strip() or "Unknown",
-                        text=normalize_space(merged),
-                        source_line=current_line,
-                        source_name=source_name,
-                        source_start=source_start,
-                        source_end=source_end,
-                    )
-                )
+        nonlocal turn_start
+        if turn_start is not None:
+            segments.append(TranscriptSegment(current_speaker, text[turn_start:turn_end], turn_line,
+                                              source_name, turn_start, turn_end))
+            turn_start = None
 
     def speaker_name(raw_name: str) -> str:
         name = normalize_space(raw_name)
@@ -52,26 +49,27 @@ def parse_transcript(text: str, source_name: str = "Transcript") -> list[Transcr
             speaker_lookup[key] = name
         return speaker_lookup[key]
 
-    for line_number, raw_line in enumerate(_prepare_transcript_text(text).splitlines(), start=1):
+    # Preparation inserts boundaries at labels and timestamps. Each nonempty
+    # logical line is still a literal substring of the imported document.
+    for raw_line in _prepare_transcript_text(text).splitlines():
         line = raw_line.strip()
         if not line:
             flush()
-            current_text = []
             current_has_speaker = False
             continue
 
+        start = text.index(line, cursor)
+        cursor_line += text.count("\n", cursor, start)
+        cursor = start + len(line)
         timestamp_match = SPEAKER_TIMESTAMP_RE.match(line)
         if timestamp_match:
             flush()
             current_speaker = speaker_name(timestamp_match.group(1))
-            current_text = []
-            current_line = line_number
             current_has_speaker = True
             continue
 
         if _is_transcript_noise_line(line):
             flush()
-            current_text = []
             current_has_speaker = False
             continue
 
@@ -79,33 +77,18 @@ def parse_transcript(text: str, source_name: str = "Transcript") -> list[Transcr
         if speaker_match:
             flush()
             current_speaker = speaker_name(speaker_match.group(1))
-            current_text = [speaker_match.group(2).strip()]
-            current_line = line_number
             current_has_speaker = True
-        elif current_text or current_has_speaker:
-            current_text.append(line)
-        else:
+            start += speaker_match.start(2)
+        elif turn_start is None and not current_has_speaker:
             current_speaker = "Unknown"
-            current_text = [line]
-            current_line = line_number
-            current_has_speaker = False
+
+        if start < cursor:
+            if turn_start is None:
+                turn_start, turn_line = start, cursor_line
+            turn_end = cursor
 
     flush()
     return segments
-
-
-def _find_normalized_span(source: str, needle: str, start: int = 0) -> tuple[int, int]:
-    normalized = normalize_space(needle)
-    if not normalized:
-        return 0, 0
-    pattern = r"\s+".join(re.escape(part) for part in normalized.split())
-    match = re.search(pattern, source[start:], flags=re.IGNORECASE)
-    if match:
-        return start + match.start(), start + match.end()
-    match = re.search(pattern, source, flags=re.IGNORECASE)
-    if match:
-        return match.start(), match.end()
-    return 0, 0
 
 
 def _prepare_transcript_text(text: str) -> str:

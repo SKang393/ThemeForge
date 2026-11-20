@@ -134,6 +134,20 @@ definition actually used. Entries with the same label but different definitions
 stay separate. Unselected text is not a rejection. Save or export immediately;
 running Analyze later adds separate suggestions, not endorsements.
 
+After **Choose files**, open **Speakers for suggestions** before your first
+**Analyze**. It shows the parsed labels in each imported transcript,
+the automatic decision, the number of turns and a sample with its source line.
+Select one or more rows and choose **Include**, **Exclude**, or **Use automatic**,
+then **Apply**. Analyze and both Find actions use these choices before ranking.
+Automatic uses the existing Analyze role rules across the open study. A correction
+applies only to the selected transcript and label. Passage filters still apply.
+You can still read and manually code any source. Apply clears the open Find list
+and records the change in the audit log. Run Analyze to generate new theme
+suggestions. Save the project to keep your choices for the next session.
+Older app versions ignore these choices. From the CLI, pass a filename and its
+parsed label, for example `--include-speaker workshop.txt Host` or
+`--exclude-speaker interview.txt Facilitator`.
+
 **Reviewing candidate quotes:** Previous/Next visits the stored records,
 including ones the app cannot locate. Below the transcript, **Quote review**
 shows the rationale and decisions. The adjacent tabs hold the quote and document
@@ -335,7 +349,13 @@ with `themeforge[nlp]` to enable sentence-transformer embeddings and
 `kiwipiepy` morphology.
 
 CSV codebooks should include a `theme`, `code`, `name`, or `category` column.
-Optional `description` and `example` or `quote` columns improve quote matching.
+Optional `description` and `example` or `quote` columns supply terms for matching.
+In a definition, `Exclude:` starts guidance for the reader. `Include:` resumes
+the text used for ranking. For example, “Test after a repair. Exclude: price
+estimates.” uses the repair test for retrieval. A passage mentioning an
+estimate can still be suggested if it also matches the test. The original
+definition stays available for review, and the example field supplies positive
+search terms.
 TXT, DOCX, RTF, and text-based PDF codebooks can also use labeled lines such as
 `Theme:`, `Description:`, and `Example:`.
 

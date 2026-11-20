@@ -40,7 +40,7 @@ from .analysis_vectors import (
     tfidf_vectors as _tfidf_vectors,
 )
 from .local_embeddings import local_embedding_vectors as _local_embedding_vectors
-from .quote_units import extract_quote_units, speaker_stopwords as build_speaker_stopwords
+from .quote_units import extract_quote_units, speaker_stopwords as build_speaker_stopwords, suggestion_inputs
 from .transcript_parser import parse_transcript
 
 
@@ -54,16 +54,14 @@ def analyze_documents(
 ) -> AnalysisResult:
     settings = settings or AnalysisSettings()
     transcript_documents = [document for document in documents if document.text.strip()]
-    segments = [
-        segment
-        for document in transcript_documents
-        for segment in parse_transcript(document.text, source_name=document.name or "Transcript")
-    ]
-    quotes = extract_quote_units(segments, min_quote_words=settings.min_quote_words)
+    segments, quotes = suggestion_inputs(transcript_documents, settings)
     notes = [
         "Researcher review required: generated themes are suggested analytic groupings, not final qualitative findings.",
         "Use exported quotes as evidence candidates and verify meaning against the full transcript context.",
     ]
+    for rule in settings.speaker_overrides:
+        decision = "included" if rule.included else "excluded"
+        notes.append(f"Speaker selection for suggestions: {rule.source_name} | {rule.speaker} | {decision}.")
     validation_summary = _validation_summary(settings)
     if settings.central_theme.strip():
         notes.append(

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import asdict
+from dataclasses import asdict, replace
 import json
 import math
+import re
 from statistics import mean
 
 from .analysis import (
@@ -25,6 +26,21 @@ from .analysis import (
 )
 
 
+# The labels can appear on separate lines or inline in an imported definition.
+_SECTION_LABEL = re.compile(r"(?:^|(?<=[\s.;!?]))(include|exclude)[ \t]*:", re.IGNORECASE)
+
+
+def _search_entry(entry: CodebookEntry) -> CodebookEntry:
+    sections = _SECTION_LABEL.split(entry.description)
+    if len(sections) == 1:
+        return entry
+    positive = [sections[0]]
+    for label, body in zip(sections[1::2], sections[2::2], strict=True):
+        if label.lower() == "include":
+            positive.append(body)
+    return replace(entry, description=" ".join(part.strip() for part in positive if part.strip()))
+
+
 def build_codebook_themes(
     quotes: list[QuoteUnit],
     settings: AnalysisSettings,
@@ -44,9 +60,12 @@ def build_codebook_themes(
     )
     themes: list[Theme] = []
     for index, entry in enumerate(settings.codebook_entries, start=1):
-        query_terms = _terms_for_vector(" ".join([entry.name, entry.description, *entry.examples]), speaker_stopwords)
+        search_entry = _search_entry(entry)
+        query_terms = _terms_for_vector(
+            " ".join([search_entry.name, search_entry.description, *search_entry.examples]), speaker_stopwords,
+        )
         query_weights = {term: 1.4 if "_" in term else 1.0 for term in query_terms if not _is_low_value_term(term)}
-        ranked_quotes = _rank_codebook_quotes(quotes, term_documents, profile, query_weights, entry, settings)
+        ranked_quotes = _rank_codebook_quotes(quotes, term_documents, profile, query_weights, search_entry, settings)
         if not ranked_quotes:
             continue
         themes.append(
@@ -54,7 +73,7 @@ def build_codebook_themes(
                 id=f"C{index:02d}",
                 name=entry.name,
                 color=_theme_color(index),
-                keywords=_codebook_keywords(entry, speaker_stopwords),
+                keywords=_codebook_keywords(search_entry, speaker_stopwords),
                 quote_count=len(ranked_quotes),
                 score=round(mean(quote.relevance for quote in ranked_quotes), 3),
                 quotes=_limit_theme_quotes(ranked_quotes, settings.quotes_per_theme),

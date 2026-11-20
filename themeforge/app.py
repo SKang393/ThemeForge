@@ -20,6 +20,7 @@ from .analysis import (
     TranscriptDocument,
     analyze_documents,
 )
+from .analysis_types import SpeakerOverride
 from .audit import AuditEvent, create_audit_event
 from .codebook import load_codebook_entries
 from .definition_review import entry_label, review_definition
@@ -51,6 +52,7 @@ from .project_io import ProjectCopyRequired, ProjectState, UnsupportedProjectFor
 from .rigor_dialog import RigorContext, RigorDialog
 from .semantic_suggestions import SimilarPassage, find_similar_passages
 from .source_location import TranscriptIndex
+from .speaker_review import review_speakers
 from .ui_model import (
     APP_THEMES,
     about_text,
@@ -94,6 +96,7 @@ class ThemeForgeApp(tk.Tk):
         self.codebook_path: Path | None = None
         self.codebook_entries = ()
         self.documents: list[TranscriptDocument] = []
+        self.speaker_overrides: tuple[SpeakerOverride, ...] = ()
         self.result: AnalysisResult | None = None
         self.audit_events: list[AuditEvent] = []
         self.match_reviews = MatchReviews()
@@ -256,7 +259,7 @@ class ThemeForgeApp(tk.Tk):
 
     def _build_controls(self, parent: ttk.Frame) -> None:
         ttk.Label(parent, text="Transcripts", style="Panel.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(parent, textvariable=self.file_summary, style="Muted.TLabel", wraplength=220).grid(row=1, column=0, sticky="ew", pady=(4, 14))
+        ttk.Label(parent, textvariable=self.file_summary, style="Muted.TLabel", wraplength=220).grid(row=1, column=0, sticky="ew", pady=(2, 5))
 
         file_buttons = ttk.Frame(parent, style="Surface.TFrame")
         file_buttons.grid(row=2, column=0, sticky="ew")
@@ -265,10 +268,12 @@ class ThemeForgeApp(tk.Tk):
         ttk.Button(file_buttons, text="Choose files", style="Secondary.TButton", command=self.open_transcript).grid(row=0, column=0, sticky="ew", padx=(0, 6))
         ttk.Button(file_buttons, text="Remove files", style="Secondary.TButton", command=self.remove_transcripts).grid(row=0, column=1, sticky="ew")
 
-        ttk.Separator(parent).grid(row=3, column=0, sticky="ew", pady=16)
+        ttk.Button(file_buttons, text="Speakers for suggestions…", style="Secondary.TButton",
+                   command=self.review_suggestion_speakers).grid(row=1, column=0, columnspan=2, sticky="ew", pady=(2, 0))
+        ttk.Separator(parent).grid(row=3, column=0, sticky="ew", pady=4)
 
         ttk.Label(parent, text="Codebook", style="Panel.TLabel").grid(row=4, column=0, sticky="w")
-        ttk.Label(parent, textvariable=self.codebook_summary, style="Muted.TLabel", wraplength=220).grid(row=5, column=0, sticky="ew", pady=(4, 8))
+        ttk.Label(parent, textvariable=self.codebook_summary, style="Muted.TLabel", wraplength=220).grid(row=5, column=0, sticky="ew", pady=(2, 5))
         codebook_buttons = ttk.Frame(parent, style="Surface.TFrame")
         codebook_buttons.grid(row=6, column=0, sticky="ew")
         codebook_buttons.columnconfigure(0, weight=1)
@@ -276,18 +281,18 @@ class ThemeForgeApp(tk.Tk):
         ttk.Button(codebook_buttons, text="Choose codebook", style="Secondary.TButton", command=self.open_codebook).grid(row=0, column=0, sticky="ew", padx=(0, 6))
         ttk.Button(codebook_buttons, text="Remove", style="Secondary.TButton", command=self.remove_codebook).grid(row=0, column=1, sticky="ew")
 
-        ttk.Separator(parent).grid(row=7, column=0, sticky="ew", pady=16)
+        ttk.Separator(parent).grid(row=7, column=0, sticky="ew", pady=5)
 
         ttk.Label(parent, text="Coder name", style="Panel.TLabel").grid(row=8, column=0, sticky="w")
-        ttk.Entry(parent, textvariable=self.researcher_name).grid(row=9, column=0, sticky="ew", pady=(4, 14))
+        ttk.Entry(parent, textvariable=self.researcher_name).grid(row=9, column=0, sticky="ew", pady=(2, 5))
 
-        ttk.Separator(parent).grid(row=10, column=0, sticky="ew", pady=(0, 16))
+        ttk.Separator(parent).grid(row=10, column=0, sticky="ew", pady=(0, 5))
 
         ttk.Label(parent, text="Shared focus topic", style="Panel.TLabel").grid(row=11, column=0, sticky="w")
-        ttk.Entry(parent, textvariable=self.central_theme).grid(row=12, column=0, sticky="ew", pady=(4, 14))
+        ttk.Entry(parent, textvariable=self.central_theme).grid(row=12, column=0, sticky="ew", pady=(2, 5))
 
         option_row = ttk.Frame(parent, style="Surface.TFrame")
-        option_row.grid(row=13, column=0, sticky="ew", pady=(0, 14))
+        option_row.grid(row=13, column=0, sticky="ew", pady=(0, 6))
         option_row.columnconfigure(0, weight=1)
         option_row.columnconfigure(1, weight=1)
         ttk.Label(option_row, text="Theme model", style="Panel.TLabel").grid(row=0, column=0, sticky="w")
@@ -298,14 +303,14 @@ class ThemeForgeApp(tk.Tk):
             values=("TF-IDF", "Local embeddings"),
             state="readonly",
             width=14,
-        ).grid(row=1, column=0, sticky="ew", pady=(4, 0))
+        ).grid(row=1, column=0, sticky="ew", pady=(2, 0))
         ttk.Combobox(
             option_row,
             textvariable=self.language_mode,
             values=("Auto", "English", "Korean", "Multilingual"),
             state="readonly",
             width=14,
-        ).grid(row=1, column=1, sticky="ew", padx=(10, 0), pady=(4, 0))
+        ).grid(row=1, column=1, sticky="ew", padx=(10, 0), pady=(2, 0))
 
         count_row = ttk.Frame(parent, style="Surface.TFrame")
         count_row.grid(row=14, column=0, sticky="ew")
@@ -314,18 +319,23 @@ class ThemeForgeApp(tk.Tk):
 
         ttk.Label(count_row, text="Themes", style="Panel.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(count_row, text="Quotes", style="Panel.TLabel").grid(row=0, column=1, sticky="w", padx=(10, 0))
-        ttk.Spinbox(count_row, from_=1, to=20, width=6, textvariable=self.theme_count).grid(row=1, column=0, sticky="ew", pady=(4, 0))
-        ttk.Spinbox(count_row, from_=0, to=200, width=6, textvariable=self.quotes_per_theme).grid(row=1, column=1, sticky="ew", padx=(10, 0), pady=(4, 0))
+        ttk.Spinbox(count_row, from_=1, to=20, width=6, textvariable=self.theme_count).grid(row=1, column=0, sticky="ew", pady=(2, 0))
+        ttk.Spinbox(count_row, from_=0, to=200, width=6, textvariable=self.quotes_per_theme).grid(row=1, column=1, sticky="ew", padx=(10, 0), pady=(2, 0))
 
-        ttk.Button(parent, text="Analyze", style="Primary.TButton", command=self.analyze).grid(row=15, column=0, sticky="ew", pady=(18, 8))
-        ttk.Button(parent, text="Export report", style="Secondary.TButton", command=self.save_report).grid(row=16, column=0, sticky="ew")
+        actions = ttk.Frame(parent, style="Surface.TFrame")
+        actions.grid(row=15, column=0, sticky="ew", pady=(8, 0))
+        actions.columnconfigure((0, 1), weight=1)
+        ttk.Button(actions, text="Analyze", style="Primary.TButton", command=self.analyze).grid(
+            row=0, column=0, sticky="ew", padx=(0, 6))
+        ttk.Button(actions, text="Export report", style="Secondary.TButton", command=self.save_report).grid(
+            row=0, column=1, sticky="ew")
 
         ttk.Label(
             parent,
             text="Suggestions need researcher review before reporting.",
             style="Muted.TLabel",
             wraplength=220,
-        ).grid(row=17, column=0, sticky="ew", pady=(18, 0))
+        ).grid(row=16, column=0, sticky="ew", pady=(6, 0))
 
     def _build_theme_panel(self, parent: ttk.Frame) -> None:
         self.theme_summary = tk.StringVar(value="No analysis yet")
@@ -531,6 +541,7 @@ class ThemeForgeApp(tk.Tk):
         # Importing the first sources keeps the setup, not a saved template's path.
         self.input_paths = input_paths
         self.documents = documents
+        self.speaker_overrides = ()
         self.project_path = None
         self.result = None
         self.edit_history = EditHistory()
@@ -538,7 +549,22 @@ class ThemeForgeApp(tk.Tk):
         self._clear_theme_view("Select transcript text to create a code or apply a codebook entry.")
         self.file_summary.set(file_selection_summary(self.input_paths))
         self._render_transcript_tabs()
-        self.status_text.set("Files loaded")
+        self.status_text.set("Files loaded. Check Speakers for suggestions before Analyze to review who is included.")
+
+    def review_suggestion_speakers(self) -> None:
+        if not self.documents:
+            self.status_text.set("Choose transcripts to review their speakers.")
+            return
+        choices = review_speakers(self, self.documents, self.speaker_overrides)
+        if choices is None or choices == self.speaker_overrides:
+            return
+        details = {"previous": [asdict(rule) for rule in self.speaker_overrides],
+                   "current": [asdict(rule) for rule in choices]}
+        self.speaker_overrides = choices
+        self._clear_similar_passages()
+        self._record_audit_event("suggestion_speakers_changed", "project", "speakers",
+                                 json.dumps(details, ensure_ascii=False))
+        self.status_text.set("Speaker choices apply to the next Analyze or Find. Save project to keep them.")
 
     def remove_transcripts(self) -> None:
         if self.documents or self.result is not None or self.audit_events:
@@ -1053,13 +1079,12 @@ class ThemeForgeApp(tk.Tk):
         except (tk.TclError, ValueError):
             self.status_text.set("Enter valid theme and quote counts first")
             return
-        suggestion_result = find_similar_passages(
-            tuple(self.documents),
-            self.result,
-            theme.id,
-            settings,
-            quote_id=quote_id,
-        )
+        try:
+            suggestion_result = find_similar_passages(self.documents, self.result, theme.id, settings, quote_id=quote_id)
+        except ValueError as exc:
+            self._clear_similar_passages()
+            self.status_text.set(str(exc))
+            return
         self.similar_passages = list(suggestion_result.passages)
         self.similar_note.set(suggestion_result.note)
         self.similar_list.delete(0, tk.END)
@@ -1381,6 +1406,7 @@ class ThemeForgeApp(tk.Tk):
         self.input_paths = list(state.transcript_paths)
         self.codebook_path = state.codebook_path
         self.codebook_entries = state.settings.codebook_entries
+        self.speaker_overrides = state.settings.speaker_overrides
         self._refresh_definition_box()
         self.documents = list(state.documents)
         self.result = state.result
@@ -1547,6 +1573,7 @@ class ThemeForgeApp(tk.Tk):
             semantic_backend=self._semantic_backend(),
             language_mode=self.language_mode.get(),
             codebook_entries=self.codebook_entries,
+            speaker_overrides=self.speaker_overrides,
         )
 
     def _selected_similar_passage(self) -> SimilarPassage | None:
