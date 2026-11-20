@@ -365,6 +365,21 @@ current study has unsaved changes. To keep text still in a theme or memo
 editor, apply it first. Choosing **No** discards those edits. An unreadable
 project or a failed or canceled save leaves the current study open.
 
+**Recovering after a save failure.** Keep the study open to retain changes
+made since the last successful save. Apply any unfinished theme or memo edits.
+Retry **Save project**, or choose **Save as…** and pick an unused filename in
+a writable folder. A successful **Save as…** makes that file the destination
+for subsequent saves and autosaves. Reopen the original project to inspect
+the last version saved there. If the application stopped during a save, reopen
+the `.tfproj`. A temporary `.tmp` file beside it can be incomplete. Changes
+that were still only in memory need to be entered again.
+
+**Open project** reads the transcripts and codebook stored in the project.
+If a source file has changed on disk, the supported CSV still cites the saved
+text and its `source_sha256`. To review the revised text, save the current
+study and use **Choose files** to start a separate project with the revised
+sources. Its suggestions need their own reviews.
+
 Run the command-line analyzer with one transcript:
 
 ```powershell

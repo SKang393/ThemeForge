@@ -232,8 +232,10 @@ class ThemeForgeApp(tk.Tk):
         mode.bind("<<ComboboxSelected>>", self.change_display_mode)
         ttk.Button(header_actions, text="Open project", style="Secondary.TButton", command=self.open_project).grid(row=0, column=2, padx=(0, 8))
         ttk.Button(header_actions, text="Save project", style="Secondary.TButton", command=self.save_project).grid(row=0, column=3, padx=(0, 8))
-        ttk.Button(header_actions, text="Rigor tools", style="Secondary.TButton", command=self.open_rigor_tools).grid(row=0, column=4, padx=(0, 8))
-        ttk.Button(header_actions, text="About", style="Secondary.TButton", command=self.show_about).grid(row=0, column=5)
+        ttk.Button(header_actions, text="Save as…", style="Secondary.TButton", width=-1,
+                   command=lambda: self.save_project(save_as=True)).grid(row=0, column=4, padx=(0, 8))
+        ttk.Button(header_actions, text="Rigor tools", style="Secondary.TButton", command=self.open_rigor_tools).grid(row=0, column=5, padx=(0, 8))
+        ttk.Button(header_actions, text="About", style="Secondary.TButton", width=-1, command=self.show_about).grid(row=0, column=6)
 
         workspace = ttk.Frame(self, style="App.TFrame", padding=(18, 18, 18, 12))
         workspace.grid(row=1, column=0, sticky="nsew")
@@ -1364,11 +1366,12 @@ class ThemeForgeApp(tk.Tk):
     def _same_project(left: Path, right: Path) -> bool:
         return left.resolve() == right.resolve() or (left.exists() and right.exists() and left.samefile(right))
 
-    def save_project(self, *, reserved_path: Path | None = None) -> bool:
+    def save_project(self, *, reserved_path: Path | None = None, save_as: bool = False) -> bool:
         path = self.project_path
-        if path is None:
+        if path is None or save_as:
             chosen = filedialog.asksaveasfilename(
-                title="Save ThemeForge project",
+                title="Save to a new file and continue working there" if save_as else "Save ThemeForge project",
+                initialfile=f"{path.stem}-copy.tfproj" if save_as and path is not None else None,
                 defaultextension=".tfproj",
                 filetypes=[
                     ("ThemeForge project", "*.tfproj"),
@@ -1384,7 +1387,7 @@ class ThemeForgeApp(tk.Tk):
                 return False
             state = self._project_state()
             try:
-                save_project(path, state, new_only=self.project_path is None and state.needs_nullable_profile)
+                save_project(path, state, new_only=save_as or (self.project_path is None and state.needs_nullable_profile))
             except ProjectCopyRequired:
                 chosen = filedialog.asksaveasfilename(
                     title="Save a separate nullable-score project (original stays unchanged)",
@@ -1399,11 +1402,20 @@ class ThemeForgeApp(tk.Tk):
                     return False
                 save_project(path, state, new_only=True)
         except (OSError, ValueError, tk.TclError) as exc:
-            messagebox.showerror("Save project failed", str(exc))
+            self.status_text.set("Project save failed. The study remains open.")
+            detail = str(exc)
+            if isinstance(exc, FileExistsError):
+                detail = f"{path.name} already exists. Choose an unused filename."
+            elif isinstance(exc, OSError):
+                detail += "\n\nUse Save as… to save the open study to a new file in a writable folder."
+            messagebox.showerror("Save project failed", detail, parent=self)
             return False
         self.project_path = path
         self._saved_state = state
-        self.status_text.set(f"Saved project {path.name}")
+        summary = f"Saved project {path.name}"
+        if self._has_pending_source_edits():
+            summary += ". Apply the unfinished editor changes to include them."
+        self.status_text.set(summary)
         return True
 
     def _set_manual_status(self, action: str) -> None:
@@ -1436,7 +1448,9 @@ class ThemeForgeApp(tk.Tk):
             save_project(self.project_path, state)
         except ProjectCopyRequired as exc:
             return str(exc)
-        except (OSError, ValueError, tk.TclError) as exc:
+        except OSError as exc:
+            return f"autosave failed. Use Save as… to choose a writable folder. {exc}"
+        except (ValueError, tk.TclError) as exc:
             return f"autosave failed: {exc}"
         self._saved_state = state
         return f"autosaved {self.project_path.name}"
@@ -1503,7 +1517,8 @@ class ThemeForgeApp(tk.Tk):
                 child.destroy()  # The open comparison and audit belong to the outgoing study.
         self.researcher_name.set(state.researcher_name)
         self._saved_state = self._project_state() if path else self._empty_state
-        self.status_text.set(f"Opened project {path.name}" if path else "New unsaved project")
+        self.status_text.set(f"Opened {path.name} using the project's saved transcripts and codebook."
+                             if path else "New unsaved project")
 
     def _load_documents(self, paths: list[Path]) -> list[TranscriptDocument]:
         name_counts: dict[str, int] = {}
