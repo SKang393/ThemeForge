@@ -78,9 +78,10 @@ Archive DOI: <https://doi.org/10.5281/zenodo.20653169>
 - Shows theme-by-source and theme-by-speaker matrix views with quote counts and
   unique-span coverage for coded evidence review.
 - Compares two `.tfproj` files when they have identical shared transcript text
-  and fixed shared meaning units, reporting per-theme percent agreement and
-  Cohen's kappa, prevalence or undefined-kappa warnings, and side-by-side
-  disagreements.
+  and fixed shared meaning units. Quote coverage reports show per-theme percent
+  agreement and Cohen's kappa, prevalence or undefined-kappa warnings, and
+  side-by-side disagreements. The paired review export compares two named
+  readers' decisions on shared matches.
 - Stores coder identity with persistent and exportable coding audit events.
 
 ### Exports and interface
@@ -180,6 +181,29 @@ the whole theme and can read “Researcher edited” after a rename. The support
 export has only its header when no current match qualifies. **Export audit CSV**
 includes earlier and superseded decisions. Older readers can display a previous
 decline or deferral as current if they skip a later `supported` audit event.
+
+**Comparing two readers' match reviews.** Save a study after discovery and give
+each reader a separate copy before either starts reviewing. In each copy, enter
+a distinct reviewer name or pseudonym, review passages, and save. Open one
+copy, go to **Rigor tools → Intercoder**, and choose the other saved project.
+Check the **Current reviewer** and **Comparison reviewer** names, then select
+**Export paired match reviews** and choose a new CSV filename. Each side uses that person's latest audit
+note on the exact match in their project since its last **Analyze**. A project
+can contain several readers' notes. Choose the two whose decisions you want
+to compare.
+
+The paired CSV includes every theme/passage match with the same recorded snapshot
+and verified source span in both projects, including pairs with no reviews.
+Each recorded decision includes the reader's reason, time, and audit CSV link by
+`match_review_target_id`. Filter `review_comparison` to find support versus
+decline (`disagreement`), two supports or two declines, missing reviews, or
+decisions awaiting a revisit. Where one review is missing, the other reader's
+disposition is still shown. Exclusion counts cover stored quote rows outside
+the shared set, including changed suggestions or unverifiable spans. Matching
+decisions record what two named readers entered. Adjudication requires a
+separate discussion. **Export coverage statistics** and **Export coverage
+differences** compare stored theme quotes across transcript units, including
+automatically suggested quotes.
 
 **Coding a passage you found in a match:** In the **Quote review** tab, choose
 **Apply definition to this quote…**. The dialog shows the current quote in its

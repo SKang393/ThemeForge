@@ -11,6 +11,7 @@ from themeforge.rigor import (
     ThemeReliabilityRow,
 )
 from themeforge.rigor_exports import (
+    COVERAGE_BASIS,
     export_disagreements_csv,
     export_matrix_csv,
     export_reliability_csv,
@@ -110,6 +111,7 @@ class RigorExportTests(unittest.TestCase):
         )
         cases = (
             ("Alex", "Alex", "current coder: Alex", "comparison coder: Alex"),
+            ("Theo", "comparison_basis", "current coder: Theo", "comparison coder: comparison_basis"),
             ("theme", "source", "current coder: theme", "comparison coder: source"),
         )
 
@@ -121,7 +123,7 @@ class RigorExportTests(unittest.TestCase):
 
                 self.assertEqual(
                     reader.fieldnames,
-                    ["theme", "source", "speaker", "unit_text", expected_a, expected_b],
+                    ["theme", "source", "speaker", "unit_text", expected_a, expected_b, "comparison_basis"],
                 )
                 self.assertEqual(rows[0]["theme"], "support")
                 self.assertEqual(rows[0][expected_a], "yes")
@@ -202,6 +204,7 @@ class RigorExportTests(unittest.TestCase):
                 "percent_agreement",
                 "kappa",
                 "prevalence_warning",
+                "comparison_basis",
             ],
         )
         self.assertEqual(
@@ -215,6 +218,7 @@ class RigorExportTests(unittest.TestCase):
                     "neither": "0",
                     "percent_agreement": "0.00",
                     "kappa": "Undefined",
+                    "comparison_basis": COVERAGE_BASIS,
                     "prevalence_warning": f"'{prefix}warning",
                 }
                 for prefix in ("=", "+", "-", "@")
@@ -258,9 +262,11 @@ class RigorExportTests(unittest.TestCase):
                         "unit_text",
                         f"'{prefix}Current",
                         f"'{prefix}Comparison",
+                        "comparison_basis",
                     ],
                     [
                         {
+                            "comparison_basis": COVERAGE_BASIS,
                             "theme": f"'{prefix}theme",
                             "source": f"'{prefix}source",
                             "speaker": f"'{prefix}speaker",

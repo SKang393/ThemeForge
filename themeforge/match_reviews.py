@@ -54,7 +54,8 @@ def match_id(snapshot: dict) -> str:
 class MatchReviews:
     """Only the latest note on the same saved match after the latest Analyze is current."""
 
-    def __init__(self, events: Iterable[AuditEvent] = ()):
+    def __init__(self, events: Iterable[AuditEvent] = (), *, reviewer: str | None = None):
+        self._reviewer = reviewer
         self._notes: dict[str, ReviewNote] = {}
         for event in events:
             self.observe(event)
@@ -63,6 +64,8 @@ class MatchReviews:
         if event.action == "analysis_run":
             self._notes.clear()
         elif event.action == REVIEW_ACTION and event.target_type == "theme_quote_match":
+            if self._reviewer is not None and event.actor != self._reviewer:
+                return
             try:
                 details = json.loads(event.details)
                 status, reason = details["disposition"], details["reason"]
@@ -77,4 +80,7 @@ class MatchReviews:
     def latest(self, theme: Theme, quote: ThemeQuote, sources: TranscriptIndex) -> ReviewNote | None:
         if not self._notes or not sources.has_unique_source(quote.source_name):
             return None
-        return self._notes.get(match_id(match_snapshot(theme, quote, sources)))
+        return self.by_target(match_id(match_snapshot(theme, quote, sources)))
+
+    def by_target(self, target_id: str) -> ReviewNote | None:
+        return self._notes.get(target_id)

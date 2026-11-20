@@ -8,6 +8,7 @@ from typing import Final
 from .audit import neutralize_csv_cell
 from .rigor import IntercoderReliabilityReport, MatrixCell
 
+COVERAGE_BASIS: Final = "Stored theme quote coverage by transcript unit, including discovered suggestions"
 RELIABILITY_COLUMNS: Final = (
     "theme",
     "both_present",
@@ -17,6 +18,7 @@ RELIABILITY_COLUMNS: Final = (
     "percent_agreement",
     "kappa",
     "prevalence_warning",
+    "comparison_basis",
 )
 DISAGREEMENT_BASE_COLUMNS: Final = ("theme", "source", "speaker", "unit_text")
 
@@ -46,6 +48,7 @@ def export_reliability_csv(report: IntercoderReliabilityReport) -> str:
     for row in report.theme_rows:
         writer.writerow(
             {
+                "comparison_basis": COVERAGE_BASIS,
                 "theme": neutralize_csv_cell(row.theme_name),
                 "both_present": str(row.both_present),
                 "current_only": str(row.a_only),
@@ -63,19 +66,21 @@ def export_disagreements_csv(report: IntercoderReliabilityReport) -> str:
     output = io.StringIO(newline="")
     coder_a_label = neutralize_csv_cell(report.coder_a_label)
     coder_b_label = neutralize_csv_cell(report.coder_b_label)
+    reserved = (*DISAGREEMENT_BASE_COLUMNS, "comparison_basis")
     if (
         coder_a_label == coder_b_label
-        or coder_a_label in DISAGREEMENT_BASE_COLUMNS
-        or coder_b_label in DISAGREEMENT_BASE_COLUMNS
+        or coder_a_label in reserved
+        or coder_b_label in reserved
     ):
         coder_a_label = f"current coder: {coder_a_label}"
         coder_b_label = f"comparison coder: {coder_b_label}"
-    fieldnames = (*DISAGREEMENT_BASE_COLUMNS, coder_a_label, coder_b_label)
+    fieldnames = (*DISAGREEMENT_BASE_COLUMNS, coder_a_label, coder_b_label, "comparison_basis")
     writer = csv.DictWriter(output, fieldnames=fieldnames)
     writer.writeheader()
     for record in report.disagreements:
         writer.writerow(
             {
+                "comparison_basis": COVERAGE_BASIS,
                 "theme": neutralize_csv_cell(record.theme_name),
                 "source": neutralize_csv_cell(record.source_name),
                 "speaker": neutralize_csv_cell(record.speaker),

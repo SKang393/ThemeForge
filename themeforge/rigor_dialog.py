@@ -11,6 +11,8 @@ from .analysis_types import AnalysisResult, TranscriptDocument
 from .audit import AuditEvent, export_audit_events_csv
 from .exports import export_quotes_csv
 from .manual_record_comparison import compare_recorded_assignments, current_assignment_csv
+from .match_reviews import REVIEW_ACTION
+from .paired_reviews import compare_match_reviews
 from .project_io import UnsupportedProjectFormatError, load_project
 from .rigor import (
     CodedProject,
@@ -48,7 +50,7 @@ class RigorDialog(tk.Toplevel):
         self.report: IntercoderReliabilityReport | None = None
         self._comparison_project: CodedProject | None = None
         self._comparison_label = ""
-        self.status = tk.StringVar(value="Choose a comparison .tfproj for intercoder reliability.")
+        self.status = tk.StringVar(value="Choose a saved project to compare.")
         self.audit_status = tk.StringVar()
         self.assignment_status = tk.StringVar(value="This project's manual codebook CSV includes current assignments that match their "
                                                "original records. It excludes suggestions and freehand codes.")
@@ -108,11 +110,21 @@ class RigorDialog(tk.Toplevel):
         actions = ttk.Frame(tab)
         actions.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         ttk.Button(actions, text="Choose comparison project", command=self._choose_comparison).grid(row=0, column=0, sticky="w")
-        ttk.Button(actions, text="Export reliability CSV", command=self._export_reliability).grid(row=0, column=1, padx=(8, 0))
-        ttk.Button(actions, text="Export disagreements CSV", command=self._export_disagreements).grid(row=0, column=2, padx=(8, 0))
         ttk.Button(actions, text="Export recorded manual assignments", command=self._export_manual_records).grid(
-            row=1, column=0, columnspan=3, sticky="w", pady=(6, 0))
-        ttk.Label(tab, textvariable=self.status).grid(row=1, column=0, sticky="ew", pady=(0, 8))
+            row=0, column=1, sticky="w", padx=8)
+        reviews = ttk.Frame(actions)
+        reviews.grid(row=1, column=0, columnspan=3, sticky="w", pady=6)
+        ttk.Label(reviews, text="Current reviewer").pack(side="left")
+        self.current_reviewer = ttk.Combobox(reviews, state="readonly", width=16)
+        self.current_reviewer.pack(side="left", padx=(4, 12))
+        ttk.Label(reviews, text="Comparison reviewer").pack(side="left")
+        self.comparison_reviewer = ttk.Combobox(reviews, state="readonly", width=16)
+        self.comparison_reviewer.pack(side="left", padx=(4, 12))
+        ttk.Button(reviews, text="Export paired match reviews", command=self._export_paired_reviews).pack(side="left")
+        ttk.Label(actions, text="Quote coverage by meaning unit").grid(row=2, column=0, sticky="w")
+        ttk.Button(actions, text="Export coverage statistics", command=self._export_reliability).grid(row=2, column=1)
+        ttk.Button(actions, text="Export coverage differences", command=self._export_disagreements).grid(row=2, column=2)
+        ttk.Label(tab, textvariable=self.status, wraplength=825).grid(row=1, column=0, sticky="ew", pady=(0, 8))
         self.reliability_tree = ttk.Treeview(
             tab,
             columns=("theme", "both", "current", "comparison", "neither", "agreement", "kappa", "warning"),
@@ -123,7 +135,7 @@ class RigorDialog(tk.Toplevel):
             ("Theme", "Both", "Current only", "Comparison only", "Neither", "Agreement %", "Kappa", "Warning"),
         )
         self._grid_tree(tab, self.reliability_tree, 2)
-        ttk.Label(tab, text="Disagreements").grid(row=3, column=0, sticky="w", pady=(10, 6))
+        ttk.Label(tab, text="Quote coverage differences").grid(row=3, column=0, sticky="w", pady=(10, 6))
         self.disagreement_tree = ttk.Treeview(
             tab,
             columns=("source", "speaker", "text", "current", "comparison"),
@@ -156,6 +168,8 @@ class RigorDialog(tk.Toplevel):
             self.report = None
             self._comparison_project = None
             self._comparison_label = ""
+            self.comparison_reviewer.configure(values=())
+            self.comparison_reviewer.set("")
             self._render_intercoder()
             self.status.set("Current project has no analysis result.")
             return
@@ -164,6 +178,7 @@ class RigorDialog(tk.Toplevel):
         self._refresh_comparison()
 
     def _render_current_state(self) -> None:
+        _reviewer_choices(self.current_reviewer, self.context.coder_name, self.context.audit_events)
         self._render_matrix(self.source_matrix_tree, self.matrix_report.source_rows)
         self._render_matrix(self.speaker_matrix_tree, self.matrix_report.speaker_rows)
         self._render_audit()
@@ -197,6 +212,8 @@ class RigorDialog(tk.Toplevel):
         self.report = None
         self._comparison_project = None
         self._comparison_label = ""
+        self.comparison_reviewer.configure(values=())
+        self.comparison_reviewer.set("")
         self._render_intercoder()
         self.status.set("")
         path = Path(chosen)
@@ -207,6 +224,7 @@ class RigorDialog(tk.Toplevel):
                 return
             self._comparison_project = CodedProject(state.documents, state.result, state.audit_events)
             self._comparison_label = _label(state.researcher_name, path.stem)
+            _reviewer_choices(self.comparison_reviewer, state.researcher_name, state.audit_events)
         except (UnsupportedProjectFormatError, OSError, zipfile.BadZipFile, KeyError, TypeError, ValueError) as exc:
             self.status.set(f"Could not load comparison project: {exc}")
             return
@@ -225,7 +243,7 @@ class RigorDialog(tk.Toplevel):
         except (DocumentTextMismatchError, NoSharedDocumentsError, ManualDefinitionComparisonError) as exc:
             self.report = None
             self._render_intercoder()
-            self.status.set(str(exc))
+            self.status.set(f"Quote coverage unavailable. {exc}")
             return False
         self._render_intercoder()
         return True
@@ -254,14 +272,36 @@ class RigorDialog(tk.Toplevel):
         if self.report is None:
             self.status.set("Choose a comparison project before exporting reliability.")
             return
-        self._export_text(export_reliability_csv(self.report), "intercoder-reliability.csv")
+        self._export_text(export_reliability_csv(self.report), "quote-coverage-statistics.csv")
 
     def _export_disagreements(self) -> None:
         self.refresh_current_state()
         if self.report is None:
             self.status.set("Choose a comparison project before exporting disagreements.")
             return
-        self._export_text(export_disagreements_csv(self.report), "intercoder-disagreements.csv")
+        self._export_text(export_disagreements_csv(self.report), "quote-coverage-differences.csv")
+
+    def _export_paired_reviews(self) -> None:
+        context = self._context_source() if self._context_source else self.context
+        if context.result is None or self._comparison_project is None:
+            self.status.set("Choose a comparison project before exporting paired match reviews.")
+            return
+        selected = self.current_reviewer.get()
+        _reviewer_choices(self.current_reviewer, context.coder_name, context.audit_events)
+        if self.current_reviewer.get() != selected:
+            self.status.set("The available reviewers changed. Check the reviewer names and export again.")
+            return
+        try:
+            comparison = compare_match_reviews(
+                CodedProject(context.documents, context.result, context.audit_events), self._comparison_project,
+                CoderLabels(self.current_reviewer.get(), self.comparison_reviewer.get()),
+            )
+        except ValueError as exc:
+            self.status.set(str(exc))
+            return
+        if self._export_text(comparison.csv_text, "paired-match-reviews.csv", new_file=True):
+            self.status.set(f"Exported {comparison.shared} shared match(es). Other quote rows excluded: "
+                            f"{comparison.current_excluded} current, {comparison.comparison_excluded} comparison.")
 
     def _export_current_assignments(self) -> None:
         context = self._context_source() if self._context_source is not None else self.context
@@ -341,6 +381,16 @@ class RigorDialog(tk.Toplevel):
     def _clear_tree(self, tree: ttk.Treeview) -> None:
         for item in tree.get_children():
             tree.delete(item)
+
+
+def _reviewer_choices(box: ttk.Combobox, declared: str, events: Sequence[AuditEvent]) -> None:
+    names = {event.actor for event in events if event.action == REVIEW_ACTION and event.actor.strip()}
+    declared = declared.strip()
+    if declared:
+        names.add(declared)
+    box.configure(values=sorted(names))
+    if box.get() not in names:
+        box.set(declared or (next(iter(names)) if len(names) == 1 else ""))
 
 
 def _label(value: str, fallback: str) -> str:
