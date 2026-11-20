@@ -132,65 +132,46 @@ def export_quotes_csv(result: AnalysisResult, documents: Iterable[TranscriptDocu
     sources = TranscriptIndex(documents)
     reviews = MatchReviews(audit_events)
     buffer = io.StringIO()
-    writer = csv.writer(buffer, lineterminator="\n")
-    writer.writerow(
-        [
-            "theme_id",
-            "theme_name",
-            "theme_keywords",
-            "theme_color",
-            "quote_id",
-            "speaker",
-            "source_file",
-            "source_line",
-            "relevance",
-            "quote",
-            "selection_rationale",
-            "validation_review_status",
-            "source_start",
-            "source_end",
-            "source_location_status",
-            "source_location_note",
-            "match_review_disposition",
-            "match_review_actor",
-            "match_review_reason",
-            "match_review_time_utc",
-            "match_review_target_id",
-        ]
-    )
+    # Keep the shared table to the citation and the decision. Cluster keywords and
+    # suggestion rationales can contain material from outside a selected transcript.
+    theme_fields = ("theme_id", "theme_name")
+    citation = ("quote_id", "speaker", "source_file", "source_line", "relevance", "quote")
+    decision = ("source_start", "source_end", "source_location_status", "source_location_note",
+                "match_review_disposition", "match_review_actor", "match_review_reason",
+                "match_review_time_utc", "match_review_target_id")
+    if supported_only:
+        fields = (*theme_fields, *citation, *decision, "source_sha256")
+    else:
+        fields = (*theme_fields, "theme_keywords", "theme_color", *citation,
+                  "selection_rationale", "validation_review_status", *decision)
+    writer = csv.DictWriter(buffer, fields, lineterminator="\n")
+    writer.writeheader()
 
     for theme in result.themes:
-        keywords = "; ".join(theme.keywords)
         for quote in theme.quotes:
             loc = sources.locate(quote)
             review = reviews.latest(theme, quote, sources)
             if supported_only and (loc.status != "exact_span" or review is None or review.disposition != "supported"):
                 continue
-            writer.writerow(
-                [
-                    theme.id,
-                    theme.name,
-                    keywords,
-                    theme.color,
-                    quote.quote_id,
-                    quote.speaker,
-                    quote.source_name,
-                    quote.source_line,
-                    "" if quote.reported_relevance is None else f"{quote.relevance:.3f}",
-                    quote.text,
-                    quote.rationale,
-                    theme.validation.get("review_status", "Researcher review required"),
-                    quote.source_start,
-                    quote.source_end,
-                    loc.status,
-                    loc.note,
-                    review.disposition if review else "",
-                    neutralize_csv_cell(review.actor) if review else "",
-                    neutralize_csv_cell(review.reason) if review else "",
-                    review.timestamp_utc if review else "",
-                    review.audit_target_id if review else "",
-                ]
-            )
+            row = {
+                "theme_id": theme.id, "theme_name": theme.name, "quote_id": quote.quote_id,
+                "speaker": quote.speaker, "source_file": quote.source_name, "source_line": quote.source_line,
+                "relevance": "" if quote.reported_relevance is None else f"{quote.relevance:.3f}",
+                "quote": quote.text, "source_start": quote.source_start, "source_end": quote.source_end,
+                "source_location_status": loc.status, "source_location_note": loc.note,
+                "match_review_disposition": review.disposition if review else "",
+                "match_review_actor": neutralize_csv_cell(review.actor) if review else "",
+                "match_review_reason": neutralize_csv_cell(review.reason) if review else "",
+                "match_review_time_utc": review.timestamp_utc if review else "",
+                "match_review_target_id": review.audit_target_id if review else "",
+            }
+            if supported_only:
+                row["source_sha256"] = sources.digest(quote.source_name)
+            else:
+                row.update(theme_keywords="; ".join(theme.keywords), theme_color=theme.color,
+                           selection_rationale=quote.rationale,
+                           validation_review_status=theme.validation.get("review_status", "Researcher review required"))
+            writer.writerow(row)
 
     return buffer.getvalue()
 

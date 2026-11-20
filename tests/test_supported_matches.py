@@ -131,6 +131,7 @@ class SupportedMatchTests(unittest.TestCase):
         self.assertIn(reason, app.match_review_text.get())
         app.open_rigor_tools()
         rigor = next(w for w in app.winfo_children() if isinstance(w, RigorDialog))
+        press(rigor, "Select all sources")
         row, = self.export_csv(rigor, "Export supported matches CSV", "supported.csv")
         self.assertEqual((row["theme_name"], row["quote_id"], row["source_file"], row["source_line"],
                           row["source_start"], row["source_end"], row["quote"], row["source_location_status"]),

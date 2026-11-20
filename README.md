@@ -198,16 +198,31 @@ later**, including the saved reason. Both start after the displayed match
 and wrap around the study. **Previous quote** and **Next quote** still
 browse every recorded passage in the selected theme.
 
-**Exporting reviewed evidence:** In **Rigor tools → Audit log**, choose
-**Export supported matches CSV** for passages whose latest review is
-`supported` and whose recorded span matches the transcript. Each row includes
-the reviewer, reason, time, source line, offsets, and original quote relevance.
-The `match_review_target_id` identifies that pairing in the audit CSV's `target_id` column.
-The regular quote report includes all dispositions. Its `match_review_disposition`
+**Handing off reviewed evidence.** In **Rigor tools → Audit log**, select the
+transcripts your collaborator may see, then choose **Export supported matches
+CSV**. Each row is an exact passage whose latest review across coders supports
+the match. The table names that reviewer and includes their reason, time and
+the original quote relevance. Read the excerpts, names, theme labels and
+free-text reasons before sharing. A reason can mention another interview.
+
+To check a citation with an authorized copy of the imported transcript text,
+compare `source_sha256` with the SHA-256 of that text encoded as UTF-8.
+For a PDF or Word document, use ThemeForge's extracted text. Slice that text
+from `source_start` up to but excluding `source_end`, counting characters
+from zero. Compare the result with `quote` and the one-based `source_line`.
+The project custodian can trace the decision in the retained audit by matching
+`match_review_target_id` to `target_id`, then checking the actor, time,
+disposition and reason. The same pairing can have several review events.
+
+Theme keywords and suggestion rationales can draw on other sources. The
+supported table omits those fields, theme color and group review status.
+The regular quote report includes these fields and all dispositions. Its `match_review_disposition`
 column describes the individual pairing. `validation_review_status` describes
 the whole theme and can read “Researcher edited” after a rename. The supported
 export has only its header when no current match qualifies. **Export audit CSV**
-includes earlier and superseded decisions. Older readers can display a previous
+contains the whole project's recorded history for every source, including
+earlier decisions, declined and deferred excerpts and reasons. The transcript
+selection applies only to the supported table. Older readers can display a previous
 decline or deferral as current if they skip a later `supported` audit event.
 
 **Comparing two readers' match reviews.** Save a study after discovery and give

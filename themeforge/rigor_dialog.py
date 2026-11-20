@@ -148,15 +148,33 @@ class RigorDialog(tk.Toplevel):
     def _add_audit_tab(self, notebook: ttk.Notebook) -> None:
         tab = ttk.Frame(notebook, padding=10)
         tab.columnconfigure(0, weight=1)
-        tab.rowconfigure(1, weight=1)
+        tab.rowconfigure(2, weight=1)
+        handoff = ttk.LabelFrame(tab, text="Supported evidence", padding=6)
+        handoff.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        handoff.columnconfigure(0, weight=1)
+        ttk.Label(handoff, text="Choose transcripts for the evidence table. Click a name to include or remove it.").grid(
+            row=0, column=0, columnspan=3, sticky="w")
+        self.supported_sources = tk.Listbox(handoff, height=3, selectmode=tk.MULTIPLE, exportselection=False)
+        self.supported_sources.grid(row=1, column=0, sticky="ew")
+        scrollbar = ttk.Scrollbar(handoff, orient=tk.VERTICAL, command=self.supported_sources.yview)
+        scrollbar.grid(row=1, column=1, sticky="ns")
+        self.supported_sources.configure(yscrollcommand=scrollbar.set)
+        ttk.Button(handoff, text="Select all sources", command=lambda: self.supported_sources.selection_set(0, tk.END)).grid(
+            row=1, column=2, padx=6)
+        ttk.Label(handoff, wraplength=780, text="Only exact matches whose latest review across coders is supported. "
+                  "The CSV includes excerpts, source and speaker names, theme labels, reviewer names and reasons. "
+                  "Check these fields before sharing.").grid(row=2, column=0, columnspan=3, sticky="w", pady=4)
+        ttk.Button(handoff, text="Export supported matches CSV", command=self._export_supported_matches).grid(
+            row=3, column=0, sticky="w")
         actions = ttk.Frame(tab)
-        actions.grid(row=0, column=0, sticky="w", pady=(0, 8))
+        actions.grid(row=1, column=0, sticky="w", pady=(0, 8))
         ttk.Button(actions, text="Export audit CSV", command=self._export_audit).pack(side="left")
-        ttk.Button(actions, text="Export supported matches CSV", command=self._export_supported_matches).pack(side="left", padx=8)
+        ttk.Label(actions, wraplength=600, text="Full project history for all sources and coders, including earlier, "
+                  "declined and deferred excerpts, reasons and edit details.").pack(side="left", padx=8)
         self.audit_tree = ttk.Treeview(tab, columns=("timestamp", "actor", "action", "target", "details"), show="headings")
         self._configure_tree(self.audit_tree, ("Timestamp", "Actor", "Action", "Target", "Details"))
-        self._grid_tree(tab, self.audit_tree, 1)
-        ttk.Label(tab, textvariable=self.audit_status, wraplength=780).grid(row=2, column=0, sticky="w")
+        self._grid_tree(tab, self.audit_tree, 2)
+        ttk.Label(tab, textvariable=self.audit_status, wraplength=780).grid(row=3, column=0, sticky="w")
         notebook.add(tab, text="Audit log")
 
     def refresh_current_state(self, _event: tk.Event | None = None) -> None:
@@ -192,7 +210,14 @@ class RigorDialog(tk.Toplevel):
                 values=(row.theme_name, row.axis_value, row.quote_count, row.covered_chars, f"{row.coverage_ratio * 100:.2f}"),
             )
 
+    def _refresh_supported_sources(self, documents: Sequence[TranscriptDocument]) -> None:
+        names = tuple(dict.fromkeys(doc.name for doc in documents))
+        if self.supported_sources.get(0, tk.END) != names:
+            self.supported_sources.delete(0, tk.END)
+            self.supported_sources.insert(tk.END, *names)
+
     def _render_audit(self) -> None:
+        self._refresh_supported_sources(self.context.documents)
         self._clear_tree(self.audit_tree)
         for event in self.context.audit_events:
             self.audit_tree.insert(
@@ -346,7 +371,13 @@ class RigorDialog(tk.Toplevel):
         if context.result is None:
             self.audit_status.set("Open a project with quote evidence to export supported matches.")
             return
-        output = export_quotes_csv(context.result, context.documents, context.audit_events, supported_only=True)
+        self._refresh_supported_sources(context.documents)
+        selected = {self.supported_sources.get(i) for i in self.supported_sources.curselection()}
+        if not selected:
+            self.audit_status.set("Choose at least one transcript for the supported evidence table.")
+            return
+        documents = (doc for doc in context.documents if doc.name in selected)
+        output = export_quotes_csv(context.result, documents, context.audit_events, supported_only=True)
         self._export_text(output, "supported-matches.csv", status=self.audit_status)
 
     def _export_text(self, text: str, default_name: str, *, new_file: bool = False,
