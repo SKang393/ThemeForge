@@ -87,7 +87,11 @@ class ThemeForgeApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title(f"ThemeForge {__version__}")
-        self.minsize(1180, 760)
+        # Tk's natural request includes the full transcript and all editing tools.
+        # Use the platform's maximum client area when opening on a laptop display.
+        available_width, available_height = self.maxsize()
+        self.minsize(min(1180, available_width), min(760, available_height))
+        self.geometry(f"{min(1440, available_width)}x{min(900, available_height)}")
 
         self.display_mode = tk.StringVar(value="Light")
         self.palette = APP_THEMES["Light"]
@@ -367,46 +371,55 @@ class ThemeForgeApp(tk.Tk):
         editor.columnconfigure(0, weight=1)
         ttk.Label(editor, text="Theme name", style="Panel.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Entry(editor, textvariable=self.theme_name).grid(row=1, column=0, sticky="ew", pady=(4, 8))
-        ttk.Label(editor, text="Keywords", style="Panel.TLabel").grid(row=2, column=0, sticky="w")
-        ttk.Entry(editor, textvariable=self.theme_keywords).grid(row=3, column=0, sticky="ew", pady=(4, 8))
-        ttk.Button(editor, text="Save theme edits", style="Secondary.TButton", command=self.save_theme_edits).grid(row=4, column=0, sticky="ew")
-        ttk.Label(editor, text="Theme memo", style="Panel.TLabel").grid(row=5, column=0, sticky="w", pady=(10, 0))
-        self.theme_memo_text = tk.Text(editor, height=3, wrap="word", font=("Segoe UI", 9), borderwidth=1, relief="solid")
-        self.theme_memo_text.grid(row=6, column=0, sticky="ew", pady=(4, 8))
-        ttk.Button(editor, text="Save theme memo", style="Secondary.TButton", command=self.save_theme_memo).grid(row=7, column=0, sticky="ew")
+        pages = ttk.Notebook(editor)
+        pages.grid(row=2, column=0, sticky="ew")
+        coding = ttk.Frame(pages, style="Surface.TFrame", padding=6)
+        details = ttk.Frame(pages, style="Surface.TFrame", padding=6)
+        hierarchy = ttk.Frame(pages, style="Surface.TFrame", padding=6)
+        for page, title in ((coding, "Code passages"), (details, "Details"), (hierarchy, "Organize")):
+            page.columnconfigure(0, weight=1)
+            pages.add(page, text=title)
 
-        ttk.Label(editor, text="Parent theme", style="Panel.TLabel").grid(row=8, column=0, sticky="w", pady=(10, 0))
-        self.parent_theme_box = ttk.Combobox(editor, textvariable=self.parent_theme, state="readonly")
-        self.parent_theme_box.grid(row=9, column=0, sticky="ew", pady=(4, 8))
-        ttk.Button(
-            editor,
-            text="Save hierarchy",
-            style="Secondary.TButton",
-            command=self.save_theme_hierarchy,
-        ).grid(row=10, column=0, sticky="ew")
+        ttk.Button(coding, text="New code from selection", style="Secondary.TButton",
+                   command=self.code_selection_to_new_theme).grid(row=0, column=0, sticky="ew")
+        ttk.Button(coding, text="Code selection", style="Secondary.TButton",
+                   command=self.code_selection_to_theme).grid(row=1, column=0, sticky="ew", pady=(4, 0))
+        self.definition_box = ttk.Combobox(coding, state="readonly", width=18, exportselection=False)
+        self.definition_box.grid(row=2, column=0, sticky="ew", pady=(8, 4))
+        ttk.Button(coding, text="Apply codebook entry…", command=self.code_selection_to_definition).grid(
+            row=3, column=0, sticky="ew")
 
-        ttk.Label(editor, text="Target theme", style="Panel.TLabel").grid(row=11, column=0, sticky="w", pady=(10, 0))
-        self.target_theme_box = ttk.Combobox(editor, textvariable=self.target_theme, state="readonly")
-        self.target_theme_box.grid(row=12, column=0, sticky="ew", pady=(4, 8))
-        action_row = ttk.Frame(editor, style="Surface.TFrame")
-        action_row.grid(row=13, column=0, sticky="ew")
-        action_row.columnconfigure(0, weight=1)
-        action_row.columnconfigure(1, weight=1)
-        ttk.Button(action_row, text="Move quote", style="Secondary.TButton", command=self.move_current_quote).grid(row=0, column=0, sticky="ew", padx=(0, 6))
-        ttk.Button(action_row, text="Merge theme", style="Secondary.TButton", command=self.merge_current_theme).grid(row=0, column=1, sticky="ew")
-        ttk.Button(editor, text="Split quote to new theme", style="Secondary.TButton", command=self.split_current_quote).grid(row=14, column=0, sticky="ew", pady=(8, 0))
-        coding_row = ttk.Frame(editor, style="Surface.TFrame")
-        coding_row.grid(row=15, column=0, sticky="ew", pady=(8, 0))
-        coding_row.columnconfigure(0, weight=1)
-        coding_row.columnconfigure(1, weight=1)
-        ttk.Button(coding_row, text="Code selection", style="Secondary.TButton", command=self.code_selection_to_theme).grid(row=0, column=0, sticky="ew", padx=(0, 6))
-        ttk.Button(coding_row, text="New code from selection", style="Secondary.TButton", command=self.code_selection_to_new_theme).grid(row=0, column=1, sticky="ew")
-        self.definition_box = ttk.Combobox(coding_row, state="readonly", width=18, exportselection=False)
-        self.definition_box.grid(row=1, column=0, sticky="ew", padx=(0, 6), pady=(6, 0))
-        ttk.Button(coding_row, text="Apply codebook entry…", command=self.code_selection_to_definition).grid(
-            row=1, column=1, sticky="ew", pady=(6, 0))
+        ttk.Label(details, text="Keywords", style="Panel.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Entry(details, textvariable=self.theme_keywords).grid(row=1, column=0, sticky="ew", pady=(2, 4))
+        ttk.Button(details, text="Save theme edits", style="Secondary.TButton", command=self.save_theme_edits).grid(
+            row=2, column=0, sticky="ew")
+        ttk.Label(details, text="Theme memo", style="Panel.TLabel").grid(row=3, column=0, sticky="w", pady=(6, 0))
+        self.theme_memo_text = tk.Text(details, width=20, height=3, wrap="word", font=("Segoe UI", 9),
+                                       borderwidth=1, relief="solid")
+        self.theme_memo_text.grid(row=4, column=0, sticky="ew", pady=(2, 4))
+        ttk.Button(details, text="Save theme memo", style="Secondary.TButton", command=self.save_theme_memo).grid(
+            row=5, column=0, sticky="ew")
+
+        ttk.Label(hierarchy, text="Parent theme", style="Panel.TLabel").grid(row=0, column=0, sticky="w")
+        self.parent_theme_box = ttk.Combobox(hierarchy, textvariable=self.parent_theme, state="readonly")
+        self.parent_theme_box.grid(row=1, column=0, sticky="ew", pady=(2, 4))
+        ttk.Button(hierarchy, text="Save hierarchy", style="Secondary.TButton", command=self.save_theme_hierarchy).grid(
+            row=2, column=0, sticky="ew")
+        ttk.Label(hierarchy, text="Target theme", style="Panel.TLabel").grid(row=3, column=0, sticky="w", pady=(6, 0))
+        self.target_theme_box = ttk.Combobox(hierarchy, textvariable=self.target_theme, state="readonly")
+        self.target_theme_box.grid(row=4, column=0, sticky="ew", pady=(2, 4))
+        action_row = ttk.Frame(hierarchy, style="Surface.TFrame")
+        action_row.grid(row=5, column=0, sticky="ew")
+        action_row.columnconfigure((0, 1), weight=1)
+        ttk.Button(action_row, text="Move quote", style="Secondary.TButton", command=self.move_current_quote).grid(
+            row=0, column=0, sticky="ew", padx=(0, 6))
+        ttk.Button(action_row, text="Merge theme", style="Secondary.TButton", command=self.merge_current_theme).grid(
+            row=0, column=1, sticky="ew")
+        ttk.Button(hierarchy, text="Split quote to new theme", style="Secondary.TButton",
+                   command=self.split_current_quote).grid(row=6, column=0, sticky="ew", pady=(4, 0))
+
         history_row = ttk.Frame(editor, style="Surface.TFrame")
-        history_row.grid(row=16, column=0, sticky="ew", pady=(8, 0))
+        history_row.grid(row=3, column=0, sticky="ew", pady=(8, 0))
         history_row.columnconfigure(0, weight=1)
         history_row.columnconfigure(1, weight=1)
         ttk.Button(history_row, text="Undo", style="Secondary.TButton", command=self.undo_manual_edit).grid(row=0, column=0, sticky="ew", padx=(0, 6))

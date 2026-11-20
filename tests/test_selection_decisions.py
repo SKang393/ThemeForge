@@ -2,6 +2,7 @@ import csv
 import json
 from pathlib import Path
 import tempfile
+from tkinter import ttk
 import unittest
 from unittest.mock import patch
 
@@ -15,6 +16,36 @@ class HiddenApp(ThemeForgeApp):
     def _build_layout(self):
         self.withdraw()
         super()._build_layout()
+
+
+class FirstRunLayoutTests(unittest.TestCase):
+    def test_launch_fits_available_area_and_exposes_first_code_and_review(self):
+        # Supply a laptop-sized client area without resizing the window after launch.
+        with patch.object(ThemeForgeApp, "maxsize", return_value=(1250, 705)):
+            app = ThemeForgeApp()
+        self.addCleanup(app.destroy)
+        app.update()
+        self.assertLessEqual(app.winfo_width(), 1250)
+        self.assertLessEqual(app.winfo_height(), 705)
+
+        def descendants(widget):
+            for child in widget.winfo_children():
+                yield child
+                yield from descendants(child)
+
+        controls = {w.cget("text"): w for w in descendants(app) if isinstance(w, ttk.Button)}
+        for label in ("Choose files", "New code from selection", "Apply codebook entry…",
+                      "Supports this theme", "Save project", "Export report"):
+            widget = controls[label]
+            self.assertTrue(widget.winfo_ismapped(), label)
+            parent = widget.master
+            while parent is not None:
+                x = widget.winfo_rootx() - parent.winfo_rootx()
+                y = widget.winfo_rooty() - parent.winfo_rooty()
+                self.assertGreaterEqual(min(x, y), 0, label)
+                self.assertLessEqual(x + widget.winfo_width(), parent.winfo_width(), label)
+                self.assertLessEqual(y + widget.winfo_height(), parent.winfo_height(), label)
+                parent = parent.master
 
 
 class ImportedSelectionTests(unittest.TestCase):

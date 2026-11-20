@@ -120,8 +120,13 @@ Run the desktop app:
 python -m themeforge.app
 ```
 
-In the desktop app, use **Choose files** for transcripts and **Choose codebook**
-for optional deductive matching against researcher-defined themes.
+The desktop app starts with a blank project. Use **Choose files** to import a
+transcript. For a first code of your own, enter a **Coder name**, type the code
+in **Theme name**, select a passage in the transcript, and click **New code from
+selection** under **Code passages**. **Details** holds the keyword and memo
+controls. **Organize** holds the hierarchy and reassignment controls. Use
+**Choose codebook** for optional deductive matching against researcher-defined
+themes.
 
 To code a passage **without running Analyze**, enter a researcher name or
 pseudonym, select the passage in its transcript tab, choose a codebook entry
