@@ -84,7 +84,7 @@ class ManualCodebookTests(unittest.TestCase):
         self.assertIsNone(self.app.result)
         self.assertFalse(self.app.audit_events)
         self.assertEqual(self.app.definition_box.current(), 0)
-        with patch("themeforge.app.analyze_documents", side_effect=AssertionError):
+        with patch("themeforge.app.analyze_documents_with_units", side_effect=AssertionError):
             self.review(compare, apply=True)
             self.assertEqual(self.app.definition_box.current(), 1)
             self.select()

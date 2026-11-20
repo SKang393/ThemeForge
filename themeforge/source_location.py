@@ -7,7 +7,7 @@ from hashlib import sha256
 import re
 from typing import Literal
 
-from .analysis_types import ThemeQuote, TranscriptDocument
+from .analysis_types import QuoteUnit, ThemeQuote, TranscriptDocument
 
 
 LOCATION_SCOPE = ("The location check compares the recorded excerpt and location with the supplied transcript snapshot. "
@@ -45,7 +45,7 @@ class TranscriptIndex:
             self._digests[name] = sha256(entry[0].encode("utf-8")).hexdigest()
         return self._digests[name]
 
-    def locate(self, q: ThemeQuote) -> SourceLocation:
+    def locate(self, q: ThemeQuote | QuoteUnit) -> SourceLocation:
         entry = self._sources.get(q.source_name)
         if entry is None or not q.text:
             return SourceLocation("unverifiable", "No unique named source or nonempty recorded excerpt.")

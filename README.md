@@ -139,6 +139,15 @@ definition actually used. Entries with the same label but different definitions
 stay separate. Unselected text is not a rejection. Save or export immediately;
 running Analyze later adds separate suggestions, not endorsements.
 
+After **Analyze** with a codebook, the footer counts eligible passages with at
+least one displayed codebook suggestion. Choose **Next without suggestion** to
+select each remaining passage in transcript order, wrapping back to the first.
+Read the surrounding text and, if a definition fits, use **Apply codebook
+entry…**. Browsing records no decision. A passage with one suggested code may
+still need another. A declined or deferred suggestion still counts as displayed.
+The filter describes the last run in this session. Run **Analyze** again after
+reopening or changing the codebook or speaker choices to refresh it.
+
 After **Choose files**, open **Speakers for suggestions** before your first
 **Analyze**. It shows the parsed labels in each imported transcript,
 the automatic decision, the number of turns and a sample with its source line.

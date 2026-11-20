@@ -52,6 +52,15 @@ def analyze_documents(
     documents: Sequence[TranscriptDocument],
     settings: AnalysisSettings | None = None,
 ) -> AnalysisResult:
+    result, _ = analyze_documents_with_units(documents, settings)
+    return result
+
+
+def analyze_documents_with_units(
+    documents: Sequence[TranscriptDocument],
+    settings: AnalysisSettings | None = None,
+) -> tuple[AnalysisResult, list[QuoteUnit]]:
+    """Also return the eligible source spans in transcript order for desktop navigation."""
     settings = settings or AnalysisSettings()
     transcript_documents = [document for document in documents if document.text.strip()]
     segments, quotes = suggestion_inputs(transcript_documents, settings)
@@ -80,7 +89,7 @@ def analyze_documents(
             themes=[],
             notes=notes + ["No quote-length text units were found."],
             validation_summary=validation_summary,
-        )
+        ), quotes
 
     speaker_stopwords = build_speaker_stopwords(segments)
     if settings.codebook_entries:
@@ -95,7 +104,7 @@ def analyze_documents(
                 themes=themes,
                 notes=notes,
                 validation_summary=validation_summary,
-            )
+            ), quotes
         notes.append("No codebook entries matched quote-length text units; automatic theme discovery was used.")
 
     focus_profile = _build_focus_profile(quotes, settings.central_theme, speaker_stopwords)
@@ -126,4 +135,4 @@ def analyze_documents(
         themes=_sort_themes(themes, settings),
         notes=notes,
         validation_summary=validation_summary,
-    )
+    ), quotes

@@ -18,9 +18,9 @@ from .analysis import (
     Theme,
     ThemeQuote,
     TranscriptDocument,
-    analyze_documents,
+    analyze_documents_with_units,
 )
-from .analysis_types import SpeakerOverride
+from .analysis_types import QuoteUnit, SpeakerOverride
 from .audit import AuditEvent, create_audit_event
 from .codebook import load_codebook_entries
 from .definition_review import CodebookMatchReason, CodebookReuseDialog, entry_label, review_definition
@@ -115,6 +115,8 @@ class ThemeForgeApp(tk.Tk):
         self.current_quote_matches: list[QuoteMatch] = []
         self.current_quote_index = -1
         self.similar_passages: list[SimilarPassage] = []
+        self.unsuggested_passages: list[QuoteUnit] = []
+        self.unsuggested_index = -1
 
         self.file_summary = tk.StringVar(value=file_selection_summary([]))
         self.codebook_summary = tk.StringVar(value=codebook_selection_summary(None))
@@ -261,10 +263,14 @@ class ThemeForgeApp(tk.Tk):
         evidence.rowconfigure(3, weight=1)
         self._build_evidence_panel(evidence)
 
-        footer = ttk.Frame(self, style="Footer.TFrame", padding=(20, 0, 20, 14))
+        footer = ttk.Frame(self, style="Footer.TFrame", padding=(20, 0, 20, 6))
         footer.grid(row=2, column=0, sticky="ew")
         footer.columnconfigure(0, weight=1)
-        ttk.Label(footer, textvariable=self.status_text, style="Footer.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(footer, textvariable=self.status_text, style="Footer.TLabel").grid(row=0, column=0, sticky="ew")
+        self.unsuggested_button = ttk.Button(footer, text="Next without suggestion", padding=(6, 1),
+                                             command=self.next_unsuggested_passage)
+        self.unsuggested_button.grid(row=0, column=1, padx=(8, 0))
+        self.unsuggested_button.grid_remove()
 
     def _build_controls(self, parent: ttk.Frame) -> None:
         ttk.Label(parent, text="Transcripts", style="Panel.TLabel").grid(row=0, column=0, sticky="w")
@@ -594,6 +600,7 @@ class ThemeForgeApp(tk.Tk):
         details = {"previous": [asdict(rule) for rule in self.speaker_overrides],
                    "current": [asdict(rule) for rule in choices]}
         self.speaker_overrides = choices
+        self._clear_suggestion_coverage()
         self._clear_similar_passages()
         self._record_audit_event("suggestion_speakers_changed", "project", "speakers",
                                  json.dumps(details, ensure_ascii=False))
@@ -702,7 +709,8 @@ class ThemeForgeApp(tk.Tk):
         try:
             settings = self._analysis_settings()
             previous_result = self.result
-            self.result = preserve_manual_themes(previous_result, analyze_documents(self.documents, settings))
+            generated, eligible = analyze_documents_with_units(self.documents, settings)
+            self.result = preserve_manual_themes(previous_result, generated)
             self.edit_history = EditHistory()
         except (tk.TclError, ValueError) as exc:
             messagebox.showerror("Analysis failed", str(exc))
@@ -735,7 +743,23 @@ class ThemeForgeApp(tk.Tk):
         )
         self.theme_summary.set(status)
         autosave_status = self._autosave_project()
-        self.status_text.set(f"{status}; {autosave_status}" if autosave_status else status)
+        self._clear_suggestion_coverage()
+        if settings.codebook_entries and generated.quote_count:
+            # Count the suggestions from this run before manual assignments and older edits are restored.
+            suggested = {q.quote_id for theme in generated.themes if "generated_from_codebook_entry" in theme.validation
+                         for q in theme.quotes}
+            status = f"Codebook suggestions shown for {len(suggested)}/{generated.quote_count} eligible passages."
+            if not suggested and generated.themes:
+                status += " Showing automatic themes."
+            self.unsuggested_passages = [unit for unit in eligible if unit.id not in suggested]
+            if self.unsuggested_passages:
+                self.unsuggested_button.grid()
+            status += " Suggested passages may need other codes."
+            if autosave_status:
+                status = f"{autosave_status}. {status}"
+        elif autosave_status:
+            status += f"; {autosave_status}"
+        self.status_text.set(status)
 
     def save_theme_edits(self) -> None:
         if self.result is None or self.current_theme_index is None:
@@ -947,6 +971,7 @@ class ThemeForgeApp(tk.Tk):
         self._set_manual_status("Quote split into a new theme")
 
     def _refresh_definition_box(self) -> None:
+        self._clear_suggestion_coverage()
         self.match_reviews.set_codebook(self.codebook_entries)
         self.definition_box.configure(values=tuple(entry_label(i, e) for i, e in enumerate(self.codebook_entries)))
         self.definition_box.set("")
@@ -1793,8 +1818,6 @@ class ThemeForgeApp(tk.Tk):
         self._clear_similar_passages()
         theme = self.result.themes[index]
         self.current_theme_index = index
-        role = theme.validation.get("reanalysis_role")
-        self.detail_title.set(f"{theme.name} | {role}" if role else theme.name)
         self.quote_meta.set(
             f"{format_validation_summary(theme.validation)} | Keywords: {', '.join(theme.keywords) if theme.keywords else 'None'}"
         )
@@ -1809,7 +1832,7 @@ class ThemeForgeApp(tk.Tk):
         if not self.current_quote_matches:
             self.quote_status.set(evidence_navigation_status(0, 0))
             return
-        self.current_quote_index = (self.current_quote_index - 1) % len(self.current_quote_matches)
+        self.current_quote_index = (max(0, self.current_quote_index) - 1) % len(self.current_quote_matches)
         self._focus_current_quote()
 
     def next_quote(self) -> None:
@@ -1818,6 +1841,48 @@ class ThemeForgeApp(tk.Tk):
             return
         self.current_quote_index = (self.current_quote_index + 1) % len(self.current_quote_matches)
         self._focus_current_quote()
+
+    def _clear_suggestion_coverage(self) -> None:
+        if self.unsuggested_index >= 0 and self.current_quote_index < 0:
+            self.detail_title.set("Transcript evidence")
+            self.quote_status.set("")
+            self.quote_reason.set("Run Analyze with the current codebook to see passage coverage.")
+        self.unsuggested_passages = []
+        self.unsuggested_index = -1
+        self.unsuggested_button.grid_remove()
+
+    def next_unsuggested_passage(self) -> None:
+        if not self.unsuggested_passages:
+            return
+        if self._has_pending_source_edits() or (self._current_theme() is None and self.theme_name.get().strip()):
+            self.status_text.set("Apply unfinished theme or memo edits before browsing another passage.")
+            return
+        count = len(self.unsuggested_passages)
+        self.unsuggested_index = (self.unsuggested_index + 1) % count
+        unit = self.unsuggested_passages[self.unsuggested_index]
+        location = self._locate_quote(unit)
+        if location is None:
+            self.status_text.set("Could not verify this passage in the transcript. Choose Next to continue.")
+            return
+        widget, start, end = location
+        # The theme can still be a manual coding target. Match actions require a focused quote.
+        self.current_quote_index = -1
+        self._clear_similar_passages()
+        self._focus_current_quote()
+        self.quote_memo_text.configure(state="disabled")
+        self.quote_meta.set(f"{unit.source_name}, line {unit.source_line} | {unit.speaker}")
+        self.detail_title.set("No displayed codebook suggestion")
+        self.quote_status.set(f"Passage {self.unsuggested_index + 1} of {count}")
+        self.quote_reason.set("No code was suggested for this passage in the last Analyze. "
+                              "A passage shown under one code may still need another.")
+        self.transcript_notebook.select(self.transcript_frames[unit.source_name])
+        widget.tag_remove(tk.SEL, "1.0", tk.END)
+        widget.tag_add(tk.SEL, start, end)
+        widget.tag_add("coverage_selection", start, end)
+        widget.tag_raise(tk.SEL)
+        widget.update_idletasks()
+        widget.see(start)
+        self.status_text.set("Use Apply codebook entry… to assign the selection, or a document memo to record uncertainty.")
 
     def next_review_match(self, disposition: str | None) -> None:
         reviewer = self.researcher_name.get().strip()
@@ -1916,7 +1981,8 @@ class ThemeForgeApp(tk.Tk):
         self._apply_display_colors()
         if self.result is not None:
             self._highlight_all_quotes(self.current_theme_index)
-            self._focus_current_quote()
+            if self.current_quote_index >= 0:
+                self._focus_current_quote()
 
     def _set_text_content(self, widget: tk.Text, text: str) -> None:
         widget.configure(state="normal")
@@ -2081,14 +2147,14 @@ class ThemeForgeApp(tk.Tk):
         theme = self.result.themes[theme_index]
         return [QuoteMatch(theme_index, i, q.source_name, self._resolve_quote(q), q) for i, q in enumerate(theme.quotes)]
 
-    def _locate_quote(self, quote: ThemeQuote) -> tuple[tk.Text, str, str] | None:
+    def _locate_quote(self, quote: ThemeQuote | QuoteUnit) -> tuple[tk.Text, str, str] | None:
         # Coding stripes, automatic highlights and suggestion actions need a recorded anchor.
         if quote.source_end <= quote.source_start:
             return None
         loc = self._resolve_quote(quote)
         return (self.transcript_widgets[quote.source_name], loc.start, loc.end) if loc.verified else None
 
-    def _resolve_quote(self, quote: ThemeQuote) -> QuoteLocation:
+    def _resolve_quote(self, quote: ThemeQuote | QuoteUnit) -> QuoteLocation:
         widget = self.transcript_widgets.get(quote.source_name)
         if widget is None:
             return QuoteLocation("No unique named source or nonempty recorded excerpt.")
@@ -2104,10 +2170,19 @@ class ThemeForgeApp(tk.Tk):
         self.similar_list.selection_clear(0, tk.END)
         for widget in self.transcript_widgets.values():
             widget.configure(state="normal")
+            coverage = widget.tag_ranges("coverage_selection")
+            if coverage:
+                if coverage == widget.tag_ranges(tk.SEL):
+                    widget.tag_remove(tk.SEL, "1.0", tk.END)
+                widget.tag_delete("coverage_selection")
             widget.tag_remove("selected_quote", "1.0", tk.END)
             widget.tag_remove("similar_suggestion", "1.0", tk.END)
             widget.configure(state="disabled")
 
+        theme = self._current_theme()
+        if theme:
+            role = theme.validation.get("reanalysis_role")
+            self.detail_title.set(f"{theme.name} | {role}" if role else theme.name)
         if not self.current_quote_matches or self.current_quote_index < 0:
             self.match_review_text.set("")
             self.quote_status.set(evidence_navigation_status(0, 0))

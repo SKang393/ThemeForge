@@ -107,7 +107,7 @@ class ImportedSelectionTests(unittest.TestCase):
         self.app.researcher_name.set("Tester")
         self.app.theme_name.set("Double check")
         self.select_second_occurrence()
-        with patch("themeforge.app.analyze_documents", side_effect=AssertionError):
+        with patch("themeforge.app.analyze_documents_with_units", side_effect=AssertionError):
             self.app.code_selection_to_new_theme()
         self.assertIsNotNone(self.app.result)
         theme, = self.app.result.themes
