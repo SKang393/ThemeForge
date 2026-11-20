@@ -33,6 +33,9 @@ class FirstRunLayoutTests(unittest.TestCase):
                 yield child
                 yield from descendants(child)
 
+        notebook = app.definition_box.master.master
+        self.assertEqual(notebook.index("current"), 0)
+        self.assertEqual(notebook.tab(0, "text"), "Code passages")
         controls = {w.cget("text"): w for w in descendants(app) if isinstance(w, ttk.Button)}
         for label in ("Choose files", "New code from selection", "Apply codebook entry…",
                       "Supports this theme", "Save project", "Export report"):
@@ -46,6 +49,39 @@ class FirstRunLayoutTests(unittest.TestCase):
                 self.assertLessEqual(x + widget.winfo_width(), parent.winfo_width(), label)
                 self.assertLessEqual(y + widget.winfo_height(), parent.winfo_height(), label)
                 parent = parent.master
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source, project, report = root / "studio.txt", root / "first.tfproj", root / "codes.csv"
+            passage = "We moved the display."
+            text = f"Pat: {passage}\nSam: {passage}"
+            source.write_text(text, encoding="utf-8")
+            with patch("themeforge.app.filedialog.askopenfilenames", return_value=(str(source),)):
+                controls["Choose files"].invoke()
+            app.researcher_name.set("Studio reviewer")
+            app.theme_name.set("Display moved")
+            widget = app.transcript_widgets[source.name]
+            widget.tag_add("sel", "2.5", "2.end")
+            controls["New code from selection"].invoke()
+            with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(project)):
+                controls["Save project"].invoke()
+            self.assertTrue(project.is_file())
+            app.withdraw()
+            # Reopen in a new window with no in-memory assignments.
+            fresh = ThemeForgeApp()
+            self.addCleanup(fresh.destroy)
+            with patch("themeforge.app.filedialog.askopenfilename", return_value=str(project)):
+                fresh.open_project()
+            with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(report)):
+                fresh.save_report()
+            with report.open(encoding="utf-8", newline="") as stream:
+                row, = csv.DictReader(stream)
+            self.assertEqual((row["theme_name"], row["source_file"], row["source_line"], row["quote"]),
+                             ("Display moved", source.name, "2", passage))
+            self.assertEqual((int(row["source_start"]), int(row["source_end"])),
+                             (text.rindex(passage), len(text)))
+            self.assertEqual((row["source_location_status"], row["relevance"]), ("exact_span", ""))
+            self.assertIn("Studio reviewer", row["selection_rationale"])
 
 
 class ImportedSelectionTests(unittest.TestCase):
