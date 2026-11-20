@@ -58,3 +58,12 @@ jobs:
           test_focus_codebook.FocusAndCodebookTests.test_exclusion_guidance_is_preserved_but_does_not_supply_search_terms
           test_suggestion_speakers.SpeakerSelectionTests.test_first_import_narrow_dialog_save_reopen_and_export
           test_suggestion_speakers.SpeakerSelectionTests.test_desktop_change_save_find_and_export
+      - name: Check supported evidence scope and cancel at 900x600
+        if: ${{ !cancelled() }}
+        env:
+          PYTHONPATH: tests
+          PYTHONHASHSEED: '0'
+          HF_HUB_OFFLINE: '1'
+        run: >-
+          python -m unittest -v
+          test_evidence_handoff.EvidenceHandoffTests.test_selected_sources_trace_to_text_and_decision_without_the_project_audit

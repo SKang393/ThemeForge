@@ -161,9 +161,9 @@ class RigorDialog(tk.Toplevel):
         self.supported_sources.configure(yscrollcommand=scrollbar.set)
         ttk.Button(handoff, text="Select all sources", command=lambda: self.supported_sources.selection_set(0, tk.END)).grid(
             row=1, column=2, padx=6)
-        ttk.Label(handoff, wraplength=780, text="Only exact matches whose latest review across coders is supported. "
-                  "The CSV includes excerpts, source and speaker names, theme labels, reviewer names and reasons. "
-                  "Check these fields before sharing.").grid(row=2, column=0, columnspan=3, sticky="w", pady=4)
+        ttk.Label(handoff, wraplength=780, text="Includes exact matches whose latest review across coders is supported. "
+                  "Excerpts, source and speaker names, theme labels, reviewer names and free-text reasons can identify "
+                  "people. Check these fields before sharing.").grid(row=2, column=0, columnspan=3, sticky="w", pady=4)
         ttk.Button(handoff, text="Export supported matches CSV", command=self._export_supported_matches).grid(
             row=3, column=0, sticky="w")
         actions = ttk.Frame(tab)
@@ -385,6 +385,7 @@ class RigorDialog(tk.Toplevel):
         status = self.status if status is None else status
         chosen = filedialog.asksaveasfilename(parent=self, defaultextension=".csv", initialfile=default_name)
         if not chosen:
+            status.set("Export canceled.")
             return False
         try:
             with Path(chosen).open("x" if new_file else "w", encoding="utf-8", newline="") as stream:
