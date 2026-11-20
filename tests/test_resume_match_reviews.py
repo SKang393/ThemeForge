@@ -2,6 +2,7 @@
 from dataclasses import replace
 import json
 from pathlib import Path
+from shutil import copyfile
 import tempfile
 from tkinter import ttk
 import unittest
@@ -82,6 +83,7 @@ class ResumeReviewTests(unittest.TestCase):
         q = match.quote
         self.assertEqual(self.app._current_document_name(), q.source_name)
         widget = self.app.transcript_widgets[q.source_name]
+        self.assertIsNotNone(widget.bbox("selected_quote.first"), "The selected excerpt must be in view")
         self.assertEqual((q.source_start, q.source_end, widget.get("selected_quote.first", "selected_quote.last")),
                          self.spans[q.source_name, q.source_line])
         return self.app._current_theme().name, q.source_name, q.source_line
@@ -90,6 +92,68 @@ class ResumeReviewTests(unittest.TestCase):
         with patch("themeforge.app.simpledialog.askstring", return_value=reason) as prompt:
             self.press(REVIEW_LABELS[decision])
         prompt.assert_called_once()
+
+    def reopen_compact(self, path):
+        self.app.request_close()
+        with patch.object(ThemeForgeApp, "maxsize", return_value=(1024, 705)):
+            self.app = ThemeForgeApp()
+        with patch("themeforge.app.filedialog.askopenfilename", return_value=str(path)):
+            self.press("Open project")
+        self.assertEqual((self.app.winfo_width(), self.app.winfo_height()), (1024, 705))
+        controls = dict(buttons(self.app))
+        for label in (*REVIEW_LABELS.values(), "Next unreviewed", "Next deferred", "Apply definition to this quote…"):
+            button = controls[label]
+            self.assertTrue(button.winfo_viewable(), label)
+            x = button.winfo_rootx() - self.app.winfo_rootx()
+            y = button.winfo_rooty() - self.app.winfo_rooty()
+            self.assertGreaterEqual(min(x, y), 0, label)
+            self.assertLessEqual(x + button.winfo_width(), self.app.winfo_width(), label)
+            self.assertLessEqual(y + button.winfo_height(), self.app.winfo_height(), label)
+
+    def test_two_coders_reopen_independent_copies_at_compact_size(self):
+        seed = self.root / "unreviewed.tfproj"
+        with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(seed)):
+            self.press("Save project")
+        supported = ("Shift transfer", "market.txt", 2)
+        all_matches = DECISIONS.keys() | UNREVIEWED
+        # Identical cooler accounts in separate interviews require distinct decisions.
+        sessions = (("Elm", "market.txt", "Check the market opening routine."),
+                    ("Fern", "stall.txt", "Check the stall opening routine."))
+        for actor, source, reason in sessions:
+            path = self.root / f"{actor}.tfproj"
+            copyfile(seed, path)
+            self.reopen_compact(path)
+            self.app.researcher_name.set(actor)
+            if source == "stall.txt":
+                self.press("Next quote")
+            self.assertEqual(self.current(), ("Cold checks", source, 1))
+            self.mark("deferred", reason)
+            for _ in all_matches:
+                self.press("Next unreviewed")
+                if self.current() == supported:
+                    break
+            self.assertEqual(self.current(), supported)
+            self.mark("supported", "The outgoing shift left written instructions.")
+            self.press("Save project")
+
+        for actor, source, reason in sessions:
+            with self.subTest(coder=actor):
+                self.reopen_compact(self.root / f"{actor}.tfproj")
+                self.assertEqual(self.app.researcher_name.get(), actor)
+                audit = list(self.app.audit_events)
+                self.assertEqual([e.actor for e in audit if e.action == "match_review_note"], [actor, actor])
+                self.press("Next deferred")
+                deferred = ("Cold checks", source, 1)
+                self.assertEqual(self.current(), deferred)
+                self.assertIn(reason, self.app.match_review_text.get())
+                expected = all_matches - {deferred, supported}
+                reached = []
+                for _ in expected:
+                    self.press("Next unreviewed")
+                    reached.append(self.current())
+                    self.assertIn("No current match review", self.app.match_review_text.get())
+                self.assertCountEqual(reached, expected)
+                self.assertEqual(self.app.audit_events, audit)
 
     def test_resume_across_codes_and_revisit_own_deferrals(self):
         suggested = self.app.result

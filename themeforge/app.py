@@ -452,12 +452,14 @@ class ThemeForgeApp(tk.Tk):
         ttk.Label(reason_frame, textvariable=self.quote_reason, style="Muted.TLabel", wraplength=520).grid(row=0, column=0, sticky="ew")
         review_row = ttk.Frame(reason_frame, style="Surface.TFrame")
         review_row.grid(row=1, column=0, sticky="w")
-        for col, (disposition, label) in enumerate(REVIEW_LABELS.items()):
-            ttk.Button(review_row, text=label, command=lambda choice=disposition: self.review_current_match(choice)).grid(
-                row=0, column=col)
-        ttk.Button(review_row, text="Next unreviewed", command=lambda: self.next_review_match(None)).grid(row=1, column=0)
-        ttk.Button(review_row, text="Next deferred", command=lambda: self.next_review_match("deferred")).grid(row=1, column=1)
-        ttk.Button(review_row, text="Apply definition to this quote…", command=self.code_match_to_definition).grid(row=1, column=2)
+        for disposition, row, column in (("supported", 0, 0), ("declined", 0, 1), ("deferred", 1, 1)):
+            ttk.Button(review_row, text=REVIEW_LABELS[disposition],
+                       command=lambda choice=disposition: self.review_current_match(choice)).grid(
+                row=row, column=column, sticky="ew")
+        ttk.Button(review_row, text="Apply definition to this quote…", padding=(2, 4),
+                   command=self.code_match_to_definition).grid(row=1, column=0, sticky="ew")
+        ttk.Button(review_row, text="Next unreviewed", command=lambda: self.next_review_match(None)).grid(row=2, column=0, sticky="ew")
+        ttk.Button(review_row, text="Next deferred", command=lambda: self.next_review_match("deferred")).grid(row=2, column=1, sticky="ew")
         ttk.Label(reason_frame, textvariable=self.match_review_text, style="Muted.TLabel", wraplength=520).grid(row=2, column=0, sticky="w")
 
         quote_memo = ttk.Frame(evidence_tools, style="Surface.TFrame", padding=(10, 8))
@@ -2084,17 +2086,18 @@ class ThemeForgeApp(tk.Tk):
         loc = match.location
         self._show_match_review()
         context_note = ""
+        scroll_to = ""
         if widget is not None and frame is not None and loc.start:
             self.transcript_notebook.select(frame)
             widget.tag_configure("selected_quote", background=self.palette["selected_quote"],
                                  foreground=self.palette["highlight_foreground"], underline=not loc.verified)
             widget.tag_add("selected_quote", loc.start, loc.end)
             widget.tag_raise("selected_quote")
-            widget.see(loc.start)
+            scroll_to = loc.start
         elif (widget is not None and frame is not None and self._display_sources.has_unique_source(match.source_name)
               and 1 <= match.quote.source_line <= int(widget.index("end-1c").split(".", 1)[0])):
             self.transcript_notebook.select(frame)
-            widget.see(f"{match.quote.source_line}.0")
+            scroll_to = f"{match.quote.source_line}.0"
             context_note = " Showing the recorded line as context only."
 
         overlap_text = self._overlap_text(match.quote) if loc.verified else ""
@@ -2113,6 +2116,10 @@ class ThemeForgeApp(tk.Tk):
             self._set_editable_text_content(self.quote_memo_text, match.quote.memo)
             if not loc.verified:
                 self.quote_memo_text.configure(state="disabled")
+        if widget is not None and scroll_to:
+            # The tab and wrapped review text can change the transcript's visible height.
+            widget.update_idletasks()
+            widget.see(scroll_to)
 
     def _overlap_text(self, quote: ThemeQuote) -> str:
         if self.result is None:
