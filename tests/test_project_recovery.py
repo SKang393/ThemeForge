@@ -188,7 +188,9 @@ class ProjectRecoveryTests(unittest.TestCase):
         self.open(self.original)
         self.assertEqual(self.app._project_state(), self.good)
         self.assertEqual(self.supported(), [row])
-        with patch("themeforge.app.messagebox.askyesnocancel", side_effect=[False, True]):
+        with patch("themeforge.app.messagebox.askyesnocancel", return_value=False), \
+                patch("themeforge.app.CodebookReuseDialog") as reuse:
+            reuse.return_value.result = self.app.codebook_entries
             self.import_sources()
         self.assertIsNone(self.app.project_path)
         self.assertEqual(self.app.audit_events, [])

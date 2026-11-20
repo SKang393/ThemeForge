@@ -1,13 +1,48 @@
-"""Confirm an exact transcript passage against the full entries sharing a codebook label."""
+"""Review codebook text before applying a definition or carrying it into another study."""
 from __future__ import annotations
 
 import tkinter as tk
 from collections.abc import Sequence
+from dataclasses import replace
 from tkinter import simpledialog, ttk
 from tkinter.scrolledtext import ScrolledText
 
 from .analysis_types import CodebookEntry, TranscriptDocument
 from .manual_editing import ManualSelection, definition_text
+
+
+class CodebookReuseDialog(simpledialog.Dialog):
+    """Preview the codebook text that will enter a separate study."""
+
+    def __init__(self, parent: tk.Misc, entries: tuple[CodebookEntry, ...]):
+        self.options = {"Start without a codebook": (),
+                        "Names and definitions only": tuple(replace(e, examples=()) for e in entries)}
+        if any(e.examples for e in entries):
+            self.options["Names, definitions and examples"] = entries
+        self.choice = tk.StringVar(parent, value="Start without a codebook")
+        super().__init__(parent, "Reuse codebook in the new study")
+
+    def body(self, master):
+        ttk.Label(master, wraplength=460, text="Check the preview for excerpts, identifying details and source "
+                  "references. Copied text can appear in the new study’s exports. Theme hierarchy, transcripts, "
+                  "memos and review decisions stay in the original study.").pack(fill="x", pady=(0, 6))
+        for label in self.options:
+            ttk.Radiobutton(master, text=label, value=label, variable=self.choice,
+                            command=self.show_preview).pack(anchor="w")
+        ttk.Label(master, text="Codebook text to copy").pack(anchor="w", pady=(8, 2))
+        self.preview = ScrolledText(master, width=58, height=8, wrap="word")
+        self.preview.pack(fill="both", expand=True)
+        self.show_preview()
+
+    def show_preview(self):
+        entries = self.options[self.choice.get()]
+        self.preview.configure(state="normal")
+        self.preview.delete("1.0", "end")
+        self.preview.insert("1.0", "\n\n".join(definition_text(entry) for entry in entries) or "No entries selected.")
+        self.preview.configure(state="disabled")
+
+    def apply(self):
+        self.result = self.options[self.choice.get()]
 
 
 class CodebookMatchReason(simpledialog.Dialog):

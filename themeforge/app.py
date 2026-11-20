@@ -23,7 +23,7 @@ from .analysis import (
 from .analysis_types import SpeakerOverride
 from .audit import AuditEvent, create_audit_event
 from .codebook import load_codebook_entries
-from .definition_review import CodebookMatchReason, entry_label, review_definition
+from .definition_review import CodebookMatchReason, CodebookReuseDialog, entry_label, review_definition
 from .exports import export_json, export_markdown, export_quotes_csv
 from .io import load_transcript_text
 from .manual_editing import (
@@ -610,17 +610,9 @@ class ThemeForgeApp(tk.Tk):
             return
         entries = ()
         if self.codebook_entries:
-            keep = messagebox.askyesnocancel(
-                "Reuse the current codebook?",
-                "Copy the codebook definitions and examples to the new project? Examples may contain "
-                "source excerpts. No results, memos or audit events will be copied.\n\n"
-                "Yes: reuse definitions and examples.\nNo: start without a codebook.\nCancel: stay here.",
-                parent=self, default=messagebox.NO,
-            )
-            if keep is None:
+            entries = CodebookReuseDialog(self, self.codebook_entries).result
+            if entries is None:
                 return
-            if keep:
-                entries = self.codebook_entries
         if save and not self.save_project():
             return
         state = ProjectState(tuple(paths), None, tuple(documents), AnalysisSettings(codebook_entries=entries))

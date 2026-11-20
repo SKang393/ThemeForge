@@ -55,6 +55,8 @@ def file_selection_summary(paths: Sequence[Path]) -> str:
 
 def codebook_selection_summary(path: Path | None, entry_count: int = 0) -> str:
     if path is None:
+        if entry_count:
+            return f"Project codebook | {entry_count} " + ("entry" if entry_count == 1 else "entries")
         return "No codebook selected"
     if entry_count > 0:
         label = "theme" if entry_count == 1 else "themes"

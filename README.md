@@ -357,8 +357,13 @@ that recorded only the destination ID cannot reconstruct lost notes.
 When replacing or removing transcripts, you can save the outgoing study, leave
 without saving, or cancel. Apply unfinished theme or memo edits before saving.
 The next study starts as a separate unsaved project, without the old results,
-memos or audit log. You can explicitly reuse codebook definitions and examples;
-check that their text is appropriate for the next study.
+memos or audit log. To reuse the current codebook, choose **Names and definitions
+only** and read the preview before continuing. This leaves examples in the original
+study. You can also choose to copy examples. Check all selected text for excerpts,
+names and source references. The new study gets the displayed entries in order.
+Theme hierarchy belongs to the original project. For a new session, import your
+definitions file with **Choose codebook**. The supported evidence and manual
+assignment CSVs are study reports with cited passages and reviewer information.
 
 Opening another saved project or closing the main window also prompts if the
 current study has unsaved changes. To keep text still in a theme or memo
@@ -418,6 +423,8 @@ with `themeforge[nlp]` to enable sentence-transformer embeddings and
 
 CSV codebooks should include a `theme`, `code`, `name`, or `category` column.
 Optional `description` and `example` or `quote` columns supply terms for matching.
+Put inclusion and exclusion criteria inside the description. Separate criterion
+and parent columns are ignored by the CSV importer.
 In a definition, `Exclude:` starts guidance for the reader. `Include:` resumes
 the text used for ranking. For example, “Test after a repair. Exclude: price
 estimates.” uses the repair test for retrieval. A passage mentioning an
