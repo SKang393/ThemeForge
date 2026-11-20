@@ -10,7 +10,7 @@ from .analysis import AnalysisResult, ValidationValue
 from .analysis_types import TranscriptDocument
 from .audit import AuditEvent, neutralize_csv_cell
 from .manual_editing import MANUAL_ONLY_NOTE
-from .match_reviews import REVIEW_SCOPE, MatchReviews
+from .match_reviews import NO_CURRENT_REVIEW, REVIEW_SCOPE, MatchReviews
 from .source_location import LOCATION_SCOPE, TranscriptIndex
 
 
@@ -80,7 +80,7 @@ def export_markdown(result: AnalysisResult, documents: Iterable[TranscriptDocume
             citation = (f"[{theme.id} {theme.color}] Source: {quote.source_name} | Recorded line: {quote.source_line} | "
                         f"Recorded speaker: {quote.speaker} | Quote ID: {quote.quote_id} | Location: {loc.status}")
             review = reviews.latest(theme, quote, sources)
-            review_text = f" {review.describe()}" if review else ""
+            review_text = " " + (review.describe() if review else NO_CURRENT_REVIEW)
             excerpt = quote.text.split("\n")
             lines.extend(
                 [
@@ -128,7 +128,7 @@ def export_json(result: AnalysisResult, documents: Iterable[TranscriptDocument] 
 
 
 def export_quotes_csv(result: AnalysisResult, documents: Iterable[TranscriptDocument] = (),
-                      audit_events: Iterable[AuditEvent] = ()) -> str:
+                      audit_events: Iterable[AuditEvent] = (), *, supported_only: bool = False) -> str:
     sources = TranscriptIndex(documents)
     reviews = MatchReviews(audit_events)
     buffer = io.StringIO()
@@ -155,6 +155,7 @@ def export_quotes_csv(result: AnalysisResult, documents: Iterable[TranscriptDocu
             "match_review_actor",
             "match_review_reason",
             "match_review_time_utc",
+            "match_review_target_id",
         ]
     )
 
@@ -163,6 +164,8 @@ def export_quotes_csv(result: AnalysisResult, documents: Iterable[TranscriptDocu
         for quote in theme.quotes:
             loc = sources.locate(quote)
             review = reviews.latest(theme, quote, sources)
+            if supported_only and (loc.status != "exact_span" or review is None or review.disposition != "supported"):
+                continue
             writer.writerow(
                 [
                     theme.id,
@@ -185,6 +188,7 @@ def export_quotes_csv(result: AnalysisResult, documents: Iterable[TranscriptDocu
                     neutralize_csv_cell(review.actor) if review else "",
                     neutralize_csv_cell(review.reason) if review else "",
                     review.timestamp_utc if review else "",
+                    review.audit_target_id if review else "",
                 ]
             )
 

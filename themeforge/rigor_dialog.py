@@ -9,6 +9,7 @@ import zipfile
 
 from .analysis_types import AnalysisResult, TranscriptDocument
 from .audit import AuditEvent, export_audit_events_csv
+from .exports import export_quotes_csv
 from .manual_record_comparison import compare_recorded_assignments, current_assignment_csv
 from .project_io import UnsupportedProjectFormatError, load_project
 from .rigor import (
@@ -48,6 +49,7 @@ class RigorDialog(tk.Toplevel):
         self._comparison_project: CodedProject | None = None
         self._comparison_label = ""
         self.status = tk.StringVar(value="Choose a comparison .tfproj for intercoder reliability.")
+        self.audit_status = tk.StringVar()
         self.assignment_status = tk.StringVar(value="This project's manual codebook CSV includes current assignments that match their "
                                                "original records. It excludes suggestions and freehand codes.")
         self.title("Rigor tools")
@@ -135,14 +137,14 @@ class RigorDialog(tk.Toplevel):
         tab = ttk.Frame(notebook, padding=10)
         tab.columnconfigure(0, weight=1)
         tab.rowconfigure(1, weight=1)
-        ttk.Button(
-            tab,
-            text="Export CSV",
-            command=self._export_audit,
-        ).grid(row=0, column=0, sticky="w", pady=(0, 8))
+        actions = ttk.Frame(tab)
+        actions.grid(row=0, column=0, sticky="w", pady=(0, 8))
+        ttk.Button(actions, text="Export audit CSV", command=self._export_audit).pack(side="left")
+        ttk.Button(actions, text="Export supported matches CSV", command=self._export_supported_matches).pack(side="left", padx=8)
         self.audit_tree = ttk.Treeview(tab, columns=("timestamp", "actor", "action", "target", "details"), show="headings")
         self._configure_tree(self.audit_tree, ("Timestamp", "Actor", "Action", "Target", "Details"))
         self._grid_tree(tab, self.audit_tree, 1)
+        ttk.Label(tab, textvariable=self.audit_status, wraplength=780).grid(row=2, column=0, sticky="w")
         notebook.add(tab, text="Audit log")
 
     def refresh_current_state(self, _event: tk.Event | None = None) -> None:
@@ -297,7 +299,15 @@ class RigorDialog(tk.Toplevel):
 
     def _export_audit(self) -> None:
         self.refresh_current_state()
-        self._export_text(export_audit_events_csv(self.context.audit_events), "audit-log.csv")
+        self._export_text(export_audit_events_csv(self.context.audit_events), "audit-log.csv", status=self.audit_status)
+
+    def _export_supported_matches(self) -> None:
+        context = self._context_source() if self._context_source else self.context
+        if context.result is None:
+            self.audit_status.set("Open a project with quote evidence to export supported matches.")
+            return
+        output = export_quotes_csv(context.result, context.documents, context.audit_events, supported_only=True)
+        self._export_text(output, "supported-matches.csv", status=self.audit_status)
 
     def _export_text(self, text: str, default_name: str, *, new_file: bool = False,
                      status: tk.StringVar | None = None) -> bool:

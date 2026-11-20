@@ -134,7 +134,9 @@ stay separate. Unselected text is not a rejection. Save or export immediately;
 running Analyze later adds separate suggestions, not endorsements.
 
 **Reviewing candidate quotes:** Previous/Next visits the stored records,
-including ones the app cannot locate. A recorded source span is highlighted
+including ones the app cannot locate. Below the transcript, **Quote review**
+shows the rationale and decisions. The adjacent tabs hold the quote and document
+memos and the search for similar passages. A recorded source span is highlighted
 only when the full excerpt and line match at its saved offsets. This verifies
 the location, not the speaker attribution or whether the code fits the text.
 The app does not substitute another speaker's identical wording or a matching
@@ -157,9 +159,9 @@ without the source documents cannot verify any locations. Older reports
 are unchanged; reopen the project and export again to see these checks.
 
 **Recording a match review:** Enter a reviewer name, select a source-verified
-quote, then choose **Not this match** (decline the pairing) or **Revisit later**
-(defer judgment). Give a reason. Unlike **Uncode quote**, neither action removes
-evidence or changes an assignment, score, count or agreement input. The latest
+quote in its transcript, then choose **Supports this theme**, **Not this match**
+or **Revisit later**. Check the excerpt and record your reason. Each review
+records one reader's judgment about that passage under that theme. The latest
 note for that exact pairing appears beside its rationale and in Markdown, CSV
 and JSON reports. It is one reviewer's note, not team consensus. A blank review
 does not mean the passage was assessed or rejected. Running **Analyze** again
@@ -167,7 +169,19 @@ starts fresh, even if a quote ID repeats. Earlier notes, their exact excerpts,
 scores and reviewer names remain in **Rigor tools → Audit log** and its CSV export.
 Older readers do not display the review notes alongside the quotes.
 
-**Coding a passage you found in a match:** In the quote rationale panel, choose
+**Exporting reviewed evidence:** In **Rigor tools → Audit log**, choose
+**Export supported matches CSV** for passages whose latest review is
+`supported` and whose recorded span matches the transcript. Each row includes
+the reviewer, reason, time, source line, offsets, and original quote relevance.
+The `match_review_target_id` identifies that pairing in the audit CSV's `target_id` column.
+The regular quote report includes all dispositions. Its `match_review_disposition`
+column describes the individual pairing. `validation_review_status` describes
+the whole theme and can read “Researcher edited” after a rename. The supported
+export has only its header when no current match qualifies. **Export audit CSV**
+includes earlier and superseded decisions. Older readers can display a previous
+decline or deferral as current if they skip a later `supported` audit event.
+
+**Coding a passage you found in a match:** In the **Quote review** tab, choose
 **Apply definition to this quote…**. The dialog shows the current quote in its
 transcript, even if a different passage was previously selected with the mouse.
 Choose an entry from the current codebook, compare its full definition and

@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, replace
 import json
 from pathlib import Path
+from textwrap import fill
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 import zipfile
@@ -45,7 +46,7 @@ from .manual_editing import (
     update_quote_boundary,
     update_theme_memo,
 )
-from .match_reviews import DISPOSITIONS, REVIEW_ACTION, MatchReviews, match_id, match_snapshot
+from .match_reviews import NO_CURRENT_REVIEW, REVIEW_ACTION, REVIEW_LABELS, MatchReviews, match_id, match_snapshot
 from .project_io import ProjectCopyRequired, ProjectState, UnsupportedProjectFormatError, load_project, save_project
 from .rigor_dialog import RigorContext, RigorDialog
 from .semantic_suggestions import SimilarPassage, find_similar_passages
@@ -245,7 +246,7 @@ class ThemeForgeApp(tk.Tk):
         evidence = ttk.Labelframe(workspace, text="Evidence", style="Panel.TLabelframe", padding=(14, 12))
         evidence.grid(row=0, column=2, sticky="nsew")
         evidence.columnconfigure(0, weight=1)
-        evidence.rowconfigure(7, weight=1)
+        evidence.rowconfigure(3, weight=1)
         self._build_evidence_panel(evidence)
 
         footer = ttk.Frame(self, style="Footer.TFrame", padding=(20, 0, 20, 14))
@@ -415,26 +416,34 @@ class ThemeForgeApp(tk.Tk):
 
         ttk.Label(parent, textvariable=self.quote_meta, style="Muted.TLabel", wraplength=520).grid(row=2, column=0, sticky="ew", pady=(0, 8))
 
-        reason_frame = ttk.Labelframe(parent, text="Quote rationale", style="Panel.TLabelframe", padding=(10, 8))
-        reason_frame.grid(row=3, column=0, sticky="ew", pady=(0, 8))
+        self.transcript_notebook = ttk.Notebook(parent)
+        self.transcript_notebook.grid(row=3, column=0, sticky="nsew", pady=(0, 8))
+        self.transcript_notebook.bind("<<NotebookTabChanged>>", self._on_transcript_tab_changed)
+
+        evidence_tools = ttk.Notebook(parent)
+        evidence_tools.grid(row=4, column=0, sticky="ew")
+        reason_frame = ttk.Frame(evidence_tools, style="Surface.TFrame", padding=(10, 8))
+        evidence_tools.add(reason_frame, text="Quote review")
         reason_frame.columnconfigure(0, weight=1)
         ttk.Label(reason_frame, textvariable=self.quote_reason, style="Muted.TLabel", wraplength=520).grid(row=0, column=0, sticky="ew")
         review_row = ttk.Frame(reason_frame, style="Surface.TFrame")
         review_row.grid(row=1, column=0, sticky="w")
-        ttk.Button(review_row, text="Revisit later", command=lambda: self.review_current_match("deferred")).pack(side="left")
-        ttk.Button(review_row, text="Not this match", command=lambda: self.review_current_match("declined")).pack(side="left")
-        ttk.Button(review_row, text="Apply definition to this quote…", command=self.code_match_to_definition).pack(side="left")
+        for col, (disposition, label) in enumerate(REVIEW_LABELS.items()):
+            ttk.Button(review_row, text=label, command=lambda choice=disposition: self.review_current_match(choice)).grid(
+                row=0, column=col)
+        ttk.Button(review_row, text="Apply definition to this quote…", command=self.code_match_to_definition).grid(
+            row=1, column=0, columnspan=3, sticky="w")
         ttk.Label(reason_frame, textvariable=self.match_review_text, style="Muted.TLabel", wraplength=520).grid(row=2, column=0, sticky="w")
 
-        quote_memo = ttk.Labelframe(parent, text="Quote memo", style="Panel.TLabelframe", padding=(10, 8))
-        quote_memo.grid(row=4, column=0, sticky="ew", pady=(0, 8))
+        quote_memo = ttk.Frame(evidence_tools, style="Surface.TFrame", padding=(10, 8))
+        evidence_tools.add(quote_memo, text="Quote memo")
         quote_memo.columnconfigure(0, weight=1)
         self.quote_memo_text = tk.Text(quote_memo, height=3, wrap="word", font=("Segoe UI", 9), borderwidth=1, relief="solid")
         self.quote_memo_text.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         ttk.Button(quote_memo, text="Save quote memo", style="Secondary.TButton", command=self.save_quote_memo).grid(row=1, column=0, sticky="ew")
 
-        document_memo = ttk.Labelframe(parent, text="Document memo", style="Panel.TLabelframe", padding=(10, 8))
-        document_memo.grid(row=5, column=0, sticky="ew", pady=(0, 8))
+        document_memo = ttk.Frame(evidence_tools, style="Surface.TFrame", padding=(10, 8))
+        evidence_tools.add(document_memo, text="Document memo")
         document_memo.columnconfigure(0, weight=1)
         self.document_memo_text = tk.Text(
             document_memo,
@@ -452,8 +461,8 @@ class ThemeForgeApp(tk.Tk):
             command=self.save_document_memo,
         ).grid(row=1, column=0, sticky="ew")
 
-        similar = ttk.Labelframe(parent, text="Similar uncoded passages", style="Panel.TLabelframe", padding=(10, 8))
-        similar.grid(row=6, column=0, sticky="ew", pady=(0, 8))
+        similar = ttk.Frame(evidence_tools, style="Surface.TFrame", padding=(10, 8))
+        evidence_tools.add(similar, text="Similar passages")
         similar.columnconfigure(0, weight=1)
         search_actions = ttk.Frame(similar, style="Surface.TFrame")
         search_actions.grid(row=0, column=0, sticky="ew", pady=(0, 6))
@@ -494,10 +503,6 @@ class ThemeForgeApp(tk.Tk):
             style="Secondary.TButton",
             command=self.code_selected_similar_passage,
         ).grid(row=3, column=0, sticky="ew")
-
-        self.transcript_notebook = ttk.Notebook(parent)
-        self.transcript_notebook.grid(row=7, column=0, sticky="nsew")
-        self.transcript_notebook.bind("<<NotebookTabChanged>>", self._on_transcript_tab_changed)
 
     def open_transcript(self) -> None:
         paths = filedialog.askopenfilenames(
@@ -1136,20 +1141,37 @@ class ThemeForgeApp(tk.Tk):
             suggestion=passage,
         )
 
+    def _visible_review_match(self) -> QuoteMatch | None:
+        match = self._current_quote_match()
+        if (match and self._current_document_name() == match.source_name and self._selected_similar_passage() is None
+                and self._resolve_quote(match.quote).verified):
+            return match
+        return None
+
     def review_current_match(self, disposition: str) -> None:
-        theme, match = self._current_theme(), self._current_quote_match()
-        if not theme or not match or disposition not in DISPOSITIONS:
-            self.status_text.set("Select a source-verified match to review. No note was recorded.")
+        theme, match = self._current_theme(), self._visible_review_match()
+        if not theme or not match or disposition not in REVIEW_LABELS:
+            self.status_text.set("Use Previous quote or Next quote to show the verified passage in its transcript before reviewing.")
             return
-        if not self.researcher_name.get().strip():
+        actor = self.researcher_name.get().strip()
+        if not actor:
             self.status_text.set("Enter a reviewer name or pseudonym before recording a match review.")
             return
-        title = "Revisit later" if disposition == "deferred" else "Not this match"
-        reason = simpledialog.askstring(title, f"{theme.name} | {match.quote.source_name}:{match.quote.source_line}\n"
-            "Why mark this pairing? The record, code assignments and scores stay unchanged.", parent=self)
+        before, sources = self.result, self._display_sources
+        q = match.quote
+        self.transcript_widgets[match.source_name].see(match.location.start)
+        excerpt = q.text if len(q.text) <= 200 else q.text[:200] + "…"
+        reason = simpledialog.askstring(REVIEW_LABELS[disposition],
+            f"{theme.name} ({theme.id}) | {actor}\n{q.source_name}, line {q.source_line}, "
+            f"characters [{q.source_start}, {q.source_end})\n\n{fill(excerpt, width=68)}\n\n"
+            "What in the passage led to this decision?", parent=self)
         if not reason or not reason.strip():
             return
-        snapshot = match_snapshot(theme, match.quote, self._display_sources)
+        if (self.result is not before or self._display_sources is not sources or self._visible_review_match() != match
+                or self.researcher_name.get().strip() != actor):
+            self.status_text.set("The match, source or reviewer changed. Review the visible passage again.")
+            return
+        snapshot = match_snapshot(theme, q, sources)
         details = json.dumps({"disposition": disposition, "reason": reason.strip(), "match": snapshot}, ensure_ascii=False)
         self._record_audit_event(REVIEW_ACTION, "theme_quote_match", match_id(snapshot), details)
         self._show_match_review(theme, match.quote)
@@ -1157,7 +1179,8 @@ class ThemeForgeApp(tk.Tk):
 
     def _show_match_review(self, theme: Theme, quote: ThemeQuote) -> None:
         note = self.match_reviews.latest(theme, quote, self._display_sources)
-        self.match_review_text.set(note.describe() if note else "No current review note on this match.")
+        summary = note.describe() if note else NO_CURRENT_REVIEW
+        self.match_review_text.set(f"{quote.source_name}, line {quote.source_line} | {summary}")
 
     def uncode_current_quote(self) -> None:
         if self.result is None or self.current_theme_index is None:
@@ -1942,9 +1965,11 @@ class ThemeForgeApp(tk.Tk):
         return QuoteLocation(loc.note, a, b, loc.status == "exact_span")
 
     def _focus_current_quote(self) -> None:
+        self.similar_list.selection_clear(0, tk.END)
         for widget in self.transcript_widgets.values():
             widget.configure(state="normal")
             widget.tag_remove("selected_quote", "1.0", tk.END)
+            widget.tag_remove("similar_suggestion", "1.0", tk.END)
             widget.configure(state="disabled")
 
         if not self.current_quote_matches or self.current_quote_index < 0:

@@ -12,9 +12,12 @@ from .source_location import TranscriptIndex
 
 
 REVIEW_ACTION = "match_review_note"
-DISPOSITIONS = {"declined", "deferred"}
-REVIEW_SCOPE = ("Review notes apply only to this recorded theme/passage match. They do not change codes, "
-                "scores or counts. A missing note does not mean the passage was assessed, accepted or rejected.")
+REVIEW_LABELS = {"supported": "Supports this theme", "deferred": "Revisit later", "declined": "Not this match"}
+DISPOSITIONS = set(REVIEW_LABELS)
+NO_CURRENT_REVIEW = "No current match review."
+REVIEW_SCOPE = ("Each review records one reader's judgment about one theme/passage match. "
+                "Theme edit labels apply to the whole group. Coding assignments and relevance scores are separate. "
+                "A missing note means there is no current review on record for this pairing.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,6 +26,7 @@ class ReviewNote:
     actor: str
     reason: str
     timestamp_utc: str
+    audit_target_id: str = ""
 
     def describe(self) -> str:
         return f"Latest match review: {self.disposition} by {self.actor} ({self.timestamp_utc}): {self.reason}"
@@ -62,9 +66,11 @@ class MatchReviews:
             try:
                 details = json.loads(event.details)
                 status, reason = details["disposition"], details["reason"]
+                if status == "supported" and not event.actor.strip():
+                    return
                 if (status in DISPOSITIONS and isinstance(reason, str) and reason.strip()
                         and event.target_id == match_id(details["match"])):
-                    self._notes[event.target_id] = ReviewNote(status, event.actor, reason, event.timestamp_utc)
+                    self._notes[event.target_id] = ReviewNote(status, event.actor, reason, event.timestamp_utc, event.target_id)
             except (TypeError, ValueError, KeyError):
                 pass  # Unrecognized audit data remains historical; do not attach it to a row.
 
