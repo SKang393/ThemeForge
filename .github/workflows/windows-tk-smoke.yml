@@ -76,3 +76,10 @@ jobs:
         run: >-
           python -m unittest -v
           test_reviewed_codebook_revision.ReviewedCodebookRevisionTests.test_repeated_match_under_a_revised_exclusion_needs_a_new_decision
+      - name: Recover a locked project and reopen after an interrupted save
+        if: ${{ !cancelled() }}
+        env:
+          PYTHONPATH: tests
+          PYTHONHASHSEED: '0'
+          HF_HUB_OFFLINE: '1'
+        run: python -m unittest -v test_project_recovery

@@ -108,7 +108,12 @@ class ProjectRecoveryTests(unittest.TestCase):
         revised_source = COUNT + "\nElm: The spare tray arrived after packing."
         self.count.write_text(revised_source, encoding="utf-8")
         copy = self.root / "recovered.tfproj"
-        with patch("themeforge.project_io.os.replace", side_effect=PermissionError("destination is locked")):
+        if sys.platform == "win32":
+            # A normal Windows reader allows other readers but denies delete/replace.
+            blocked = self.original.open("rb")
+        else:
+            blocked = patch("themeforge.project_io.os.replace", side_effect=PermissionError("destination is locked"))
+        with blocked:
             self.review(2, "Not this match", "On rereading, the card records no completed total.")
             self.assertIn("autosave failed", self.app.status_text.get().lower())
             self.assertIn("Save as…", self.app.status_text.get())
@@ -124,6 +129,12 @@ class ProjectRecoveryTests(unittest.TestCase):
             with patch("themeforge.app.messagebox.showerror") as error:
                 press(self.app, "Save project")
                 error.assert_called_once()
+                if sys.platform == "win32":
+                    detail = error.call_args.args[1]
+                    code = detail.partition("]")[0].removeprefix("[")
+                    self.assertIn(code, ("WinError 5", "WinError 32"))
+                    self.assertIn(self.original.name, detail)
+                    print(f"{code} while replacing the open project", flush=True)
             pending = self.app._project_state()
             self.assertTrue(self.app._has_unsaved_work())
             self.assertEqual(pending.audit_events[:-1], self.good.audit_events)
@@ -132,8 +143,16 @@ class ProjectRecoveryTests(unittest.TestCase):
             self.assertEqual(list(self.original.parent.iterdir()), [self.original])
 
             # Cancel, a name collision, and a successful new file all use the visible control.
-            with patch("themeforge.app.filedialog.asksaveasfilename", return_value=""):
+            draft = "Working from the recovered copy."
+            self.app.document_memo_text.insert("1.0", draft)
+            with patch("themeforge.app.filedialog.asksaveasfilename", return_value="") as chooser:
                 press(self.app, "Save as…")
+                chooser.assert_called_once()
+            self.assertEqual(self.original.read_bytes(), original_bytes)
+            self.assertEqual(self.app.project_path, self.original)
+            self.assertEqual(self.app._project_state(), pending)
+            self.assertEqual(self.app.document_memo_text.get("1.0", "end-1c"), draft)
+            self.assertTrue(self.app._has_unsaved_work())
             copy.write_bytes(b"another study already claimed this name")
             with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(copy)), \
                     patch("themeforge.app.messagebox.showerror") as error:
@@ -144,8 +163,6 @@ class ProjectRecoveryTests(unittest.TestCase):
             self.assertEqual(self.app._project_state(), pending)
             self.assertTrue(self.app._has_unsaved_work())
             copy = self.root / "recovered-2.tfproj"
-            draft = "Working from the recovered copy."
-            self.app.document_memo_text.insert("1.0", draft)
             with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(copy)):
                 press(self.app, "Save as…")
         self.assertEqual(self.app.project_path, copy)
