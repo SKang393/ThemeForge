@@ -299,7 +299,7 @@ def apply_codebook_definition(
         or not selection.text.strip() or document.text.count("\n", 0, start) + 1 != selection.source_line
     ):
         raise ValueError("A named coder and an exact selection in the active transcript are required.")
-    snapshot = json.dumps(asdict(entry), ensure_ascii=False, sort_keys=True)
+    snapshot = entry.snapshot()
     target = next((t for t in result.themes if t.validation.get("manual_codebook_definition") == snapshot), None)
     if target and any(q.manual_definition_assignment and
                       (q.source_name, q.source_start, q.source_end) == (document.name, start, end)

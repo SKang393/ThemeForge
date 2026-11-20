@@ -7,7 +7,7 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 import zipfile
 
-from .analysis_types import AnalysisResult, TranscriptDocument
+from .analysis_types import AnalysisResult, CodebookEntry, TranscriptDocument
 from .audit import AuditEvent, export_audit_events_csv
 from .exports import export_quotes_csv
 from .manual_record_comparison import compare_recorded_assignments, current_assignment_csv
@@ -35,6 +35,7 @@ class RigorContext:
     result: AnalysisResult | None
     audit_events: Sequence[AuditEvent]
     coder_name: str
+    codebook_entries: Sequence[CodebookEntry] = ()
 
 
 class RigorDialog(tk.Toplevel):
@@ -247,7 +248,7 @@ class RigorDialog(tk.Toplevel):
             if state.result is None:
                 self.status.set("Comparison project has no analysis result.")
                 return
-            self._comparison_project = CodedProject(state.documents, state.result, state.audit_events)
+            self._comparison_project = CodedProject(state.documents, state.result, state.audit_events, state.settings.codebook_entries)
             self._comparison_label = _label(state.researcher_name, path.stem)
             _reviewer_choices(self.comparison_reviewer, state.researcher_name, state.audit_events)
         except (UnsupportedProjectFormatError, OSError, zipfile.BadZipFile, KeyError, TypeError, ValueError) as exc:
@@ -318,7 +319,7 @@ class RigorDialog(tk.Toplevel):
             return
         try:
             comparison = compare_match_reviews(
-                CodedProject(context.documents, context.result, context.audit_events), self._comparison_project,
+                CodedProject(context.documents, context.result, context.audit_events, context.codebook_entries), self._comparison_project,
                 CoderLabels(self.current_reviewer.get(), self.comparison_reviewer.get()),
             )
         except ValueError as exc:
@@ -377,7 +378,8 @@ class RigorDialog(tk.Toplevel):
             self.audit_status.set("Choose at least one transcript for the supported evidence table.")
             return
         documents = (doc for doc in context.documents if doc.name in selected)
-        output = export_quotes_csv(context.result, documents, context.audit_events, supported_only=True)
+        output = export_quotes_csv(context.result, documents, context.audit_events, supported_only=True,
+                                   codebook_entries=context.codebook_entries)
         self._export_text(output, "supported-matches.csv", status=self.audit_status)
 
     def _export_text(self, text: str, default_name: str, *, new_file: bool = False,

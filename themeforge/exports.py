@@ -7,7 +7,7 @@ from collections.abc import Iterable
 from dataclasses import asdict
 
 from .analysis import AnalysisResult, ValidationValue
-from .analysis_types import TranscriptDocument
+from .analysis_types import CodebookEntry, TranscriptDocument
 from .audit import AuditEvent, neutralize_csv_cell
 from .manual_editing import MANUAL_ONLY_NOTE
 from .match_reviews import NO_CURRENT_REVIEW, REVIEW_SCOPE, MatchReviews
@@ -15,9 +15,9 @@ from .source_location import LOCATION_SCOPE, TranscriptIndex
 
 
 def export_markdown(result: AnalysisResult, documents: Iterable[TranscriptDocument] = (),
-                    audit_events: Iterable[AuditEvent] = ()) -> str:
+                    audit_events: Iterable[AuditEvent] = (), *, codebook_entries: Iterable[CodebookEntry] = ()) -> str:
     sources = TranscriptIndex(documents)
-    reviews = MatchReviews(audit_events)
+    reviews = MatchReviews(audit_events, codebook_entries=codebook_entries)
     manual_only = MANUAL_ONLY_NOTE in result.notes
     mixed = any(t.reported_score is None for t in result.themes)
     origin = "These themes and quote matches are machine-generated suggestions."
@@ -80,7 +80,7 @@ def export_markdown(result: AnalysisResult, documents: Iterable[TranscriptDocume
             citation = (f"[{theme.id} {theme.color}] Source: {quote.source_name} | Recorded line: {quote.source_line} | "
                         f"Recorded speaker: {quote.speaker} | Quote ID: {quote.quote_id} | Location: {loc.status}")
             review = reviews.latest(theme, quote, sources)
-            review_text = " " + (review.describe() if review else NO_CURRENT_REVIEW)
+            review_text = " " + (review.describe(theme.name) if review else NO_CURRENT_REVIEW)
             excerpt = quote.text.split("\n")
             lines.extend(
                 [
@@ -109,9 +109,9 @@ def export_markdown(result: AnalysisResult, documents: Iterable[TranscriptDocume
 
 
 def export_json(result: AnalysisResult, documents: Iterable[TranscriptDocument] = (),
-                audit_events: Iterable[AuditEvent] = ()) -> str:
+                audit_events: Iterable[AuditEvent] = (), *, codebook_entries: Iterable[CodebookEntry] = ()) -> str:
     sources = TranscriptIndex(documents)
-    reviews = MatchReviews(audit_events)
+    reviews = MatchReviews(audit_events, codebook_entries=codebook_entries)
     payload = asdict(result)
     payload["source_location_scope"] = LOCATION_SCOPE
     payload["match_review_scope"] = REVIEW_SCOPE
@@ -128,9 +128,10 @@ def export_json(result: AnalysisResult, documents: Iterable[TranscriptDocument] 
 
 
 def export_quotes_csv(result: AnalysisResult, documents: Iterable[TranscriptDocument] = (),
-                      audit_events: Iterable[AuditEvent] = (), *, supported_only: bool = False) -> str:
+                      audit_events: Iterable[AuditEvent] = (), *, supported_only: bool = False,
+                      codebook_entries: Iterable[CodebookEntry] = ()) -> str:
     sources = TranscriptIndex(documents)
-    reviews = MatchReviews(audit_events)
+    reviews = MatchReviews(audit_events, codebook_entries=codebook_entries)
     buffer = io.StringIO()
     # Keep the shared table to the citation and the decision. Cluster keywords and
     # suggestion rationales can contain material from outside a selected transcript.
@@ -138,7 +139,7 @@ def export_quotes_csv(result: AnalysisResult, documents: Iterable[TranscriptDocu
     citation = ("quote_id", "speaker", "source_file", "source_line", "relevance", "quote")
     decision = ("source_start", "source_end", "source_location_status", "source_location_note",
                 "match_review_disposition", "match_review_actor", "match_review_reason",
-                "match_review_time_utc", "match_review_target_id")
+                "match_review_time_utc", "match_review_target_id", "match_review_theme_name")
     if supported_only:
         fields = (*theme_fields, *citation, *decision, "source_sha256")
     else:
@@ -164,6 +165,7 @@ def export_quotes_csv(result: AnalysisResult, documents: Iterable[TranscriptDocu
                 "match_review_reason": neutralize_csv_cell(review.reason) if review else "",
                 "match_review_time_utc": review.timestamp_utc if review else "",
                 "match_review_target_id": review.audit_target_id if review else "",
+                "match_review_theme_name": neutralize_csv_cell(review.reviewed_theme_name) if review else "",
             }
             if supported_only:
                 row["source_sha256"] = sources.digest(quote.source_name)

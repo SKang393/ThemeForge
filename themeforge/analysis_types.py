@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+import json
 
 ValidationValue = str | int | float
 
@@ -9,6 +10,9 @@ class CodebookEntry:
     name: str
     description: str = ""
     examples: tuple[str, ...] = ()
+
+    def snapshot(self) -> str:
+        return json.dumps(asdict(self), ensure_ascii=False, sort_keys=True)
 
 
 @dataclass(frozen=True, slots=True, order=True)

@@ -3,10 +3,32 @@ from __future__ import annotations
 
 import tkinter as tk
 from collections.abc import Sequence
-from tkinter import ttk
+from tkinter import simpledialog, ttk
+from tkinter.scrolledtext import ScrolledText
 
 from .analysis_types import CodebookEntry, TranscriptDocument
 from .manual_editing import ManualSelection, definition_text
+
+
+class CodebookMatchReason(simpledialog.Dialog):
+    """Keep long definitions, examples and the cited passage readable before recording a review."""
+
+    def __init__(self, parent: tk.Misc, title: str, citation: str, entry: CodebookEntry):
+        self.context = citation + "\n\nSaved codebook entry\n" + definition_text(entry)
+        super().__init__(parent, title)
+
+    def body(self, master):
+        context = ScrolledText(master, width=64, height=12, wrap="word")
+        context.insert("1.0", self.context)
+        context.configure(state="disabled")
+        context.pack(fill="both", expand=True)
+        ttk.Label(master, text="What in the passage led to this decision?").pack(anchor="w", pady=(8, 2))
+        self.reason = ttk.Entry(master)
+        self.reason.pack(fill="x")
+        return self.reason
+
+    def apply(self):
+        self.result = self.reason.get()
 
 
 def entry_label(index: int, entry: CodebookEntry) -> str:

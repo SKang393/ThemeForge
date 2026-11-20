@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import asdict, replace
-import json
+from dataclasses import replace
 import math
 import re
 from statistics import mean
@@ -78,7 +77,7 @@ def build_codebook_themes(
                 score=round(mean(quote.relevance for quote in ranked_quotes), 3),
                 quotes=_limit_theme_quotes(ranked_quotes, settings.quotes_per_theme),
                 validation={**_codebook_validation(ranked_quotes),
-                            "generated_from_codebook_entry": json.dumps(asdict(entry), ensure_ascii=False, sort_keys=True)},
+                            "generated_from_codebook_entry": entry.snapshot()},
             )
         )
     return themes

@@ -5,7 +5,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Final
 
-from .analysis_types import AnalysisResult, QuoteUnit, ThemeQuote, TranscriptDocument, TranscriptSegment
+from .analysis_types import AnalysisResult, CodebookEntry, QuoteUnit, ThemeQuote, TranscriptDocument, TranscriptSegment
 from .audit import AuditEvent
 from .quote_units import extract_quote_units
 from .transcript_parser import parse_transcript
@@ -73,6 +73,7 @@ class CodedProject:
     documents: Sequence[TranscriptDocument]
     result: AnalysisResult
     audit_events: Sequence[AuditEvent] = ()
+    codebook_entries: Sequence[CodebookEntry] = ()
 
 
 @dataclass(frozen=True, slots=True)

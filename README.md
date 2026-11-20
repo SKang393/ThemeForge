@@ -190,6 +190,27 @@ starts fresh, even if a quote ID repeats. Earlier notes, their exact excerpts,
 scores and reviewer names remain in **Rigor tools → Audit log** and its CSV export.
 Older readers do not display the review notes alongside the quotes.
 
+**Revising a codebook after review.** A codebook match review shows the full
+passage and the saved entry, including its examples and exclusions. When you
+load a revised codebook, only entries with the same code name, definition and
+examples keep their current decisions. A removed or revised entry immediately
+becomes historical, even before **Analyze**. The audit keeps the original
+decision. Run **Analyze**, select a fresh suggestion, and review it against
+the revised wording. If an older codebook suggestion lacks its original entry,
+rerun discovery to review it against a verifiable definition.
+
+Changing only the spacing between words in a suggested code's **Theme name**
+keeps the review on the same passage and definition. The supported CSV gives
+the displayed label in `theme_name` and the reviewed label in
+`match_review_theme_name`, with the original reviewer, time and audit target.
+A change of words or capitalization requires a new review. Editing a name
+inside the codebook itself changes the entry.
+
+When exporting a saved project through Python, pass
+`codebook_entries=state.settings.codebook_entries` to the report exporter.
+Without those entries, it can show the recorded quotes but cannot verify
+current codebook support. The desktop supplies the saved entries on reopen.
+
 **Resuming a study.** Open the saved project and check **Coder name**.
 In **Quote review**, **Next unreviewed** jumps across themes to the next
 scored passage with a verified span and no current review by that coder.
@@ -237,8 +258,11 @@ to compare.
 
 The paired CSV includes every theme/passage match with the same recorded snapshot
 and verified source span in both projects, including pairs with no reviews.
-Each recorded decision includes the reader's reason, time, and audit CSV link by
-`match_review_target_id`. Filter `review_comparison` to find support versus
+Each recorded decision includes the reader's reason, time, and audit CSV target.
+If the readers reviewed labels with different spacing, use
+`current_review_target_id` and `comparison_review_target_id` to look up each
+decision. The shared `match_review_target_id` is blank when the targets differ.
+Filter `review_comparison` to find support versus
 decline (`disagreement`), two supports or two declines, missing reviews, or
 decisions awaiting a revisit. Where one review is missing, the other reader's
 disposition is still shown. Exclusion counts cover stored quote rows outside

@@ -23,7 +23,7 @@ from .analysis import (
 from .analysis_types import SpeakerOverride
 from .audit import AuditEvent, create_audit_event
 from .codebook import load_codebook_entries
-from .definition_review import entry_label, review_definition
+from .definition_review import CodebookMatchReason, entry_label, review_definition
 from .exports import export_json, export_markdown, export_quotes_csv
 from .io import load_transcript_text
 from .manual_editing import (
@@ -47,7 +47,9 @@ from .manual_editing import (
     update_quote_boundary,
     update_theme_memo,
 )
-from .match_reviews import NO_CURRENT_REVIEW, REVIEW_ACTION, REVIEW_LABELS, MatchReviews, match_id, match_snapshot
+from .match_reviews import (
+    HISTORICAL_DEFINITION, NO_CURRENT_REVIEW, REVIEW_ACTION, REVIEW_LABELS, MatchReviews, match_id, match_snapshot,
+)
 from .project_io import ProjectCopyRequired, ProjectState, UnsupportedProjectFormatError, load_project, save_project
 from .rigor_dialog import RigorContext, RigorDialog
 from .semantic_suggestions import SimilarPassage, find_similar_passages
@@ -668,6 +670,7 @@ class ThemeForgeApp(tk.Tk):
 
         self.codebook_path, self.codebook_entries = Path(path), entries
         self._refresh_definition_box()
+        self._show_match_review()
         self.codebook_summary.set(codebook_selection_summary(self.codebook_path, len(self.codebook_entries)))
         self.status_text.set("Codebook loaded")
 
@@ -675,6 +678,7 @@ class ThemeForgeApp(tk.Tk):
         self.codebook_path = None
         self.codebook_entries = ()
         self._refresh_definition_box()
+        self._show_match_review()
         self.codebook_summary.set(codebook_selection_summary(None))
         self.status_text.set("Codebook removed")
 
@@ -931,6 +935,7 @@ class ThemeForgeApp(tk.Tk):
         self._set_manual_status("Quote split into a new theme")
 
     def _refresh_definition_box(self) -> None:
+        self.match_reviews.set_codebook(self.codebook_entries)
         self.definition_box.configure(values=tuple(entry_label(i, e) for i, e in enumerate(self.codebook_entries)))
         self.definition_box.set("")
 
@@ -1195,6 +1200,9 @@ class ThemeForgeApp(tk.Tk):
         if not theme or not match or disposition not in REVIEW_LABELS:
             self.status_text.set("Use Previous quote or Next quote to show the verified passage in its transcript before reviewing.")
             return
+        if not self.match_reviews.definition_is_current(theme):
+            self.status_text.set(HISTORICAL_DEFINITION)
+            return
         actor = self.researcher_name.get().strip()
         if not actor:
             self.status_text.set("Enter a reviewer name or pseudonym before recording a match review.")
@@ -1202,15 +1210,19 @@ class ThemeForgeApp(tk.Tk):
         before, sources = self.result, self._display_sources
         q = match.quote
         self.transcript_widgets[match.source_name].see(match.location.start)
-        excerpt = q.text if len(q.text) <= 200 else q.text[:200] + "…"
-        reason = simpledialog.askstring(REVIEW_LABELS[disposition],
-            f"{theme.name} ({theme.id}) | {actor}\n{q.source_name}, line {q.source_line}, "
-            f"characters [{q.source_start}, {q.source_end})\n\n{fill(excerpt, width=68)}\n\n"
-            "What in the passage led to this decision?", parent=self)
+        citation = (f"{theme.name} ({theme.id}) | {actor}\n{q.source_name}, line {q.source_line}, "
+                    f"characters [{q.source_start}, {q.source_end})\n\n")
+        entry = self.match_reviews.codebook_entry(theme)
+        if entry is not None:
+            reason = CodebookMatchReason(self, REVIEW_LABELS[disposition], citation + q.text, entry).result
+        else:
+            excerpt = q.text if len(q.text) <= 200 else q.text[:200] + "…"
+            reason = simpledialog.askstring(REVIEW_LABELS[disposition], citation + fill(excerpt, width=68)
+                                            + "\n\nWhat in the passage led to this decision?", parent=self)
         if not reason or not reason.strip():
             return
         if (self.result is not before or self._display_sources is not sources or self._visible_review_match() != match
-                or self.researcher_name.get().strip() != actor):
+                or self.researcher_name.get().strip() != actor or not self.match_reviews.definition_is_current(theme)):
             self.status_text.set("The match, source or reviewer changed. Review the visible passage again.")
             return
         snapshot = match_snapshot(theme, q, sources)
@@ -1229,7 +1241,9 @@ class ThemeForgeApp(tk.Tk):
         note = self.match_reviews.latest(theme, quote, self._display_sources, reviewer=reviewer)
         summary = NO_CURRENT_REVIEW if not reviewer else "No current match review for this coder."
         if note:
-            summary = note.describe()
+            summary = note.describe(theme.name)
+        elif not self.match_reviews.definition_is_current(theme):
+            summary = HISTORICAL_DEFINITION
         self.match_review_text.set(f"{quote.source_name}, line {quote.source_line} | {summary}")
 
     def uncode_current_quote(self) -> None:
@@ -1432,11 +1446,11 @@ class ThemeForgeApp(tk.Tk):
         self.codebook_path = state.codebook_path
         self.codebook_entries = state.settings.codebook_entries
         self.speaker_overrides = state.settings.speaker_overrides
-        self._refresh_definition_box()
         self.documents = list(state.documents)
         self.result = state.result
         self.audit_events = list(state.audit_events)
         self.match_reviews = MatchReviews(self.audit_events)
+        self._refresh_definition_box()
         self.match_review_text.set("")
         self.edit_history = EditHistory()
         self.theme_count.set(state.settings.theme_count)
@@ -1798,6 +1812,8 @@ class ThemeForgeApp(tk.Tk):
         for offset in range(len(themes) + 1):
             index = (start_theme + offset) % len(themes)
             theme = themes[index]
+            if not self.match_reviews.definition_is_current(theme):
+                continue
             start = after_quote if offset == 0 else 0
             stop = after_quote if offset == len(themes) else len(theme.quotes)
             for quote_index in range(start, stop):
@@ -1842,11 +1858,11 @@ class ThemeForgeApp(tk.Tk):
         target = Path(path)
         suffix = target.suffix.lower()
         if suffix == ".csv":
-            output = export_quotes_csv(self.result, self.documents, self.audit_events)
+            output = export_quotes_csv(self.result, self.documents, self.audit_events, codebook_entries=self.codebook_entries)
         elif suffix == ".json":
-            output = export_json(self.result, self.documents, self.audit_events)
+            output = export_json(self.result, self.documents, self.audit_events, codebook_entries=self.codebook_entries)
         else:
-            output = export_markdown(self.result, self.documents, self.audit_events)
+            output = export_markdown(self.result, self.documents, self.audit_events, codebook_entries=self.codebook_entries)
 
         target.write_text(output, encoding="utf-8", newline="")
         self.status_text.set(f"Saved {target.name}")
@@ -1857,6 +1873,7 @@ class ThemeForgeApp(tk.Tk):
             result=self.result,
             audit_events=tuple(self.audit_events),
             coder_name=self.researcher_name.get(),
+            codebook_entries=self.codebook_entries,
         )
 
     def open_rigor_tools(self) -> None:

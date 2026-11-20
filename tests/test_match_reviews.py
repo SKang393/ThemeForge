@@ -45,7 +45,8 @@ class MatchReviewTests(unittest.TestCase):
         self.fail("Expected fictional speaker in the selected group")
 
     def mark(self, status, reason):
-        with patch("themeforge.app.simpledialog.askstring", return_value=reason):
+        with patch("themeforge.app.CodebookMatchReason") as prompt:
+            prompt.return_value.result = reason
             self.app.review_current_match(status)
 
     def export(self, suffix):
