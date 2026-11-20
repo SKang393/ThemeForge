@@ -181,13 +181,22 @@ are unchanged; reopen the project and export again to see these checks.
 **Recording a match review:** Enter a reviewer name, select a source-verified
 quote in its transcript, then choose **Supports this theme**, **Not this match**
 or **Revisit later**. Check the excerpt and record your reason. Each review
-records one reader's judgment about that passage under that theme. The latest
-note for that exact pairing appears beside its rationale and in Markdown, CSV
-and JSON reports. It is one reviewer's note, not team consensus. A blank review
+records one reader's judgment about that passage under that theme. With a
+coder name entered, **Quote review** shows that reader's latest note for the
+exact pairing. Markdown, CSV and JSON reports show the latest note across
+readers, attributed to its author. A blank review
 does not mean the passage was assessed or rejected. Running **Analyze** again
 starts fresh, even if a quote ID repeats. Earlier notes, their exact excerpts,
 scores and reviewer names remain in **Rigor tools → Audit log** and its CSV export.
 Older readers do not display the review notes alongside the quotes.
+
+**Resuming a study.** Open the saved project and check **Coder name**.
+In **Quote review**, **Next unreviewed** jumps across themes to the next
+scored passage with a verified span and no current review by that coder.
+**Next deferred** returns to passages where that coder last chose **Revisit
+later**, including the saved reason. Both start after the displayed match
+and wrap around the study. **Previous quote** and **Next quote** still
+browse every recorded passage in the selected theme.
 
 **Exporting reviewed evidence:** In **Rigor tools → Audit log**, choose
 **Export supported matches CSV** for passages whose latest review is

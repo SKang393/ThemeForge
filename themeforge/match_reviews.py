@@ -56,7 +56,7 @@ class MatchReviews:
 
     def __init__(self, events: Iterable[AuditEvent] = (), *, reviewer: str | None = None):
         self._reviewer = reviewer
-        self._notes: dict[str, ReviewNote] = {}
+        self._notes: dict[tuple[str, str | None], ReviewNote] = {}
         for event in events:
             self.observe(event)
 
@@ -73,14 +73,17 @@ class MatchReviews:
                     return
                 if (status in DISPOSITIONS and isinstance(reason, str) and reason.strip()
                         and event.target_id == match_id(details["match"])):
-                    self._notes[event.target_id] = ReviewNote(status, event.actor, reason, event.timestamp_utc, event.target_id)
+                    note = ReviewNote(status, event.actor, reason, event.timestamp_utc, event.target_id)
+                    self._notes[event.target_id, event.actor] = note
+                    self._notes[event.target_id, None] = note  # Latest across readers for the shared report.
             except (TypeError, ValueError, KeyError):
                 pass  # Unrecognized audit data remains historical; do not attach it to a row.
 
-    def latest(self, theme: Theme, quote: ThemeQuote, sources: TranscriptIndex) -> ReviewNote | None:
+    def latest(self, theme: Theme, quote: ThemeQuote, sources: TranscriptIndex,
+               *, reviewer: str | None = None) -> ReviewNote | None:
         if not self._notes or not sources.has_unique_source(quote.source_name):
             return None
-        return self.by_target(match_id(match_snapshot(theme, quote, sources)))
+        return self.by_target(match_id(match_snapshot(theme, quote, sources)), reviewer=reviewer)
 
-    def by_target(self, target_id: str) -> ReviewNote | None:
-        return self._notes.get(target_id)
+    def by_target(self, target_id: str, *, reviewer: str | None = None) -> ReviewNote | None:
+        return self._notes.get((target_id, reviewer))

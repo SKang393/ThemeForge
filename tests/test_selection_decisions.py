@@ -38,7 +38,7 @@ class FirstRunLayoutTests(unittest.TestCase):
         self.assertEqual(notebook.tab(0, "text"), "Code passages")
         controls = {w.cget("text"): w for w in descendants(app) if isinstance(w, ttk.Button)}
         for label in ("Choose files", "New code from selection", "Apply codebook entry…",
-                      "Supports this theme", "Save project", "Export report"):
+                      "Supports this theme", "Next unreviewed", "Next deferred", "Save project", "Export report"):
             widget = controls[label]
             self.assertTrue(widget.winfo_ismapped(), label)
             parent = widget.master

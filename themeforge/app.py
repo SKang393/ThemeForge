@@ -139,6 +139,7 @@ class ThemeForgeApp(tk.Tk):
         self._configure_styles()
         self._build_layout()
         self._render_transcript_tabs()
+        self.researcher_name.trace_add("write", self._show_match_review)
         self._empty_state = self._project_state()
         self._saved_state = self._empty_state
         self.protocol("WM_DELETE_WINDOW", self.request_close)
@@ -454,8 +455,9 @@ class ThemeForgeApp(tk.Tk):
         for col, (disposition, label) in enumerate(REVIEW_LABELS.items()):
             ttk.Button(review_row, text=label, command=lambda choice=disposition: self.review_current_match(choice)).grid(
                 row=0, column=col)
-        ttk.Button(review_row, text="Apply definition to this quote…", command=self.code_match_to_definition).grid(
-            row=1, column=0, columnspan=3, sticky="w")
+        ttk.Button(review_row, text="Next unreviewed", command=lambda: self.next_review_match(None)).grid(row=1, column=0)
+        ttk.Button(review_row, text="Next deferred", command=lambda: self.next_review_match("deferred")).grid(row=1, column=1)
+        ttk.Button(review_row, text="Apply definition to this quote…", command=self.code_match_to_definition).grid(row=1, column=2)
         ttk.Label(reason_frame, textvariable=self.match_review_text, style="Muted.TLabel", wraplength=520).grid(row=2, column=0, sticky="w")
 
         quote_memo = ttk.Frame(evidence_tools, style="Surface.TFrame", padding=(10, 8))
@@ -1212,12 +1214,20 @@ class ThemeForgeApp(tk.Tk):
         snapshot = match_snapshot(theme, q, sources)
         details = json.dumps({"disposition": disposition, "reason": reason.strip(), "match": snapshot}, ensure_ascii=False)
         self._record_audit_event(REVIEW_ACTION, "theme_quote_match", match_id(snapshot), details)
-        self._show_match_review(theme, match.quote)
+        self._show_match_review()
         self._set_manual_status("Review note recorded. No coding assignment changed")
 
-    def _show_match_review(self, theme: Theme, quote: ThemeQuote) -> None:
-        note = self.match_reviews.latest(theme, quote, self._display_sources)
-        summary = note.describe() if note else NO_CURRENT_REVIEW
+    def _show_match_review(self, *_trace_args: str) -> None:
+        theme = self._current_theme()
+        if theme is None or self.current_quote_index < 0 or not self.current_quote_matches:
+            self.match_review_text.set("")
+            return
+        quote = self.current_quote_matches[self.current_quote_index].quote
+        reviewer = self.researcher_name.get().strip() or None
+        note = self.match_reviews.latest(theme, quote, self._display_sources, reviewer=reviewer)
+        summary = NO_CURRENT_REVIEW if not reviewer else "No current match review for this coder."
+        if note:
+            summary = note.describe()
         self.match_review_text.set(f"{quote.source_name}, line {quote.source_line} | {summary}")
 
     def uncode_current_quote(self) -> None:
@@ -1423,7 +1433,6 @@ class ThemeForgeApp(tk.Tk):
         self._refresh_definition_box()
         self.documents = list(state.documents)
         self.result = state.result
-        self.researcher_name.set(state.researcher_name)
         self.audit_events = list(state.audit_events)
         self.match_reviews = MatchReviews(self.audit_events)
         self.match_review_text.set("")
@@ -1464,6 +1473,7 @@ class ThemeForgeApp(tk.Tk):
         for child in self.winfo_children():
             if isinstance(child, RigorDialog):
                 child.destroy()  # The open comparison and audit belong to the outgoing study.
+        self.researcher_name.set(state.researcher_name)
         self._saved_state = self._project_state() if path else self._empty_state
         self.status_text.set(f"Opened project {path.name}" if path else "New unsaved project")
 
@@ -1651,10 +1661,10 @@ class ThemeForgeApp(tk.Tk):
                 self._select_theme(index)
                 return
 
-    def _select_theme(self, index: int) -> None:
+    def _select_theme(self, index: int, *, quote_index: int = 0) -> None:
         self.theme_list.selection_clear(0, tk.END)
         self.theme_list.selection_set(index)
-        self.show_theme(index)
+        self.show_theme(index, quote_index=quote_index)
 
     def _render_transcript_tabs(self) -> None:
         for tab_id in self.transcript_notebook.tabs():
@@ -1735,7 +1745,7 @@ class ThemeForgeApp(tk.Tk):
             return
         self.show_theme(selection[0])
 
-    def show_theme(self, index: int) -> None:
+    def show_theme(self, index: int, *, quote_index: int = 0) -> None:
         if self.result is None or index >= len(self.result.themes):
             return
 
@@ -1750,7 +1760,7 @@ class ThemeForgeApp(tk.Tk):
         self.quote_reason.set("Use Previous quote or Next quote to inspect why each highlighted quote was selected.")
         self._highlight_all_quotes(index)
         self.current_quote_matches = self._quote_matches_for_theme(index)
-        self.current_quote_index = 0 if self.current_quote_matches else -1
+        self.current_quote_index = quote_index if self.current_quote_matches else -1
         self._refresh_editor()
         self._focus_current_quote()
 
@@ -1767,6 +1777,48 @@ class ThemeForgeApp(tk.Tk):
             return
         self.current_quote_index = (self.current_quote_index + 1) % len(self.current_quote_matches)
         self._focus_current_quote()
+
+    def next_review_match(self, disposition: str | None) -> None:
+        reviewer = self.researcher_name.get().strip()
+        if not reviewer:
+            self.status_text.set("Enter your coder name to resume your match reviews.")
+            return
+        if not self.result or not self.result.themes:
+            self.status_text.set("Open a study with saved matches or run Analyze to find suggestions.")
+            return
+        if self._has_pending_source_edits():
+            self.status_text.set("Apply unfinished theme or memo edits before navigating to another review.")
+            return
+        themes = self.result.themes
+        start_theme = self.current_theme_index or 0
+        after_quote = self.current_quote_index + 1
+        # Continue in the displayed order, wrapping once through the current match.
+        for offset in range(len(themes) + 1):
+            index = (start_theme + offset) % len(themes)
+            theme = themes[index]
+            start = after_quote if offset == 0 else 0
+            stop = after_quote if offset == len(themes) else len(theme.quotes)
+            for quote_index in range(start, stop):
+                quote = theme.quotes[quote_index]
+                if disposition is None and quote.reported_relevance is None:
+                    continue  # A manual unscored assignment is already a coding decision.
+                note = self.match_reviews.latest(theme, quote, self._display_sources, reviewer=reviewer)
+                if (note.disposition if note else None) != disposition or not self._resolve_quote(quote).verified:
+                    continue
+                if index == self.current_theme_index:
+                    self.current_quote_index = quote_index
+                    self._focus_current_quote()
+                else:
+                    self._select_theme(index, quote_index=quote_index)
+                    self.theme_list.see(index)
+                self.status_text.set(f"{reviewer} · {disposition or 'unreviewed'} · {theme.name} · "
+                                     f"{quote.source_name}, line {quote.source_line}")
+                return
+        if disposition == "deferred":
+            self.status_text.set(f"No verified deferred matches for {reviewer}.")
+        else:
+            self.status_text.set(f"No unreviewed scored matches with verified spans for {reviewer}. "
+                                 "Use Next deferred to revisit a saved deferral.")
 
     def save_report(self) -> None:
         if self.result is None:
@@ -2030,7 +2082,7 @@ class ThemeForgeApp(tk.Tk):
             return
 
         loc = match.location
-        self._show_match_review(theme, match.quote)
+        self._show_match_review()
         context_note = ""
         if widget is not None and frame is not None and loc.start:
             self.transcript_notebook.select(frame)
