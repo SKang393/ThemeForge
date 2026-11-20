@@ -6,7 +6,8 @@ import json
 from pathlib import Path
 from shutil import copyfile
 import tempfile
-from tkinter import simpledialog
+from time import monotonic
+from tkinter import Button, simpledialog, ttk
 from tkinter.scrolledtext import ScrolledText
 import unittest
 from unittest.mock import patch
@@ -25,7 +26,14 @@ TRAY = ("Clay: I checked the tray after cooling by looking at its color.\n"
         "Glaze: I checked the tray after cooling by weighing it.")
 PACK = "Fold: I wrapped the finished tile in a packing sleeve."
 OLD = "Tray check after cooling. Exclude: weight-only checks."
-NEW = "Tray check after cooling. Exclude: color-only checks."
+NEW = ("Tray check after cooling. Exclude: color-only checks.\n"
+       "These observations alone do not establish a physical check:\n"
+       "A change in the glaze from pink to white.\n"
+       "A photograph of the tray from the previous shift.\n"
+       "A color noted on a packing slip.\n"
+       "A description of the tray under a different lamp.\n"
+       "A comparison with a color sample on the shelf.\n"
+       "A guess about the weight based on the shade of the glaze.")
 
 
 class ReviewedCodebookRevisionTests(unittest.TestCase):
@@ -33,7 +41,8 @@ class ReviewedCodebookRevisionTests(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.root = Path(directory.name)
-        self.app = ThemeForgeApp()
+        with patch.object(ThemeForgeApp, "maxsize", return_value=(1024, 705)):
+            self.app = ThemeForgeApp()
         self.addCleanup(self.app.destroy)
         docs = {"kiln.txt": TRAY, "packing.txt": PACK}
         for name, text in docs.items():
@@ -61,21 +70,57 @@ class ReviewedCodebookRevisionTests(unittest.TestCase):
         self.assertEqual(self.app.transcript_widgets[source].get("selected_quote.first", "selected_quote.last"), q.text)
         return q
 
+    def assert_visible_inside(self, widget, window):
+        self.assertTrue(widget.winfo_viewable(), str(widget))
+        x = widget.winfo_rootx() - window.winfo_rootx()
+        y = widget.winfo_rooty() - window.winfo_rooty()
+        self.assertGreaterEqual(min(x, y), 0, str(widget))
+        self.assertLessEqual(x + widget.winfo_width(), window.winfo_width(), str(widget))
+        self.assertLessEqual(y + widget.winfo_height(), window.winfo_height(), str(widget))
+
     def decide(self, button, reason):
         observed = []
+        errors = []
+        deadline = monotonic() + 5
+
         def answer():
-            dialog = next(w for w in self.app.winfo_children() if isinstance(w, simpledialog.Dialog))
+            dialog = next((w for w in self.app.winfo_children() if isinstance(w, simpledialog.Dialog)), None)
             try:
-                if isinstance(dialog, CodebookMatchReason):
-                    area, = [w for w in descendants(dialog) if isinstance(w, ScrolledText)]
-                    observed.append(area.get("1.0", "end-1c"))
-                    dialog.reason.insert(0, reason)
-                    dialog.ok()
-            finally:
-                if dialog.winfo_exists():
+                if dialog is None or self.app.grab_current() != dialog:
+                    self.assertLess(monotonic(), deadline, "Review dialog did not take its modal grab")
+                    self.app.after(10, answer)
+                    return
+                self.assertIsInstance(dialog, CodebookMatchReason)
+                dialog.geometry("600x360+20+20")
+                dialog.update_idletasks()
+                self.assertEqual((dialog.winfo_width(), dialog.winfo_height()), (600, 360))
+                widgets = list(descendants(dialog))
+                area, = [w for w in widgets if isinstance(w, ScrolledText)]
+                actions = {w.cget("text"): w for w in widgets if isinstance(w, Button)}
+                for control in (area, area.vbar, dialog.reason, actions["OK"], actions["Cancel"]):
+                    self.assert_visible_inside(control, dialog)
+                for action in actions.values():
+                    self.assertGreaterEqual(action.winfo_width(), action.winfo_reqwidth())
+                    self.assertGreaterEqual(action.winfo_height(), action.winfo_reqheight())
+                context = area.get("1.0", "end-1c")
+                observed.append(context)
+                if NEW in context:
+                    self.assertIsNotNone(area.bbox("1.0"))
+                    self.assertIsNone(area.bbox("end-2c"), "The revised example should initially be below the fold")
+                    area.yview_moveto(1)
+                    dialog.update_idletasks()
+                    self.assertIsNotNone(area.bbox("end-2c"))
+                    self.assertTrue(context.endswith("Example: Inspect a cooled tray."))
+                dialog.reason.insert(0, reason)
+                actions["OK"].invoke()
+            except Exception as exc:
+                errors.append(exc)
+                if dialog is not None and dialog.winfo_exists():
                     dialog.cancel()
-        self.app.after(50, answer)
+        self.app.after_idle(answer)
         press(self.app, button)
+        if errors:
+            raise errors[0]
         context, = observed
         return context
 
@@ -91,6 +136,9 @@ class ReviewedCodebookRevisionTests(unittest.TestCase):
     def rows(self, audit=False):
         press(self.app, "Rigor tools")
         dialog = next(w for w in self.app.winfo_children() if isinstance(w, RigorDialog))
+        tab = dialog.audit_tree.master
+        tab.master.select(tab)
+        dialog.update_idletasks()
         press(dialog, "Select all sources")
         label = "Export audit CSV" if audit else "Export supported matches CSV"
         rows = export(dialog, label, self.root / "table.csv")
@@ -163,7 +211,16 @@ class ReviewedCodebookRevisionTests(unittest.TestCase):
         self.assertEqual([r["source_file"] for r in self.rows()], ["packing.txt"])
         self.save_reopen()
         self.show(app.result.themes[0], "kiln.txt", 1)
+        app.update_idletasks()
+        self.assertEqual((app.winfo_width(), app.winfo_height()), (1024, 705))
+        warning, = [w for w in descendants(app) if isinstance(w, ttk.Label)
+                    and str(w.cget("textvariable")) == str(app.match_review_text)]
         self.assertIn("Historical codebook match", app.match_review_text.get())
+        self.assertIn("original entry cannot be verified in the loaded codebook", app.match_review_text.get())
+        self.assertIn("See Audit log", app.match_review_text.get())
+        self.assert_visible_inside(warning, app)
+        self.assertGreaterEqual(warning.winfo_width(), warning.winfo_reqwidth())
+        self.assertGreaterEqual(warning.winfo_height(), warning.winfo_reqheight())
         with patch("themeforge.app.CodebookMatchReason") as prompt:
             press(app, "Supports this theme")
             prompt.assert_not_called()

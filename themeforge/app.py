@@ -462,7 +462,19 @@ class ThemeForgeApp(tk.Tk):
                    command=self.code_match_to_definition).grid(row=1, column=0, sticky="ew")
         ttk.Button(review_row, text="Next unreviewed", command=lambda: self.next_review_match(None)).grid(row=2, column=0, sticky="ew")
         ttk.Button(review_row, text="Next deferred", command=lambda: self.next_review_match("deferred")).grid(row=2, column=1, sticky="ew")
-        ttk.Label(reason_frame, textvariable=self.match_review_text, style="Muted.TLabel", wraplength=520).grid(row=2, column=0, sticky="w")
+        review_note = ttk.Label(reason_frame, textvariable=self.match_review_text, style="Muted.TLabel", wraplength=520)
+        review_note.grid(row=2, column=0, sticky="w")
+
+        def wrap_review_note(event):
+            if event.widget not in (self, reason_frame, review_note):
+                return
+            # The evidence pane can extend beyond the client area on a narrow display.
+            right = min(self.winfo_rootx() + self.winfo_width(), reason_frame.winfo_rootx() + reason_frame.winfo_width())
+            width = min(520, right - review_note.winfo_rootx() - 12)
+            if width > 0 and width != review_note.winfo_pixels(review_note.cget("wraplength")):
+                review_note.configure(wraplength=width)
+
+        self.bind("<Configure>", wrap_review_note, add="+")
 
         quote_memo = ttk.Frame(evidence_tools, style="Surface.TFrame", padding=(10, 8))
         evidence_tools.add(quote_memo, text="Quote memo")
