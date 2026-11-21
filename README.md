@@ -543,6 +543,12 @@ Small group meetings helped because peers explained assignments.
 The app also accepts plain paragraphs without speaker labels, but speaker labels
 make quote evidence easier to review.
 
+Older analyses can include an accented speaker label in the quotation and
+credit the preceding speaker. Reopening preserves that recorded citation.
+Check the label against the transcript before sharing. To review newly parsed
+turns while keeping the original decisions, choose **Save as…** and run
+**Analyze** in the copy.
+
 ## Community Guidelines
 
 Use GitHub issues to report problems, ask support questions, or request
