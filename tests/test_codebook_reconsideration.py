@@ -91,7 +91,7 @@ class CodebookReconsiderationTests(unittest.TestCase):
             folder.mkdir()
             for suffix in ("md", "csv", "json"):
                 with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(folder / f"quotes.{suffix}")):
-                    press(app, "Export report")
+                    press(app, "Full report…")
             dialog = rigor()
             for axis, tree in (("source", dialog.source_matrix_tree), ("speaker", dialog.speaker_matrix_tree)):
                 tree.master.master.select(tree.master)

@@ -140,6 +140,27 @@ class SynthesisHandoffTests(unittest.TestCase):
         sources.selection_set(sources.get(0, "end").index("cove.txt"))
         self.assertEqual(export(dialog, button, root / "cove.csv"), [r for r in rows if r["source_file"] == "cove.txt"])
 
+        # The main export shortcut takes the displayed theme into the same chooser.
+        notebook = dialog.source_matrix_tree.master.master
+        notebook.select(dialog.source_matrix_tree.master)
+        app.theme_list.selection_clear(0, "end")
+        app.theme_list.selection_set(1)
+        app.theme_list.event_generate("<<ListboxSelect>>")
+        app.update()
+        position = (app.current_theme_index, app.current_quote_index)
+        self.assertEqual(app._current_theme(), art)
+        press(app, "Supported CSV…")
+        self.assertEqual(notebook.select(), str(dialog.audit_tree.master))
+        self.assertEqual(scope.get(), f"{art.name} ({art.id})")
+        self.assertEqual(sources.curselection(), ())
+        with patch("themeforge.rigor_dialog.filedialog.asksaveasfilename") as choose:
+            press(dialog, button)
+            choose.assert_not_called()
+        sources.selection_set(sources.get(0, "end").index("cove.txt"))
+        self.assertEqual(export(dialog, button, root / "sign.csv"), [sign])
+        self.assertEqual((app.current_theme_index, app.current_quote_index), position)
+        scope.current(scope["values"].index(label))
+
         # Another theme now has the same name as the removed selection, but a different ID.
         context = dialog.context
         changed = replace(context, result=replace(context.result, themes=[replace(art, name=bell.name)]))

@@ -340,6 +340,14 @@ class RigorDialog(tk.Toplevel):
         self._grid_tree(tab, self.audit_tree, 2)
         ttk.Label(tab, textvariable=self.audit_status, wraplength=780).grid(row=3, column=0, sticky="w")
         notebook.add(tab, text="Audit log")
+        self.audit_tab = tab
+
+    def choose_supported_sources(self, theme: Theme | None) -> None:
+        self.audit_tab.master.select(self.audit_tab)
+        self.supported_sources.selection_clear(0, tk.END)
+        self.supported_theme.set(f"{theme.name} ({theme.id})" if theme else "")
+        self.audit_status.set("")
+        self.supported_sources.focus_set()
 
     def refresh_current_state(self, _event: tk.Event | None = None) -> None:
         current = self._context_source() if self._context_source else self.context

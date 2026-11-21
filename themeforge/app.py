@@ -354,15 +354,18 @@ class ThemeForgeApp(tk.Tk):
 
         actions = ttk.Frame(parent, style="Surface.TFrame")
         actions.grid(row=15, column=0, sticky="ew", pady=(8, 0))
-        actions.columnconfigure((0, 1), weight=1)
-        ttk.Button(actions, text="Analyze", style="Primary.TButton", command=self.analyze).grid(
-            row=0, column=0, sticky="ew", padx=(0, 6))
-        ttk.Button(actions, text="Export report", style="Secondary.TButton", command=self.save_report).grid(
-            row=0, column=1, sticky="ew")
+        actions.columnconfigure((0, 1, 2), weight=1)
+        for column, (label, style, command) in enumerate((
+            ("Analyze", "Primary.TButton", self.analyze),
+            ("Supported CSV…", "Secondary.TButton", lambda: self.open_rigor_tools(supported_evidence=True)),
+            ("Full report…", "Secondary.TButton", self.save_report),
+        )):
+            ttk.Button(actions, text=label, style=style, command=command, width=-1, padding=(4, 4)).grid(
+                row=0, column=column, sticky="ew", padx=(0, 4 if column < 2 else 0))
 
         ttk.Label(
             parent,
-            text="Suggestions need researcher review before reporting.",
+            text="Full report includes unreviewed suggestions from all sources.",
             style="Muted.TLabel",
             wraplength=220,
         ).grid(row=16, column=0, sticky="ew", pady=(6, 0))
@@ -2263,7 +2266,7 @@ class ThemeForgeApp(tk.Tk):
             return
 
         path = filedialog.asksaveasfilename(
-            title="Save report",
+            title="Save full report for all themes and sources",
             defaultextension=".md",
             filetypes=[
                 ("Markdown report", "*.md"),
@@ -2295,19 +2298,23 @@ class ThemeForgeApp(tk.Tk):
             codebook_entries=self.codebook_entries,
         )
 
-    def open_rigor_tools(self) -> None:
+    def open_rigor_tools(self, *, supported_evidence: bool = False) -> None:
         if not self.documents or self.result is None:
             messagebox.showinfo("Rigor tools", "Open transcripts and run analysis before using rigor tools.")
             return
         context = self._rigor_context()
-        for child in self.winfo_children():
-            if isinstance(child, RigorDialog) and child.state() == "withdrawn":
-                if child.context != context:
-                    child.refresh_current_state()
-                child.deiconify()
-                child.source_matrix_tree.focus_set()
-                return
-        RigorDialog(self, context, self._rigor_context, self._locate_review_match)
+        for dialog in self.winfo_children():
+            if isinstance(dialog, RigorDialog) and (supported_evidence or dialog.state() == "withdrawn"):
+                if dialog.context != context:
+                    dialog.refresh_current_state()
+                dialog.deiconify()
+                dialog.lift()
+                dialog.source_matrix_tree.focus_set()
+                break
+        else:
+            dialog = RigorDialog(self, context, self._rigor_context, self._locate_review_match)
+        if supported_evidence:
+            dialog.choose_supported_sources(self._current_theme())
 
     def _locate_review_match(self, theme: Theme, quote: ThemeQuote) -> None:
         if self._has_pending_source_edits() or (self._current_theme() is None and self.theme_name.get().strip()):

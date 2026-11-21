@@ -366,7 +366,7 @@ class ResumeReviewTests(unittest.TestCase):
         self.assertEqual(self.current(), (deferred - {resolved}).pop())
         report = self.root / "review.json"
         with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(report)):
-            self.press("Export report")
+            self.press("Full report…")
         exported = json.loads(report.read_text(encoding="utf-8"))
         rows = {(t["name"], q["source_name"], q["source_line"]): q for t in exported["themes"] for q in t["quotes"]}
         self.assertEqual(set(rows), seen)

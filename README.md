@@ -165,7 +165,7 @@ needs fresh support decisions. To keep the reviewed pass, save the project,
 use **Save as…** for a working copy, then analyze that copy. If prompted to
 start a new pass, **Cancel** keeps the current one open.
 
-To see which passages changed for a code, use **Export report** to save a CSV
+To see which passages changed for a code, use **Full report…** to save a CSV
 before editing the guidance and another after analyzing the copy. Keep the
 speaker selection and quote limit fixed. Compare the code’s generated rows
 by transcript and character range, even when the coverage totals agree.
@@ -320,9 +320,12 @@ another code. Read the turn, select the exact span you want, and use **Apply
 codebook entry…** to record a manual assignment. Finding text leaves the
 review decisions and suggestion scores intact.
 
-**Handing off reviewed evidence.** In **Rigor tools → Audit log**, select the
-transcripts your collaborator may see. For a single finding, choose its name
-and ID under **Supported table theme**, then **Export supported matches CSV**.
+**Handing off reviewed evidence.** Select a theme and choose **Supported CSV…**
+beside **Analyze**. This opens **Rigor tools → Audit log** with the displayed
+theme selected and the source selection empty. Select the transcripts your
+collaborator may see, check **Supported table theme**, then choose **Export
+supported matches CSV**. **Full report…** includes all themes and sources,
+including unreviewed and declined matches.
 **All themes** includes supported matches for every theme in the selected
 transcripts. Each row is an exact passage whose latest review across coders supports
 the match. The table names that reviewer and includes their reason, time and
@@ -749,7 +752,8 @@ python -m unittest discover -s tests -v
    passages, then code only the suggestions supported by the transcript context.
 8. Rename, merge, split, or reject themes in your own qualitative analysis
    workflow.
-9. Export the report or quote table for researcher review.
+9. Choose **Supported CSV…** for reviewed evidence under the displayed theme,
+   select the sources, and export. Use **Full report…** to inspect the whole analysis.
 
 ## Validation Logic
 

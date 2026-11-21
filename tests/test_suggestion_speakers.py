@@ -157,7 +157,7 @@ class SpeakerSelectionTests(unittest.TestCase):
             self.assertEqual(app.semantic_mode.get(), "TF-IDF")
             action = button(app, "Speakers for suggestions…")
             app.update_idletasks()
-            for label in ("Choose files", "Speakers for suggestions…", "Analyze", "Export report"):
+            for label in ("Choose files", "Speakers for suggestions…", "Analyze", "Supported CSV…", "Full report…"):
                 check_visible(button(app, label), app)
             app.researcher_name.set("Workshop reviewer")
             deadline = monotonic() + 8
@@ -178,7 +178,7 @@ class SpeakerSelectionTests(unittest.TestCase):
             self.assertEqual(event.actor, "Workshop reviewer")
             report = root / "quotes.csv"
             with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(report)):
-                button(app, "Export report").invoke()
+                button(app, "Full report…").invoke()
             with report.open(encoding="utf-8", newline="") as stream:
                 rows = list(csv.DictReader(stream))
             self.assertEqual({r["source_file"] for r in rows}, {"workshop.txt"})
