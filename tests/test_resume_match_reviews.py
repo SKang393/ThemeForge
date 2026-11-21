@@ -2,7 +2,6 @@
 from dataclasses import replace
 import json
 from pathlib import Path
-from shutil import copyfile
 import tempfile
 from tkinter import ttk
 import unittest
@@ -175,6 +174,7 @@ class ResumeReviewTests(unittest.TestCase):
         seed = self.root / "unreviewed.tfproj"
         with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(seed)):
             self.press("Save project")
+        seed_bytes = seed.read_bytes()
         supported = ("Shift transfer", "market.txt", 2)
         all_matches = DECISIONS.keys() | UNREVIEWED
         # Identical cooler accounts in separate interviews require distinct decisions.
@@ -182,8 +182,11 @@ class ResumeReviewTests(unittest.TestCase):
                     ("Fern", "stall.txt", "Check the stall opening routine."))
         for actor, source, reason in sessions:
             path = self.root / f"{actor}.tfproj"
-            copyfile(seed, path)
-            self.reopen_compact(path)
+            self.reopen_compact(seed)
+            self.assertFalse(any(e.action == "match_review_note" for e in self.app.audit_events))
+            with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(path)):
+                self.press("Save as…")
+            self.assertEqual(self.app.project_path, path)
             self.app.researcher_name.set(actor)
             if source == "stall.txt":
                 self.press("Next quote")
@@ -196,12 +199,14 @@ class ResumeReviewTests(unittest.TestCase):
             self.assertEqual(self.current(), supported)
             self.mark("supported", "The outgoing shift left written instructions.")
             self.press("Save project")
+            self.assertEqual(seed.read_bytes(), seed_bytes)
 
         for actor, source, reason in sessions:
             with self.subTest(coder=actor):
                 self.reopen_compact(self.root / f"{actor}.tfproj")
                 self.assertEqual(self.app.researcher_name.get(), actor)
                 audit = list(self.app.audit_events)
+                self.assertEqual(sum(e.action == "analysis_run" for e in audit), 1)
                 self.assertEqual([e.actor for e in audit if e.action == "match_review_note"], [actor, actor])
                 self.press("Next deferred")
                 deferred = ("Cold checks", source, 1)

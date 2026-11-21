@@ -89,12 +89,16 @@ class ReviewContextTests(unittest.TestCase):
                 dialog.update()
                 area, = [w for w in descendants(dialog) if isinstance(w, ScrolledText)]
                 actions = {w.cget("text"): w for w in descendants(dialog) if isinstance(w, Button)}
-                for control in (area, area.vbar, dialog.reason, actions["OK"], actions["Cancel"]):
+
+                def check_visible(control):
                     self.assertTrue(control.winfo_viewable())
                     x, y = control.winfo_rootx(), control.winfo_rooty()
                     for px, py in ((x, y), (x + control.winfo_width() - 1, y + control.winfo_height() - 1)):
                         self.assertTrue(0 <= px < min(screen[0], 1024) and 0 <= py < min(screen[1], 768))
                         self.assertEqual(dialog.winfo_containing(px, py), control)
+
+                for control in (area, area.vbar, dialog.reason, actions["OK"], actions["Cancel"]):
+                    check_visible(control)
                 self.assertEqual(dialog.focus_lastfor(), dialog.reason)
                 focus = dialog.focus_get()
                 if focus is not None:
@@ -122,8 +126,13 @@ class ReviewContextTests(unittest.TestCase):
                     self.assertIn("Required", dialog.reason_label.cget("text"))
                     dialog.reason.insert(0, "   " if reason is not None else "")
                     actions["OK"].invoke()
+                    dialog.update_idletasks()
                     self.assertEqual(app.grab_current(), dialog)
-                    self.assertIn("Enter a reason", dialog.reason_label.cget("text"))
+                    feedback = dialog.reason_label
+                    self.assertIn("Enter a reason", feedback.cget("text"))
+                    check_visible(feedback)
+                    self.assertGreaterEqual(feedback.winfo_width(), feedback.winfo_reqwidth())
+                    self.assertGreaterEqual(feedback.winfo_height(), feedback.winfo_reqheight())
                     self.assertEqual(area.get("evidence.first", "evidence.last"), excerpt)
                     self.assertEqual(app.audit_events, initial_events)
                     dialog.reason.delete(0, "end")
@@ -144,6 +153,7 @@ class ReviewContextTests(unittest.TestCase):
         initial_events = list(app.audit_events)
         decide(3, "Supports this theme", None)
         self.assertEqual(app.audit_events, initial_events)
+        self.assertIn("No current match review", app.match_review_text.get())
         decide(3, "Not this match", "The speaker corrects this account.")
         press(app, "Next unreviewed")
         decide(6, "Supports this theme", "The stoppage was observed.")
@@ -165,6 +175,10 @@ class ReviewContextTests(unittest.TestCase):
         self.assertEqual({e.actor for e in reviews}, {"Linen"})
         self.assertEqual([(n["match"]["quote"]["source_line"], n["disposition"]) for n in saved],
                          [(3, "declined"), (6, "supported"), (9, "deferred")])
+        first = TRANSCRIPT.index(REPEAT)
+        retried = saved[0]["match"]["quote"]
+        self.assertEqual((retried["source_name"], retried["source_start"], retried["source_end"], saved[0]["reason"]),
+                         (source.name, first, first + len(REPEAT), "The speaker corrects this account."))
         selector = audit.supported_sources
         self.assertEqual(selector.curselection(), ())
         selector.selection_set(selector.get(0, "end").index(source.name))
