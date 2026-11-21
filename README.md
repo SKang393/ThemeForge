@@ -42,7 +42,11 @@ Wheel inspection,Checking the wheel rim before packing.
 
 In the supported CSV, find `source_file` and `source_line`. The example quotation begins on line 1. Its character range, `[7, 55)`, starts at character 7 and ends just before character 55, counting from zero. That slice reads “I checked the wheel rim before packing the cart.” Repeated wording elsewhere has a different address.
 
-Use the transcript text saved in the project when checking offsets. For Word or PDF input, use the extracted text. Its SHA-256 digest, computed over the UTF-8 text, should match `source_sha256`. To trace the review, export the audit CSV from **Rigor tools → Audit log**. Match `match_review_target_id` to `target_id`, then check the reviewer, UTC time and reason.
+Use the transcript text saved in the project when checking offsets. For Word or PDF input, use the extracted text. Its SHA-256 digest, computed over the UTF-8 text, should match `source_sha256`. The supported CSV already records who confirmed the quotation, when, and why in `match_review_actor`, `match_review_time_utc` and `match_review_reason`.
+
+To share selected decisions, enter the reviewer's name in **Coder name**. In **Rigor tools → Audit log**, select just the transcript you want and click **Choose review history…**. Select decisions by theme and character range, then check the quotes and reasons in the preview before saving. The dialog identifies the transcript and reviewer above the preview. Include that context separately if the recipient needs it.
+
+For a full-project audit, **Export audit CSV** includes all sources and coders, even when one transcript is selected. It can include declined passages and earlier reasons. To trace a supported row in that file, match `match_review_target_id` to `target_id`, then check the reviewer, UTC time and reason.
 
 If a collaborator already has a CSV codebook, choose **Export supported CSV with codebook links…** and select their copy. It can contain just the entries you intend to share, in any order. Each supported row must match one entry by code name, definition and examples. The evidence CSV adds the file’s SHA-256 and the entry number shown when that file is opened with **Choose codebook**. The codebook text stays in the separate file.
 
