@@ -620,6 +620,17 @@ Participant 1 1:04
 Small group meetings helped because peers explained assignments.
 ```
 
+For a repeated passage, use the supported-evidence CSV’s source line and
+character range to find the occurrence in the imported transcript. The
+speaker and time on the cue header are visible in the transcript tab.
+Manual selections carry no automatic speaker attribution, and the CSV has
+no separate cue-time field.
+
+Some older DOCX imports joined a timestamp to the following words. Check
+the saved transcript against the Word document. If a line break is missing,
+keep the original study and import the DOCX into a new project to review
+the corrected turns. Reopening the original preserves its text and decisions.
+
 The app also accepts plain paragraphs without speaker labels, but speaker labels
 make quote evidence easier to review.
 

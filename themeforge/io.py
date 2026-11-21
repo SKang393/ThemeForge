@@ -80,7 +80,7 @@ def _load_docx(path: Path) -> str:
                 pieces.append(node.text)
             elif tag == "tab":
                 pieces.append("\t")
-            elif tag == "br":
+            elif tag in {"br", "cr"}:
                 pieces.append("\n")
         text = _normalize_spaces("".join(pieces))
         if text:
