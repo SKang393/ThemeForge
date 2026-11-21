@@ -53,6 +53,7 @@ jobs:
           test_discovery_hierarchy.DiscoveryHierarchyTests.test_reused_then_absent_parent_id_preserves_the_chosen_group
           test_supported_matches.SupportedMatchTests.test_discover_review_assign_reopen_and_export
           test_bilingual_citations
+          test_timestamped_docx
           test_paired_definition_changes
           test_manual_record_comparison.ManualRecordComparisonTests.test_boundary_hints_preserve_exact_records_and_definition_scope
           test_transcript_parsing.TranscriptParsingTests.test_colons_in_prose_preserve_the_turn_and_its_exact_text
