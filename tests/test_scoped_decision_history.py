@@ -5,10 +5,11 @@ import io
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from tkinter import ttk
 import unittest
 from unittest.mock import patch
 
-from test_evidence_handoff import export, open_audit, press
+from test_evidence_handoff import descendants, export, open_audit, press
 from themeforge.analysis_types import TranscriptDocument
 from themeforge.app import ThemeForgeApp
 from themeforge.audit import AuditEvent
@@ -97,6 +98,13 @@ class ScopedDecisionHistoryTests(unittest.TestCase):
             history.update()
             self.assertEqual(history.choices.curselection(), ())
             self.assertEqual(history.output, "")
+            warning, = [w for w in descendants(history) if isinstance(w, ttk.Label)
+                        and "can identify people" in w.cget("text")]
+            self.assertIn("Selected quotes", warning.cget("text"))
+            self.assertIn("free-text reasons", warning.cget("text"))
+            self.assertTrue(warning.winfo_viewable())
+            self.assertGreaterEqual(warning.winfo_height(), warning.winfo_reqheight())
+            self.assertGreaterEqual(warning.winfo_width(), warning.winfo_reqwidth())
             self.assertEqual([r.recorded_reason for r in history.rows],
                              ["Check the separate rehearsal.", EARLIER, WITHDRAWAL, FINAL])
             for i in (3, 2, 1):

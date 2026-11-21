@@ -65,7 +65,7 @@ class ReviewHistoryScope(simpledialog.Dialog):
         self.choices.configure(yscrollcommand=scroll.set)
         self.choices.bind("<<ListboxSelect>>", self.show_preview)
         ttk.Label(master, text="CSV preview · Selected judgments may be superseded. "
-                  "Check labels, excerpts and reasons for identifying information.",
+                  "Selected quotes, theme labels and free-text reasons can identify people. Read them before sharing.",
                   wraplength=520).grid(row=2, column=0, columnspan=2, sticky="w", pady=(8, 2))
         self.preview = ScrolledText(master, height=8, width=64, wrap="word", state="disabled")
         self.preview.grid(row=3, column=0, columnspan=2, sticky="nsew")
