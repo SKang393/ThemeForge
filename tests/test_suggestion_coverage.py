@@ -108,6 +108,24 @@ class SuggestionCoverageTests(unittest.TestCase):
 
         with patch.object(app, "wait_window", side_effect=confirm):
             press(app, "Apply codebook entry…")
+        # A second reader explicitly applies a definition to a suggested quote and then supports that assignment.
+        app.researcher_name.set("Roof reader")
+        app._select_theme_by_id(theme.id)
+        app._focus_quote_by_id(theme.quotes[0].quote_id)
+
+        def accept_rain(dialog):
+            self.assertEqual(dialog.passage.get("evidence.first", "evidence.last"), observed)
+            dialog.choice.current(1)
+            dialog.show_choice()
+            press(dialog, "Apply selected definition")
+
+        with patch.object(app, "wait_window", side_effect=accept_rain):
+            press(app, "Apply definition to this quote…")
+        roof_reason = "The keeper traced the water from the roof into the crate."
+        with patch("themeforge.app.MatchReviewReason") as reason:
+            reason.return_value.result = roof_reason
+            press(app, "Supports this theme")
+        app.researcher_name.set("Supply reader")
         # Save a changed display limit without starting a new review pass.
         app.quotes_per_theme.set(1)
         path = root / "supplies.tfproj"
@@ -124,11 +142,16 @@ class SuggestionCoverageTests(unittest.TestCase):
         source.write_text("Maker: The revised document mentions only a roof leak.", encoding="utf-8")
         audit = open_audit(fresh, path)
         self.assertEqual(self.scoped_evidence(audit, source, root / "supply-only.csv"), [])
-        row, = self.scoped_evidence(audit, rain, root / "before.csv")
-        self.assertEqual((row["source_file"], row["source_start"], row["source_end"], row["quote"],
-                          row["match_review_actor"], row["match_review_reason"]),
-                         (rain.name, "8", "78", observed, "Supply reader", "The keeper saw the water enter."))
-        manual, = export(audit, "Export this project's manual codebook assignments", root / "manual.csv")
+        rows = self.scoped_evidence(audit, rain, root / "before.csv")
+        self.assertEqual(len(rows), 2)
+        self.assertEqual({(r["match_review_actor"], r["match_review_reason"], bool(r["relevance"])) for r in rows},
+                         {("Supply reader", "The keeper saw the water enter.", True), ("Roof reader", roof_reason, False)})
+        for row in rows:
+            self.assertEqual((row["source_file"], row["source_start"], row["source_end"], row["quote"]),
+                             (rain.name, "8", "78", observed))
+        assignments = export(audit, "Export this project's manual codebook assignments", root / "manual.csv")
+        self.assertEqual(len(assignments), 2)
+        manual, = [m for m in assignments if m["assigned_by"] == "Supply reader"]
         self.assertEqual((manual["code_name"], manual["assigned_by"], manual["passage"], manual["source"],
                           manual["source_start"], manual["source_end"]),
                          ("Material loss", "Supply reader", omitted, source.name, str(start), str(end)))
@@ -180,38 +203,81 @@ class SuggestionCoverageTests(unittest.TestCase):
         self.assertEqual(fresh._project_state(), saved)
         notes = [json.loads(e.details) for e in fresh.audit_events if e.action == "match_review_note"]
         self.assertEqual([(n["disposition"], n["reason"]) for n in notes],
-                         [("supported", "The keeper saw the water enter."), ("declined", "The cause was unknown.")])
+                         [("supported", "The keeper saw the water enter."), ("declined", "The cause was unknown."),
+                          ("supported", roof_reason)])
         press(fresh, "Rigor tools")
         audit, = [w for w in fresh.winfo_children() if isinstance(w, RigorDialog)]
-        self.assertEqual(self.scoped_evidence(audit, rain, root / "after.csv"), [row])
-        self.assertEqual((root / "before.csv").read_bytes(), (root / "after.csv").read_bytes())
-        self.assertEqual(export(audit, "Export this project's manual codebook assignments", root / "manual-after.csv"),
-                         [manual])
+        audit.geometry("900x600+0+0")
         tree = audit.source_matrix_tree
         tree.master.master.select(tree.master)
         fresh.update()
+        export(tree.master, "Export matrix CSV", root / "matrix.csv")
         toggle, = [w for w in descendants(tree.master) if isinstance(w, ttk.Checkbutton)
                    and w.cget("text") == "Show only my manual codebook assignments"]
         self.assertFalse(toggle.instate(["selected"]))
+        def assert_fits(widget):
+            self.assertTrue(widget.winfo_viewable())
+            self.assertGreaterEqual(widget.winfo_width(), widget.winfo_reqwidth())
+            self.assertGreaterEqual(widget.winfo_height(), widget.winfo_reqheight())
+            x, y = widget.winfo_rootx(), widget.winfo_rooty()
+            for px, py in ((x, y), (x + widget.winfo_width() - 1, y + widget.winfo_height() - 1)):
+                self.assertTrue(0 <= px < fresh.winfo_screenwidth() and 0 <= py < fresh.winfo_screenheight())
+                self.assertEqual(fresh.winfo_containing(px, py), widget)
+
+        assert_fits(toggle)
         toggle.invoke()
-        parent, = tree.get_children()
-        item, = tree.get_children(parent)
-        self.assertEqual((tree.set(item, "source"), tree.item(item, "text"), tree.set(item, "reviews"),
-                          tree.set(item, "match_link")), (source.name, f"Line 2 [{start}, {end})",
-                                                         "No current review", "None recorded"))
-        tree.focus_force()
         fresh.update()
-        tree.focus(item)
-        tree.selection_set(item)
-        tree.event_generate("<Return>")
+        hint, = [w for w in descendants(tree.master) if isinstance(w, ttk.Label)
+                 and str(w.cget("textvariable")) == str(audit.source_review_hint)]
+        assert_fits(hint)
+        self.assertIn("With no link, the discovery route is unknown", audit.source_review_hint.get())
+
+        def open_assignment(reader, name, line, first, last, words, review, link):
+            self.assertIn(f"Assignments by {reader}", audit.source_review_hint.get())
+            parent, = tree.get_children()
+            item, = tree.get_children(parent)
+            self.assertEqual((tree.set(item, "source"), tree.item(item, "text"), tree.set(item, "reviews"),
+                              tree.set(item, "match_link")), (name, f"Line {line} [{first}, {last})", review, link))
+            tree.focus_force()
+            fresh.update()
+            tree.focus(item)
+            tree.selection_set(item)
+            tree.event_generate("<Return>")
+            fresh.update()
+            self.assertEqual(audit.state(), "withdrawn")
+            self.assertEqual(fresh._current_document_name(), name)
+            transcript = fresh.transcript_widgets[name]
+            self.assertEqual(transcript.get("selected_quote.first", "selected_quote.last"), words)
+            self.assertEqual(len(transcript.get("1.0", "selected_quote.first")), first)
+            self.assertEqual(len(transcript.get("1.0", "selected_quote.last")), last)
+            self.assertIn(f"Original manual codebook assignment by {reader}", fresh.quote_reason.get())
+
+        open_assignment("Supply reader", source.name, 2, start, end, omitted, "No current review", "None recorded")
+        self.assertEqual(fresh._project_state(), saved)
+        fresh.researcher_name.set("Roof reader")
+        press(fresh, "Rigor tools")
         fresh.update()
-        self.assertEqual(audit.state(), "withdrawn")
-        transcript = fresh.transcript_widgets[source.name]
-        self.assertEqual(transcript.get("selected_quote.first", "selected_quote.last"), omitted)
-        self.assertEqual(len(transcript.get("1.0", "selected_quote.first")), start)
+        open_assignment("Roof reader", rain.name, 1, 8, 78, observed, "supported", "Recorded")
+        self.assertIn(roof_reason, fresh.match_review_text.get())
+        fresh.researcher_name.set("Supply reader")
+        press(fresh, "Rigor tools")
+        fresh.update()
+        self.assertTrue(toggle.instate(["selected"]))
+        export(tree.master, "Export matrix CSV", root / "matrix-after.csv")
+        self.assertEqual(export(tree.master, "Export this project's manual codebook assignments", root / "manual-after.csv"),
+                         assignments)
+        tree.master.master.select(audit.audit_tree.master)
+        fresh.update()
+        self.assertEqual(self.scoped_evidence(audit, rain, root / "after.csv"), rows)
+        self.assertEqual(self.scoped_evidence(audit, source, root / "supply-after.csv"), [])
+        for before_name, after_name in (("before", "after"), ("supply-only", "supply-after"),
+                                        ("manual", "manual-after"), ("matrix", "matrix-after")):
+            self.assertEqual((root / f"{before_name}.csv").read_bytes(), (root / f"{after_name}.csv").read_bytes())
         self.assertEqual(fresh._project_state(), saved)
         audit.destroy()
         self.assertEqual(path.read_bytes(), original)
+        print("Manual assignment filter at 900x600: two readers reached their exact spans; "
+              "separate support, link status, saved project and CSV bytes verified.")
 
         fresh.quotes_per_theme.set(0)
         self.assertFalse(fresh.unsuggested_button.grid_info())
