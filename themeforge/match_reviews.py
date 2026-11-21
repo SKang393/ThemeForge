@@ -16,8 +16,8 @@ REVIEW_ACTION = "match_review_note"
 REVIEW_LABELS = {"supported": "Supports this theme", "deferred": "Revisit later", "declined": "Not this match"}
 DISPOSITIONS = set(REVIEW_LABELS)
 NO_CURRENT_REVIEW = "No current match review."
-HISTORICAL_DEFINITION = ("Historical codebook match. Its original entry cannot be verified in the loaded codebook. "
-                         "See Audit log for earlier decisions. Run Analyze to review current suggestions.")
+HISTORICAL_ENTRY = "Historical codebook match. Its original entry cannot be verified in the loaded codebook."
+HISTORICAL_DEFINITION = f"{HISTORICAL_ENTRY} See Audit log for earlier decisions. Run Analyze to review current suggestions."
 REVIEW_SCOPE = ("Each review records one reader's judgment about one theme/passage match. "
                 "A codebook suggestion needs its original entry in the study's codebook for a current review. "
                 "Theme edit labels apply to the whole group. Coding assignments and relevance scores are separate. "
@@ -132,7 +132,24 @@ class MatchReviews:
 
     def latest(self, theme: Theme, quote: ThemeQuote, sources: TranscriptIndex,
                *, reviewer: str | None = None) -> ReviewNote | None:
-        if not self._notes or not self.definition_is_current(theme) or not sources.has_unique_source(quote.source_name):
+        if not self.definition_is_current(theme):
+            return None
+        return self._recorded(theme, quote, sources, reviewer)
+
+    def for_navigation(self, theme: Theme, quote: ThemeQuote, sources: TranscriptIndex,
+                       *, reviewer: str) -> ReviewNote | None:
+        """Find this reader's note in this pass, including a note under a retired entry."""
+        if not reviewer or not self._notes or sources.locate(quote).status != "exact_span":
+            return None
+        if not self.definition_is_current(theme):
+            origin = theme.validation.get("generated_from_codebook_entry")
+            if not isinstance(origin, str) or not origin:
+                return None
+        return self._recorded(theme, quote, sources, reviewer)
+
+    def _recorded(self, theme: Theme, quote: ThemeQuote, sources: TranscriptIndex,
+                  reviewer: str | None) -> ReviewNote | None:
+        if not self._notes or not sources.has_unique_source(quote.source_name):
             return None
         return self.by_key(review_key(match_snapshot(theme, quote, sources)), reviewer=reviewer)
 

@@ -236,8 +236,12 @@ interpreting it. “No current reviews” leaves that source’s position open.
 passage and the saved entry, including its examples and exclusions. When you
 load a revised codebook, only entries with the same code name, definition and
 examples keep their current decisions. A removed or revised entry immediately
-becomes historical, even before **Analyze**. The audit keeps the original
-decision. Run **Analyze**, select a fresh suggestion, and review it against
+becomes historical, even before **Analyze**. Before starting a new pass,
+enter your coder name and open **Rigor tools → By source**. Expand a
+**historical review** row and press Enter on a passage to see its exact
+occurrence and your earlier reason. Unchanged entries still show current
+decisions. The audit keeps the original decisions across passes.
+Run **Analyze**, select a fresh suggestion, and review it against
 the revised wording. If an older codebook suggestion lacks its original entry,
 rerun discovery to review it against a verifiable definition.
 

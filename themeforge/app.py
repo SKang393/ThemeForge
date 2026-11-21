@@ -51,7 +51,7 @@ from .manual_editing import (
     update_theme_memo,
 )
 from .match_reviews import (
-    HISTORICAL_DEFINITION, NO_CURRENT_REVIEW, REVIEW_ACTION, REVIEW_LABELS, MatchReviews, match_id, match_snapshot,
+    HISTORICAL_DEFINITION, HISTORICAL_ENTRY, NO_CURRENT_REVIEW, REVIEW_ACTION, REVIEW_LABELS, MatchReviews, match_id, match_snapshot,
 )
 from .project_io import ProjectCopyRequired, ProjectState, UnsupportedProjectFormatError, load_project, save_project
 from .quote_units import speaker_stopwords, suggestion_inputs
@@ -1332,6 +1332,11 @@ class ThemeForgeApp(tk.Tk):
             summary = note.describe(theme.name)
         elif not self.match_reviews.definition_is_current(theme):
             summary = HISTORICAL_DEFINITION
+            if reviewer:
+                earlier = self.match_reviews.for_navigation(theme, quote, self._display_sources, reviewer=reviewer)
+                if earlier:
+                    summary = (f"{HISTORICAL_ENTRY} See Audit log.\n"
+                               f"Earlier review: {earlier.disposition} by {earlier.actor} — {earlier.reason}")
         self.match_review_text.set(f"{quote.source_name}, line {quote.source_line} | {summary}")
 
     def uncode_current_quote(self) -> None:

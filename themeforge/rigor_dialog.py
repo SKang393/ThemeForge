@@ -225,7 +225,7 @@ class RigorDialog(tk.Toplevel):
             tree = ttk.Treeview(tab, columns=("source", "reviews", "quotes", "chars", "coverage"), selectmode="browse")
             tree.heading("#0", text="Theme / reviewed passage")
             tree.column("#0", width=210)
-            self._configure_tree(tree, ("Source", "Current match reviews", "Stored quotes", "Covered chars", "Coverage %"))
+            self._configure_tree(tree, ("Source", "Match reviews", "Stored quotes", "Covered chars", "Coverage %"))
             tree.column("reviews", width=230)
             for col in ("quotes", "chars", "coverage"):
                 tree.column(col, width=90)
@@ -359,9 +359,9 @@ class RigorDialog(tk.Toplevel):
         self._clear_tree(tree)
         self._source_review_matches.clear()
         reviewer = self.context.coder_name.strip()
-        hint = (f"Current verified match reviews by {reviewer}. Expand a row and double-click a passage "
+        hint = (f"Match reviews by {reviewer}. Historical rows used an earlier codebook entry. Expand a row and double-click a passage "
                 "or press Enter to read its quote and reason." if reviewer else
-                "Enter a coder name in the main window to see that reader’s current match reviews.")
+                "Enter a coder name in the main window to see that reader’s match reviews.")
         self.source_review_hint.set(f"{hint} Quote counts and coverage include suggestions. Read the reason for a decline "
                                     "to distinguish a counterexample from an irrelevant match.")
         result = self.context.result
@@ -373,21 +373,24 @@ class RigorDialog(tk.Toplevel):
         if reviewer:
             for index, theme in enumerate(result.themes):
                 for quote in theme.quotes:
-                    note = reviews.latest(theme, quote, sources, reviewer=reviewer)
-                    if note and sources.locate(quote).status == "exact_span":
+                    note = reviews.for_navigation(theme, quote, sources, reviewer=reviewer)
+                    if note:
                         by_source[index, quote.source_name].append((quote, note.disposition))
         for row in self.matrix_report.source_rows:
             theme = result.themes[row.theme_index]
             matches = by_source[row.theme_index, row.axis_value]
             counts = Counter(status for _, status in matches)
             summary = ", ".join(f"{counts[s]} {s}" for s in ("supported", "declined", "deferred") if counts[s])
-            if not summary:
+            historical = bool(matches) and not reviews.definition_is_current(theme)
+            if historical:
+                summary = f"{len(matches)} historical review{'s' if len(matches) != 1 else ''}"
+            elif not summary:
                 summary = "No current reviews" if reviewer else "Choose a coder"
             parent = tree.insert("", tk.END, text=f"{theme.name} ({theme.id})", values=(
                 row.axis_value, summary, row.quote_count, row.covered_chars, f"{row.coverage_ratio * 100:.2f}"))
             for quote, status in sorted(matches, key=lambda pair: pair[0].source_start):
                 item = tree.insert(parent, tk.END, text=f"Line {quote.source_line} [{quote.source_start}, {quote.source_end})",
-                                   values=(row.axis_value, status))
+                                   values=(row.axis_value, f"Historical: {status}" if historical else status))
                 self._source_review_matches[item] = theme, quote
 
     def _open_source_review(self, event: tk.Event) -> str | None:
