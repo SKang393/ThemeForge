@@ -243,9 +243,13 @@ scored passage with a verified span and no current review by that coder.
 later** and shows the saved reason. Use **Next supported** to find a passage
 you supported and read your earlier reason. To revise it, choose **Not this
 match** or **Revisit later** and record a new reason. The audit keeps both
-decisions. These navigation buttons
-start after the displayed match and wrap around the study. **Previous quote**
-and **Next quote** browse every recorded passage in the selected theme.
+decisions. In a multi-transcript study, choose a filename under **Next in**,
+then choose **Next unreviewed**, **Next deferred** or **Next supported**.
+Each button starts after the displayed match and wraps within the chosen
+source. **All sources** searches the whole study and is the default when
+you open a project. Evidence exports have their own source chooser.
+**Previous quote** and **Next quote** browse every recorded passage in the
+selected theme.
 
 **Handing off reviewed evidence.** In **Rigor tools → Audit log**, select the
 transcripts your collaborator may see, then choose **Export supported matches

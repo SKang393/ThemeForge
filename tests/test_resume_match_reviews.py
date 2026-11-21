@@ -156,6 +156,60 @@ class ResumeReviewTests(unittest.TestCase):
                 self.assertCountEqual(reached, expected)
                 self.assertEqual(self.app.audit_events, audit)
 
+    def test_next_buttons_follow_one_source_and_the_named_reviewer(self):
+        app = self.app
+        decisions = [
+            ("Elm", "Cold checks", "market.txt", 1, "supported", "The reading was entered."),
+            ("Elm", "Shift transfer", "market.txt", 2, "deferred", "Check the outgoing sheet."),
+            ("Fern", "Cold checks", "market.txt", 1, "supported", "An opening reading was logged."),
+            ("Fern", "Shift transfer", "market.txt", 2, "declined", "Receipt is unclear."),
+            ("Fern", "Site access", "market.txt", 3, "supported", "The gate was unlocked."),
+            ("Fern", "Cold checks", "stall.txt", 1, "deferred", "Check the stall record."),
+        ]
+        for actor, code, source, line, decision, reason in decisions:
+            app.researcher_name.set(actor)
+            theme, = [t for t in app.result.themes if t.name == code]
+            quote, = [q for q in theme.quotes if (q.source_name, q.source_line) == (source, line)]
+            app._select_theme_by_id(theme.id)
+            app._focus_quote_by_id(quote.quote_id)
+            self.mark(decision, reason)
+        app.researcher_name.set("Elm")
+        project = self.root / "shifts.tfproj"
+        with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(project)):
+            self.press("Save project")
+        original = project.read_bytes()
+        self.reopen_compact(project)
+        saved = self.app._project_state()
+        scope = self.app.review_source_box
+        self.assertEqual(scope.get(), "All sources")
+        scope.current(scope["values"].index("market.txt"))
+        self.press("Next unreviewed")
+        self.assertEqual(self.current(), ("Site access", "market.txt", 3))
+        self.assertIn("No current match review for this coder", self.app.match_review_text.get())
+        self.press("Next unreviewed")  # Wrap within the file even when another file has pending work.
+        self.assertEqual(self.current(), ("Site access", "market.txt", 3))
+        self.press("Next deferred")
+        self.assertEqual(self.current(), ("Shift transfer", "market.txt", 2))
+        self.press("Next supported")
+        self.assertEqual(self.current(), ("Cold checks", "market.txt", 1))
+
+        self.app.researcher_name.set("Fern")
+        self.press("Next supported")
+        self.assertEqual(self.current(), ("Site access", "market.txt", 3))
+        self.assertIn("The gate was unlocked.", self.app.match_review_text.get())
+        self.press("Next unreviewed")
+        self.assertEqual(self.current(), ("Site access", "market.txt", 3))
+        self.assertIn("No unreviewed scored matches with verified spans for Fern in market.txt", self.app.status_text.get())
+        self.press("Next deferred")
+        self.assertEqual(self.current(), ("Site access", "market.txt", 3))
+        self.assertIn("No verified deferred matches for Fern in market.txt", self.app.status_text.get())
+        scope.current(0)
+        self.press("Next deferred")
+        self.assertEqual(self.current(), ("Cold checks", "stall.txt", 1))
+        self.app.researcher_name.set("Elm")
+        self.assertEqual(self.app._project_state(), saved)
+        self.assertEqual(project.read_bytes(), original)
+
     def test_resume_across_codes_and_revisit_own_deferrals(self):
         suggested = self.app.result
         seen = set()

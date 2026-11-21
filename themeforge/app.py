@@ -474,9 +474,14 @@ class ThemeForgeApp(tk.Tk):
                 row=row, column=column, sticky="ew")
         ttk.Button(review_row, text="Apply definition to this quote…", padding=(2, 4),
                    command=self.code_match_to_definition).grid(row=1, column=0, sticky="ew")
-        ttk.Button(review_row, text="Next unreviewed", command=lambda: self.next_review_match(None)).grid(row=2, column=0, sticky="ew")
-        ttk.Button(review_row, text="Next deferred", command=lambda: self.next_review_match("deferred")).grid(row=2, column=1, sticky="ew")
-        ttk.Button(review_row, text="Next supported", command=lambda: self.next_review_match("supported")).grid(row=3, column=0, sticky="ew")
+        scope = ttk.Frame(review_row, style="Surface.TFrame")
+        scope.grid(row=2, column=0, columnspan=2, sticky="w")
+        ttk.Label(scope, text="Next in", style="Muted.TLabel").grid(row=0, column=0, padx=(0, 3))
+        self.review_source_box = ttk.Combobox(scope, state="readonly", width=22)
+        self.review_source_box.grid(row=0, column=1, sticky="ew")
+        ttk.Button(review_row, text="Next unreviewed", command=lambda: self.next_review_match(None)).grid(row=3, column=0, sticky="ew")
+        ttk.Button(review_row, text="Next deferred", command=lambda: self.next_review_match("deferred")).grid(row=3, column=1, sticky="ew")
+        ttk.Button(review_row, text="Next supported", command=lambda: self.next_review_match("supported")).grid(row=4, column=0, sticky="ew")
         review_note = ttk.Label(reason_frame, textvariable=self.match_review_text, style="Muted.TLabel", wraplength=520)
         review_note.grid(row=2, column=0, sticky="w")
 
@@ -1746,6 +1751,15 @@ class ThemeForgeApp(tk.Tk):
 
         self.transcript_widgets = {}
         self._display_sources = TranscriptIndex(self.documents)
+        names = [doc.name for doc in self.documents]
+        # Keep the whole-study choice distinct even for a transcript literally named All sources.
+        labels = [f'“{name}”' for name in names] if "All sources" in names else names
+        self.review_source_box.configure(values=("All sources", *labels))
+        self.review_source_box.current(0)
+        if len(names) > 1:
+            self.review_source_box.master.grid()
+        else:
+            self.review_source_box.master.grid_remove()
         self.transcript_frames = {}
         self.transcript_frame_sources = {}
         self.stripe_canvases = {}
@@ -1960,6 +1974,11 @@ class ThemeForgeApp(tk.Tk):
         if self._has_pending_source_edits():
             self.status_text.set("Apply unfinished theme or memo edits before navigating to another review.")
             return
+        choice = self.review_source_box.current()
+        if not 0 <= choice <= len(self.documents):
+            self.status_text.set("Choose a transcript or All sources before continuing.")
+            return
+        source = self.documents[choice - 1].name if choice else None
         themes = self.result.themes
         start_theme = self.current_theme_index or 0
         after_quote = self.current_quote_index + 1
@@ -1973,6 +1992,8 @@ class ThemeForgeApp(tk.Tk):
             stop = after_quote if offset == len(themes) else len(theme.quotes)
             for quote_index in range(start, stop):
                 quote = theme.quotes[quote_index]
+                if source is not None and quote.source_name != source:
+                    continue
                 if disposition is None and quote.reported_relevance is None:
                     continue  # A manual unscored assignment is already a coding decision.
                 note = self.match_reviews.latest(theme, quote, self._display_sources, reviewer=reviewer)
@@ -1987,10 +2008,11 @@ class ThemeForgeApp(tk.Tk):
                 self.status_text.set(f"{reviewer} · {disposition or 'unreviewed'} · {theme.name} · "
                                      f"{quote.source_name}, line {quote.source_line}")
                 return
+        scope = f" in {source}" if source is not None else ""
         if disposition is not None:
-            self.status_text.set(f"No verified {disposition} matches for {reviewer}.")
+            self.status_text.set(f"No verified {disposition} matches for {reviewer}{scope}.")
         else:
-            self.status_text.set(f"No unreviewed scored matches with verified spans for {reviewer}. "
+            self.status_text.set(f"No unreviewed scored matches with verified spans for {reviewer}{scope}. "
                                  "Use Next deferred to revisit a saved deferral.")
 
     def save_report(self) -> None:
