@@ -1,5 +1,6 @@
 """Compare named readers' current audit notes on identical, source-verified match snapshots."""
 import csv
+from collections import Counter
 from dataclasses import dataclass
 import io
 
@@ -31,6 +32,26 @@ class PairedReviewReport:
     @property
     def shared(self) -> int:
         return len(self.matches)
+
+    @property
+    def outcome_counts(self) -> Counter[str]:
+        return Counter(row.outcome for row in self.matches)
+
+    @property
+    def counts_csv(self) -> str:
+        counts = self.outcome_counts
+        output = io.StringIO(newline="")
+        csv.writer(output).writerows((
+            ("Paired review outcome", "Count of shared verified theme/passage matches"),
+            ("Agreement (both supported)", counts["both_supported"]),
+            ("Agreement (both declined)", counts["both_declined"]),
+            ("Disagreement (support versus decline)", counts["disagreement"]),
+            ("Deferral (both reviewed and at least one deferred)", counts["deferred"]),
+            ("Missing exactly one review", counts["missing_current_review"] + counts["missing_comparison_review"]),
+            ("Missing both reviews", counts["neither_reviewed"]),
+            ("Total across selected sources (denominator)", self.shared),
+        ))
+        return output.getvalue()
 
     @property
     def csv_text(self) -> str:

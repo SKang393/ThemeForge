@@ -45,6 +45,7 @@ class PairedExportScope(simpledialog.Dialog):
         self.counts = Counter(row.quote.source_name for row in report.matches)
         self.report = report
         self.preview = tk.StringVar(parent)
+        self.counts_only = tk.BooleanVar(parent, value=False)
         super().__init__(parent, "Choose sources for the paired CSV")
 
     def body(self, master):
@@ -64,10 +65,11 @@ class PairedExportScope(simpledialog.Dialog):
         self.sources.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
         self.sources.bind("<<ListboxSelect>>", self.show_preview)
         ttk.Button(master, text="Select all sources", command=self.select_all).grid(row=4, column=0, sticky="w", pady=4)
-        ttk.Label(master, textvariable=self.preview, wraplength=480).grid(row=5, column=0, sticky="w")
-        ttk.Label(master, text="The CSV includes all review outcomes for the highlighted sources. Excerpts, labels, "
-                  "names and either reader’s free-text reasons can identify people or refer to other transcripts. "
-                  "Check these fields before sharing.", wraplength=480).grid(row=6, column=0, sticky="w", pady=(6, 0))
+        ttk.Checkbutton(master, text="Export outcome counts only", variable=self.counts_only,
+                        command=self.show_preview).grid(row=5, column=0, sticky="w", pady=(0, 4))
+        ttk.Label(master, textvariable=self.preview, wraplength=480).grid(row=6, column=0, sticky="w")
+        self.warning = ttk.Label(master, wraplength=480)
+        self.warning.grid(row=7, column=0, sticky="w", pady=(6, 0))
         self.show_preview()
         return self.sources
 
@@ -81,8 +83,17 @@ class PairedExportScope(simpledialog.Dialog):
     def show_preview(self, _event=None):
         selected = self.selected_names()
         rows = sum(self.counts[name] for name in selected)
-        self.preview.set(f"The CSV will include {rows} of {self.report.shared} paired rows from "
-                         f"{len(selected)} of {len(self.counts)} sources.")
+        if self.counts_only.get():
+            self.preview.set(f"The totals will cover {rows} of {self.report.shared} shared matches from "
+                             f"{len(selected)} of {len(self.counts)} sources.")
+            self.warning.configure(text="The CSV contains only outcome labels and counts pooled across the selected "
+                                   "sources. Small counts can still identify people in context.")
+        else:
+            self.preview.set(f"The CSV will include {rows} of {self.report.shared} paired rows from "
+                             f"{len(selected)} of {len(self.counts)} sources.")
+            self.warning.configure(text="The CSV includes all review outcomes for the highlighted sources. Excerpts, "
+                                   "labels, names and either reader’s free-text reasons can identify people or refer "
+                                   "to other transcripts. Check these fields before sharing.")
 
     def validate(self):
         if self.selected_names():
@@ -91,7 +102,7 @@ class PairedExportScope(simpledialog.Dialog):
         return False
 
     def apply(self):
-        self.result = self.selected_names()
+        self.result = self.selected_names(), self.counts_only.get()
 
 
 class RigorDialog(tk.Toplevel):
@@ -415,7 +426,7 @@ class RigorDialog(tk.Toplevel):
         if report is None or self._locate_match is None:
             return
         disputes = [row for row in report.matches if row.outcome == "disagreement"]
-        counts = Counter(row.outcome for row in report.matches)
+        counts = report.outcome_counts
         missing = counts["missing_current_review"] + counts["missing_comparison_review"] + counts["neither_reviewed"]
         summary = f"Both reviewed with a deferral ({counts['deferred']}) · Missing one or both reviews ({missing})"
         if not disputes:
@@ -443,10 +454,11 @@ class RigorDialog(tk.Toplevel):
         preview = self._paired_reviews()
         if preview is None:
             return
-        selected = PairedExportScope(self, preview).result
-        if selected is None:
+        choice = PairedExportScope(self, preview).result
+        if choice is None:
             self.status.set("Export canceled.")
             return
+        selected, counts_only = choice
         comparison = self._paired_reviews(source_names=selected)
         if comparison is None:
             return
@@ -454,6 +466,9 @@ class RigorDialog(tk.Toplevel):
         expected = tuple(row for row in preview.matches if row.quote.source_name in selected)
         if comparison.matches != expected or comparison.reviewers != preview.reviewers:
             self.status.set("The paired reviews changed since the preview. Choose sources again.")
+            return
+        if counts_only:
+            self._export_text(comparison.counts_csv, "paired-review-counts.csv", new_file=True)
             return
         if self._export_text(comparison.csv_text, "paired-match-reviews.csv", new_file=True):
             self.status.set(f"Exported {comparison.shared} shared match(es) from {len(selected)} selected source(s). "

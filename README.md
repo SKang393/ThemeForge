@@ -301,6 +301,16 @@ separate discussion. **Export coverage statistics** and **Export coverage
 differences** compare stored theme quotes across transcript units, including
 automatically suggested quotes.
 
+For a methods appendix, choose **Export outcome counts only** in the paired
+CSV source chooser. The table pools the selected sources and counts each
+shared, verified theme/passage match once. Agreement is split into both
+supported and both declined. Disagreement means support versus decline.
+A match with two reviews and at least one deferral counts as deferred. A match
+missing one or both reviews goes in the corresponding missing category, even
+if the available review was deferred. All six counts sum to the stated total.
+These are descriptive counts of match reviews. The file contains only fixed
+labels and integers. Small counts can still identify people in context.
+
 **Coding a passage you found in a match:** In the **Quote review** tab, choose
 **Apply definition to this quote…**. The dialog shows the current quote in its
 transcript, even if a different passage was previously selected with the mouse.

@@ -44,7 +44,7 @@ BLUE = {
 
 def press(widget, label):
     for child in widget.winfo_children():
-        if isinstance(child, ttk.Button) and child.cget("text") == label:
+        if isinstance(child, (ttk.Button, ttk.Checkbutton)) and child.cget("text") == label:
             child.invoke()
             return True
         if press(child, label):
@@ -58,8 +58,13 @@ def choose_all(scope, _window):
     scope.ok()
 
 
-def answer_paired_scope(answer=choose_all):
-    return patch.object(PairedExportScope, "wait_window", autospec=True, side_effect=answer)
+def answer_paired_scope(answer=choose_all, *, counts_only=False):
+    def respond(scope, window):
+        if counts_only and not press(scope, "Export outcome counts only"):
+            raise AssertionError("Missing counts-only choice")
+        answer(scope, window)
+
+    return patch.object(PairedExportScope, "wait_window", autospec=True, side_effect=respond)
 
 
 class PairedMatchReviewTests(unittest.TestCase):
@@ -177,6 +182,44 @@ class PairedMatchReviewTests(unittest.TestCase):
                     self.assertEqual(row[f"{role}_time_utc"], "")
         self.assertEqual(len({r["match_review_target_id"] for r in rows}), 8)
 
+    def test_appendix_counts_contain_only_fixed_labels_and_scoped_totals(self):
+        # Hand counts from the independent decisions above, including the two deferrals on late.txt.
+        labels = ["Agreement (both supported)", "Agreement (both declined)", "Disagreement (support versus decline)",
+                  "Deferral (both reviewed and at least one deferred)", "Missing exactly one review",
+                  "Missing both reviews", "Total across selected sources (denominator)"]
+        copies = [path.read_bytes() for path in self.paths]
+        report = self.dialog._paired_reviews()
+        for names, expected in ((("early.txt",), (1, 1, 1, 0, 1, 0, 4)),
+                                (("late.txt",), (0, 0, 0, 2, 1, 1, 4)),
+                                (("early.txt", "late.txt"), (1, 1, 1, 2, 2, 1, 8))):
+            with self.subTest(names=names):
+                def choose(scope, _window):
+                    scope.update()
+                    self.assertEqual(scope.sources.curselection(), ())
+                    self.assertIn("0 of 8 shared matches", scope.preview.get())
+                    self.assertTrue(scope.warning.winfo_viewable())
+                    self.assertIn("Small counts can still identify people", scope.warning.cget("text"))
+                    for name in names:
+                        scope.sources.selection_set(scope.sources.get(0, "end").index(name))
+                    scope.sources.event_generate("<<ListboxSelect>>")
+                    scope.update()
+                    self.assertIn(f"{expected[-1]} of 8 shared matches", scope.preview.get())
+                    scope.ok()
+
+                path = self.folder / ("-".join(names) + "-counts.csv")
+                with answer_paired_scope(choose, counts_only=True) as chooser, \
+                        patch("themeforge.rigor_dialog.filedialog.asksaveasfilename", return_value=str(path)) as picker:
+                    self.assertTrue(press(self.dialog, "Export paired match reviews"))
+                chooser.assert_called_once()
+                self.assertEqual(picker.call_args.kwargs["initialfile"], "paired-review-counts.csv")
+                with path.open(encoding="utf-8", newline="") as stream:
+                    header, *rows = csv.reader(stream)
+                self.assertEqual(header, ["Paired review outcome", "Count of shared verified theme/passage matches"])
+                self.assertEqual(rows, [[label, str(value)] for label, value in zip(labels, expected, strict=True)])
+                self.assertEqual(sum(int(row[1]) for row in rows[:-1]), int(rows[-1][1]))
+        self.assertEqual(self.dialog._paired_reviews(), report)
+        self.assertEqual([path.read_bytes() for path in self.paths], copies)
+
     def test_copied_history_and_a_later_reader_do_not_supply_another_readers_vote(self):
         copied = self.folder / "copied.tfproj"
         copyfile(self.paths[0], copied)
@@ -254,15 +297,18 @@ class PairedMatchReviewTests(unittest.TestCase):
             self.dialog._comparison_project = replace(self.dialog._comparison_project, documents=docs)
 
         destination = self.folder / "scope.csv"
-        for answer, status in ((cancel, "canceled"), (empty, "canceled"), (replace_source, "changed since the preview")):
-            with self.subTest(status=status), answer_paired_scope(answer), \
-                    patch("themeforge.rigor_dialog.filedialog.asksaveasfilename", return_value=str(destination)) as picker:
+        for counts_only in (False, True):
+            for answer, status in ((cancel, "canceled"), (empty, "canceled"), (replace_source, "changed since the preview")):
+                with self.subTest(answer=answer.__name__, counts_only=counts_only), \
+                        answer_paired_scope(answer, counts_only=counts_only), \
+                        patch("themeforge.rigor_dialog.filedialog.asksaveasfilename", return_value=str(destination)) as picker:
+                    self.dialog._export_paired_reviews()
+                    picker.assert_not_called()
+                    self.assertIn(status, self.dialog.status.get())
+                    self.assertFalse(destination.exists())
+            with answer_paired_scope(counts_only=counts_only), \
+                    patch("themeforge.rigor_dialog.filedialog.asksaveasfilename", return_value="") as picker:
                 self.dialog._export_paired_reviews()
-                picker.assert_not_called()
-                self.assertIn(status, self.dialog.status.get())
-                self.assertFalse(destination.exists())
-        with answer_paired_scope(), patch("themeforge.rigor_dialog.filedialog.asksaveasfilename", return_value="") as picker:
-            self.dialog._export_paired_reviews()
-        picker.assert_called_once()
-        self.assertIn("canceled", self.dialog.status.get())
-        self.assertFalse(destination.exists())
+            picker.assert_called_once()
+            self.assertIn("canceled", self.dialog.status.get())
+            self.assertFalse(destination.exists())
