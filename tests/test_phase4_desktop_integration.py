@@ -87,7 +87,6 @@ class Phase4DesktopIntegrationTests(unittest.TestCase):
     def test_open_rigor_dialog_refreshes_visible_rows_and_loaded_comparison_when_project_changes(self) -> None:
         # Given: an open Rigor Tools dialog with one coded quote, one audit row, and a loaded comparison.
         app = ThemeForgeApp()
-        app.withdraw()
         try:
             document = TranscriptDocument(name="Shared", text=DOCUMENT_TEXT)
             first = _quote("Q1", "P1", "First quote words")
@@ -98,6 +97,8 @@ class Phase4DesktopIntegrationTests(unittest.TestCase):
             app.researcher_name.set("Current")
             app.open_rigor_tools()
             dialog = next(child for child in app.winfo_children() if isinstance(child, RigorDialog))
+            app.update()
+            self.assertTrue(dialog.winfo_viewable())
             source_tree = dialog.source_matrix_tree
             speaker_tree = _tree_by_columns(dialog, ("theme", "speaker", "quotes", "chars", "coverage"))
             audit_tree = _tree_by_columns(dialog, ("timestamp", "actor", "action", "target", "details"))

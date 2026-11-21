@@ -62,30 +62,53 @@ class MatchReviewTests(unittest.TestCase):
         self.mark("deferred", "Check who sent the log.")
         app.open_rigor_tools()
         dialog, = [child for child in app.winfo_children() if isinstance(child, RigorDialog)]
+        dialog.geometry("900x600+0+0")
+        app.update()
         tree = dialog.source_matrix_tree
+
+        def follow(item):
+            self.assertTrue(tree.winfo_viewable())
+            tree.see(item)
+            tree.focus_force()
+            tree.focus(item)
+            tree.selection_set(item)
+            app.update()
+            tree.event_generate("<Return>")
+            app.update()
+            self.assertEqual(dialog.state(), "withdrawn")
+
         parent, = [row for row in tree.get_children() if tree.set(row, "reviews") == "1 deferred"]
         item, = tree.get_children(parent)
-        tree.focus_force()
-        tree.see(item)
-        tree.focus(item)
-        tree.selection_set(item)
-        app.update()
-        tree.event_generate("<Return>")
-        app.update()
-        self.assertEqual(dialog.state(), "withdrawn")
+        follow(item)
 
         with patch.object(dialog, "_render_current_state", wraps=dialog._render_current_state) as render:
             self.mark("declined", "Jo says the log was never submitted.")
+            app.update()
             self.select(0, "Ren")
             self.mark("supported", "Ren describes submitting it.")
+            app.update()
             render.assert_not_called()
             app.open_rigor_tools()
+            app.update()
             render.assert_called_once()
-        app.update()
-        self.assertTrue(tree.winfo_viewable())
         reviewed, = [row for row in tree.get_children() if tree.set(row, "reviews") == "1 supported, 1 declined"]
-        self.assertEqual([tree.set(row, "reviews") for row in tree.get_children(reviewed)], ["declined", "supported"])
         self.assertEqual(len(dialog.audit_tree.get_children()), len(app.audit_events))
+        saved_state = app._project_state()
+        expected = [(1, 4, 36, "declined", "Jo says the log was never submitted."),
+                    (2, 42, 75, "supported", "Ren describes submitting it.")]
+        for item, (line, start, end, status, reason) in zip(tree.get_children(reviewed), expected, strict=True):
+            self.assertEqual(tree.item(item, "text"), f"Line {line} [{start}, {end})")
+            self.assertEqual(tree.set(item, "reviews"), status)
+            follow(item)
+            self.assertEqual(app._current_document_name(), self.doc.name)
+            text = app.transcript_widgets[self.doc.name]
+            self.assertEqual(len(text.get("1.0", "selected_quote.first")), start)
+            self.assertEqual(text.get("selected_quote.first", "selected_quote.last"), self.doc.text[start:end])
+            self.assertIn(f"{status} by Reader A", app.match_review_text.get())
+            self.assertIn(reason, app.match_review_text.get())
+            app.open_rigor_tools()
+            app.update()
+        self.assertEqual(app._project_state(), saved_state)
 
     def test_reviews_survive_reopen_and_export_but_never_change_coding_or_transfer_to_new_run(self):
         app = self.app
