@@ -48,6 +48,7 @@ class MatrixCell:
     quote_count: int
     covered_chars: int
     denominator_chars: int
+    theme_index: int = 0  # Index in this matrix's result, including when display names repeat.
 
     @property
     def coverage_ratio(self) -> float:
@@ -132,11 +133,11 @@ def matrix_queries(documents: Sequence[TranscriptDocument], result: AnalysisResu
     source_rows: list[MatrixCell] = []
     speaker_rows: list[MatrixCell] = []
 
-    for theme in result.themes:
+    for theme_index, theme in enumerate(result.themes):
         for source_name, length in doc_lengths.items():
             quotes = [quote for quote in theme.quotes if quote.source_name == source_name]
             spans = [_clip_span(quote.source_start, quote.source_end, length) for quote in quotes]
-            source_rows.append(MatrixCell(theme.name, source_name, len(quotes), _covered_chars(spans), length))
+            source_rows.append(MatrixCell(theme.name, source_name, len(quotes), _covered_chars(spans), length, theme_index))
         for speaker in speakers:
             spans_by_source = speaker_spans[speaker]
             overlaps = _quote_speaker_overlaps(theme.quotes, spans_by_source, doc_lengths)
@@ -147,6 +148,7 @@ def matrix_queries(documents: Sequence[TranscriptDocument], result: AnalysisResu
                     _speaker_quote_count(theme.quotes, spans_by_source, doc_lengths),
                     sum(_covered_chars(spans) for spans in overlaps.values()),
                     sum(_covered_chars(spans) for spans in spans_by_source.values()),
+                    theme_index,
                 )
             )
     return MatrixQueryReport(tuple(source_rows), tuple(speaker_rows))

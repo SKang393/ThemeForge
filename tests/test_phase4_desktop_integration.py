@@ -98,7 +98,7 @@ class Phase4DesktopIntegrationTests(unittest.TestCase):
             app.researcher_name.set("Current")
             app.open_rigor_tools()
             dialog = next(child for child in app.winfo_children() if isinstance(child, RigorDialog))
-            source_tree = _tree_by_columns(dialog, ("theme", "source", "quotes", "chars", "coverage"))
+            source_tree = dialog.source_matrix_tree
             speaker_tree = _tree_by_columns(dialog, ("theme", "speaker", "quotes", "chars", "coverage"))
             audit_tree = _tree_by_columns(dialog, ("timestamp", "actor", "action", "target", "details"))
             with tempfile.TemporaryDirectory() as temp_dir:
@@ -135,9 +135,9 @@ class Phase4DesktopIntegrationTests(unittest.TestCase):
                 )
 
                 # Then: already-open matrix, audit, and comparison reliability rows reflect current project state.
-                source_values = source_tree.item(source_tree.get_children()[0], "values")
+                source_quotes = source_tree.set(source_tree.get_children()[0], "quotes")
                 speaker_p2_values = _tree_row_by_value(speaker_tree, 1, "P2")
-                self.assertEqual(source_values[2], "2")
+                self.assertEqual(source_quotes, "2")
                 self.assertEqual(speaker_p2_values[2], "1")
                 self.assertEqual(len(audit_tree.get_children()), 2)
                 self.assertEqual(dialog.report.theme_row("support").a_only, 2)

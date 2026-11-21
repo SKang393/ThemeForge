@@ -223,6 +223,15 @@ starts fresh, even if a quote ID repeats. Earlier notes, their exact excerpts,
 scores and reviewer names remain in **Rigor tools → Audit log** and its CSV export.
 Older readers do not display the review notes alongside the quotes.
 
+**Tracing a theme across interviews.** Enter your coder name and open
+**Rigor tools → By source**. Quote counts and character coverage include suggestions. The review
+column counts your latest decisions on exact passages under each theme in each
+source. Expand a row and double-click a reviewed passage, or select it and press
+Enter, to see the highlight and your recorded reason in **Quote review**.
+Open **Rigor tools** again to return to the same row. A declined match might
+document a counterexample or simply mention the topic. Read the reason before
+interpreting it. “No current reviews” leaves that source’s position open.
+
 **Revising a codebook after review.** A codebook match review shows the full
 passage and the saved entry, including its examples and exclusions. When you
 load a revised codebook, only entries with the same code name, definition and

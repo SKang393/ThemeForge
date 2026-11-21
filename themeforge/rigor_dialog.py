@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,9 +14,10 @@ from .audit import AuditEvent, export_audit_events_csv
 from .decision_history import DecisionRow, decision_history_csv, decision_rows
 from .exports import export_quotes_csv
 from .manual_record_comparison import compare_recorded_assignments, current_assignment_csv
-from .match_reviews import REVIEW_ACTION
+from .match_reviews import MatchReviews, REVIEW_ACTION
 from .paired_reviews import PairedReviewReport, compare_match_reviews
 from .project_io import UnsupportedProjectFormatError, load_project
+from .source_location import TranscriptIndex
 from .rigor import (
     CodedProject,
     CoderLabels,
@@ -172,6 +173,8 @@ class RigorDialog(tk.Toplevel):
         self.context = context
         self._context_source = context_source
         self._locate_match = locate_match
+        self._source_review_matches: dict[str, tuple[Theme, ThemeQuote]] = {}
+        self.source_review_hint = tk.StringVar(self)
         self._last_disagreement: str | None = None
         self.report: IntercoderReliabilityReport | None = None
         self._comparison_project: CodedProject | None = None
@@ -217,13 +220,20 @@ class RigorDialog(tk.Toplevel):
         if axis_label == "source":
             ttk.Button(actions, text="Export this project's manual codebook assignments",
                        command=self._export_current_assignments).pack(side="left", padx=8)
-            ttk.Label(tab, textvariable=self.assignment_status, wraplength=780).grid(row=2, column=0, sticky="w")
-        tree = ttk.Treeview(
-            tab,
-            columns=("theme", axis_label, "quotes", "chars", "coverage"),
-            show="headings",
-        )
-        self._configure_tree(tree, ("Theme", axis_label.title(), "Quote count", "Unique coded chars", "Coverage %"))
+            ttk.Label(tab, textvariable=self.source_review_hint, wraplength=800).grid(row=2, column=0, sticky="w")
+            ttk.Label(tab, textvariable=self.assignment_status, wraplength=780).grid(row=3, column=0, sticky="w")
+            tree = ttk.Treeview(tab, columns=("source", "reviews", "quotes", "chars", "coverage"), selectmode="browse")
+            tree.heading("#0", text="Theme / reviewed passage")
+            tree.column("#0", width=210)
+            self._configure_tree(tree, ("Source", "Current match reviews", "Stored quotes", "Covered chars", "Coverage %"))
+            tree.column("reviews", width=230)
+            for col in ("quotes", "chars", "coverage"):
+                tree.column(col, width=90)
+            tree.bind("<Double-1>", self._open_source_review)
+            tree.bind("<Return>", self._open_source_review)
+        else:
+            tree = ttk.Treeview(tab, columns=("theme", axis_label, "quotes", "chars", "coverage"), show="headings")
+            self._configure_tree(tree, ("Theme", axis_label.title(), "Quote count", "Unique coded chars", "Coverage %"))
         self._grid_tree(tab, tree, 1)
         notebook.add(tab, text=title)
         return tree
@@ -317,11 +327,12 @@ class RigorDialog(tk.Toplevel):
         notebook.add(tab, text="Audit log")
 
     def refresh_current_state(self, _event: tk.Event | None = None) -> None:
-        if self._context_source is not None:
-            current = self._context_source()
-            if self.context != current:
-                self._clear_review_location()
-            self.context = current
+        current = self._context_source() if self._context_source else self.context
+        if _event is not None and self.context == current:
+            return  # Moving keyboard focus within the dialog should preserve expanded rows.
+        if self.context != current:
+            self._clear_review_location()
+        self.context = current
         if self.context.result is None:
             self.matrix_report = MatrixQueryReport((), ())
             self._render_current_state()
@@ -339,9 +350,63 @@ class RigorDialog(tk.Toplevel):
 
     def _render_current_state(self) -> None:
         _reviewer_choices(self.current_reviewer, self.context.coder_name, self.context.audit_events)
-        self._render_matrix(self.source_matrix_tree, self.matrix_report.source_rows)
+        self._render_source_matrix()
         self._render_matrix(self.speaker_matrix_tree, self.matrix_report.speaker_rows)
         self._render_audit()
+
+    def _render_source_matrix(self) -> None:
+        tree = self.source_matrix_tree
+        self._clear_tree(tree)
+        self._source_review_matches.clear()
+        reviewer = self.context.coder_name.strip()
+        hint = (f"Current verified match reviews by {reviewer}. Expand a row and double-click a passage "
+                "or press Enter to read its quote and reason." if reviewer else
+                "Enter a coder name in the main window to see that reader’s current match reviews.")
+        self.source_review_hint.set(f"{hint} Quote counts and coverage include suggestions. Read the reason for a decline "
+                                    "to distinguish a counterexample from an irrelevant match.")
+        result = self.context.result
+        if result is None:
+            return
+        sources = TranscriptIndex(self.context.documents)
+        reviews = MatchReviews(self.context.audit_events, reviewer=reviewer, codebook_entries=self.context.codebook_entries)
+        by_source = defaultdict(list)
+        if reviewer:
+            for index, theme in enumerate(result.themes):
+                for quote in theme.quotes:
+                    note = reviews.latest(theme, quote, sources, reviewer=reviewer)
+                    if note and sources.locate(quote).status == "exact_span":
+                        by_source[index, quote.source_name].append((quote, note.disposition))
+        for row in self.matrix_report.source_rows:
+            theme = result.themes[row.theme_index]
+            matches = by_source[row.theme_index, row.axis_value]
+            counts = Counter(status for _, status in matches)
+            summary = ", ".join(f"{counts[s]} {s}" for s in ("supported", "declined", "deferred") if counts[s])
+            if not summary:
+                summary = "No current reviews" if reviewer else "Choose a coder"
+            parent = tree.insert("", tk.END, text=f"{theme.name} ({theme.id})", values=(
+                row.axis_value, summary, row.quote_count, row.covered_chars, f"{row.coverage_ratio * 100:.2f}"))
+            for quote, status in sorted(matches, key=lambda pair: pair[0].source_start):
+                item = tree.insert(parent, tk.END, text=f"Line {quote.source_line} [{quote.source_start}, {quote.source_end})",
+                                   values=(row.axis_value, status))
+                self._source_review_matches[item] = theme, quote
+
+    def _open_source_review(self, event: tk.Event) -> str | None:
+        tree = self.source_matrix_tree
+        item = tree.identify_row(event.y) if event.num == 1 else tree.focus()
+        match = self._source_review_matches.get(item)
+        if match is None or self._locate_match is None:
+            return None  # Keep the normal expand/collapse behavior on summary rows.
+        if self._context_source and self._context_source() != self.context:
+            self.refresh_current_state()
+            self.source_review_hint.set("The study or coder changed. Expand a row and choose the passage again.")
+            return "break"
+        try:
+            self._locate_match(*match)
+        except ValueError as exc:
+            self.source_review_hint.set(str(exc))
+        else:
+            self.withdraw()  # Reopening Rigor tools returns to the expanded source row.
+        return "break"
 
     def _render_matrix(self, tree: ttk.Treeview, rows: Sequence[MatrixCell]) -> None:
         self._clear_tree(tree)

@@ -486,6 +486,7 @@ class ThemeForgeApp(tk.Tk):
         self.bind("<Configure>", fit_tabs, add="+")
         reason_frame = ttk.Frame(evidence_tools, style="Surface.TFrame", padding=(10, 8))
         evidence_tools.add(reason_frame, text="Quote review")
+        self.quote_review_page = reason_frame
         reason_frame.columnconfigure(0, weight=1)
         ttk.Label(reason_frame, textvariable=self.quote_reason, style="Muted.TLabel", wraplength=520).grid(row=0, column=0, sticky="ew")
         review_row = ttk.Frame(reason_frame, style="Surface.TFrame")
@@ -2176,17 +2177,26 @@ class ThemeForgeApp(tk.Tk):
         if not self.documents or self.result is None:
             messagebox.showinfo("Rigor tools", "Open transcripts and run analysis before using rigor tools.")
             return
-        RigorDialog(self, self._rigor_context(), self._rigor_context, self._locate_paired_match)
+        context = self._rigor_context()
+        for child in self.winfo_children():
+            if isinstance(child, RigorDialog) and child.state() == "withdrawn":
+                if child.context != context:
+                    child.refresh_current_state()
+                child.deiconify()
+                child.source_matrix_tree.focus_set()
+                return
+        RigorDialog(self, context, self._rigor_context, self._locate_review_match)
 
-    def _locate_paired_match(self, theme: Theme, quote: ThemeQuote) -> None:
+    def _locate_review_match(self, theme: Theme, quote: ThemeQuote) -> None:
         if self._has_pending_source_edits() or (self._current_theme() is None and self.theme_name.get().strip()):
-            raise ValueError("Apply unfinished theme or memo edits before locating a disagreement.")
+            raise ValueError("Apply unfinished theme or memo edits before locating a reviewed quote.")
         if (self.result is None or theme not in self.result.themes or quote not in theme.quotes
                 or not self._resolve_quote(quote).verified):
-            raise ValueError("The displayed study no longer verifies this match. Check the comparison again.")
+            raise ValueError("The displayed study no longer verifies this match. Refresh Rigor tools and try again.")
         index = self.result.themes.index(theme)
         self._select_theme(index, quote_index=theme.quotes.index(quote))
         self.theme_list.see(index)
+        self.quote_review_page.master.select(self.quote_review_page)
 
     def show_about(self) -> None:
         messagebox.showinfo("About ThemeForge", about_text(__version__))
