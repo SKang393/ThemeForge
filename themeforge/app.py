@@ -530,12 +530,15 @@ class ThemeForgeApp(tk.Tk):
         self.review_source_box = ttk.Combobox(scope, state="readonly", width=22)
         self.review_source_box.grid(row=0, column=1, sticky="ew")
         self.review_source_box.bind("<<ComboboxSelected>>", self._change_navigation_scope)
-        ttk.Button(review_row, text="Next unreviewed", command=lambda: self.next_review_match(None)).grid(row=3, column=0, sticky="ew")
-        ttk.Button(review_row, text="Next deferred", command=lambda: self.next_review_match("deferred")).grid(row=3, column=1, sticky="ew")
         ttk.Button(review_row, text="Unreviewed in theme",
-                   command=lambda: self.next_review_match(None, theme_only=True)).grid(row=4, column=0, sticky="ew")
-        ttk.Button(review_row, text="Next supported", width=-1, padding=(3, 4),
-                   command=lambda: self.next_review_match("supported")).grid(row=4, column=1, sticky="ew")
+                   command=lambda: self.next_review_match(None, theme_only=True)).grid(row=3, column=0, sticky="ew")
+        ttk.Button(review_row, text="Next unreviewed", width=-1, padding=(2, 4),
+                   command=lambda: self.next_review_match(None)).grid(row=3, column=1, sticky="ew")
+        reviewed = ttk.Frame(review_row, style="Surface.TFrame")
+        reviewed.grid(row=4, column=0, columnspan=2, sticky="w")
+        for decision in ("deferred", "declined", "supported"):
+            ttk.Button(reviewed, text=f"Next {decision}", width=-1, padding=(2, 4),
+                       command=lambda choice=decision: self.next_review_match(choice)).pack(side="left")
         review_note = ttk.Label(reason_frame, textvariable=self.match_review_text, style="Muted.TLabel", wraplength=520)
         review_note.grid(row=2, column=0, sticky="w")
 

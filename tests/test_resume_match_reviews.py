@@ -109,7 +109,7 @@ class ResumeReviewTests(unittest.TestCase):
         label, = box.master.grid_slaves(row=0, column=0)
         self.assertEqual(label.cget("text"), "Next in")
         controls = dict(buttons(app))
-        for widget in (label, box, controls["Next unreviewed"], controls["Next deferred"],
+        for widget in (label, box, controls["Next unreviewed"], controls["Next deferred"], controls["Next declined"],
                        controls["Unreviewed in theme"], controls["Next supported"]):
             self.assertGreaterEqual(widget.winfo_width(), widget.winfo_reqwidth())
             x, y = widget.winfo_rootx(), widget.winfo_rooty()
@@ -277,6 +277,7 @@ class ResumeReviewTests(unittest.TestCase):
         decisions = [
             ("Elm", "Cold checks", "market.txt", 1, "supported", "The reading was entered."),
             ("Elm", "Shift transfer", "market.txt", 2, "deferred", "Check the outgoing sheet."),
+            ("Elm", "Cold checks", "stall.txt", 1, "declined", "The timing of this reading is unclear."),
             ("Fern", "Cold checks", "market.txt", 1, "supported", "An opening reading was logged."),
             ("Fern", "Shift transfer", "market.txt", 2, "declined", "Receipt is unclear."),
             ("Fern", "Site access", "market.txt", 3, "supported", "The gate was unlocked."),
@@ -298,13 +299,16 @@ class ResumeReviewTests(unittest.TestCase):
         saved = self.app._project_state()
         scope = self.app.review_source_box
         self.assertEqual(scope.get(), "All sources")
-        scope.current(scope["values"].index("market.txt"))
+        self.choose_review_source("market.txt")
         self.press("Next unreviewed")
         self.assertEqual(self.current(), ("Site access", "market.txt", 3))
         self.assertIn("No current match review for this coder", self.app.match_review_text.get())
         self.press("Next unreviewed")  # Wrap within the file even when another file has pending work.
         self.assertEqual(self.current(), ("Site access", "market.txt", 3))
         self.press("Next deferred")
+        self.assertEqual(self.current(), ("Shift transfer", "market.txt", 2))
+        self.press("Next declined")
+        self.assertIn("No verified declined matches for Elm in market.txt", self.app.status_text.get())
         self.assertEqual(self.current(), ("Shift transfer", "market.txt", 2))
         self.press("Next supported")
         self.assertEqual(self.current(), ("Cold checks", "market.txt", 1))
@@ -319,6 +323,9 @@ class ResumeReviewTests(unittest.TestCase):
         self.press("Next deferred")
         self.assertEqual(self.current(), ("Site access", "market.txt", 3))
         self.assertIn("No verified deferred matches for Fern in market.txt", self.app.status_text.get())
+        self.press("Next declined")
+        self.assertEqual(self.current(), ("Shift transfer", "market.txt", 2))
+        self.assertIn("Receipt is unclear.", self.app.match_review_text.get())
         scope.current(0)
         self.press("Next deferred")
         self.assertEqual(self.current(), ("Cold checks", "stall.txt", 1))
