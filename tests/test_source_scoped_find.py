@@ -106,6 +106,16 @@ def answer_find(query, selected=None, *, initial=None):
     return patch.object(FindTextScope, "wait_window", autospec=True, side_effect=respond)
 
 
+def fit_compact_desktop(app):
+    screen = app.winfo_screenwidth(), app.winfo_screenheight()
+    if app.tk.call("tk", "windowingsystem") == "win32" and screen == (1024, 768):
+        app.state("zoomed")  # Use the desktop work area, including the taskbar allowance.
+    else:
+        app.minsize(1, 1)
+        app.geometry("1024x705+0+0")
+    return screen
+
+
 class ScopedFindTests(unittest.TestCase):
     def test_scoped_find_manual_capture_and_return_to_repeated_quote(self):
         folder = TemporaryDirectory()
@@ -113,12 +123,7 @@ class ScopedFindTests(unittest.TestCase):
         root = Path(folder.name)
         app = ThemeForgeApp()
         self.addCleanup(app.destroy)
-        screen = app.winfo_screenwidth(), app.winfo_screenheight()
-        if app.tk.call("tk", "windowingsystem") == "win32" and screen == (1024, 768):
-            app.state("zoomed")
-        else:
-            app.minsize(1, 1)
-            app.geometry("1024x705+0+0")
+        screen = fit_compact_desktop(app)
         seed = prepare(app, folder.name)
         self.assertEqual((seed.source_name, seed.source_start, seed.source_end), ("studio.txt", 156, 231))
         unchanged = app._project_state()
@@ -321,9 +326,9 @@ class ScopedFindTests(unittest.TestCase):
             (root / name).write_text(content, encoding="utf-8")
         book = root / "codes.csv"
         book.write_text("code,definition\nInventory,tray number ledger\nMarker,physical marker on tile\n", encoding="utf-8")
-        with patch.object(ThemeForgeApp, "maxsize", return_value=(1024, 705)):
-            app = ThemeForgeApp()
+        app = ThemeForgeApp()
         self.addCleanup(app.destroy)
+        fit_compact_desktop(app)
         with patch("themeforge.app.filedialog.askopenfilenames", return_value=[str(root / n) for n in sources]):
             press(app, "Choose files")
         with patch("themeforge.app.filedialog.askopenfilename", return_value=str(book)):
@@ -366,7 +371,8 @@ class ScopedFindTests(unittest.TestCase):
                 x = button.winfo_rootx() + button.winfo_width() - 1
                 y = button.winfo_rooty() + button.winfo_height() - 1
                 self.assertTrue(0 <= x < 1024 and 0 <= y < 768)
-                self.assertEqual(app.winfo_containing(x, y), button)
+                self.assertEqual(app.winfo_containing(x, y), button,
+                                 (button.cget("text"), x, y, app.winfo_geometry()))
             for index, (name, start) in enumerate((("kiln.txt", 16), ("kiln.txt", 75), ("rack.txt", 10),
                                                     ("kiln.txt", 16))):
                 if index == 2:
