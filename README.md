@@ -295,6 +295,12 @@ current codebook support. The desktop supplies the saved entries on reopen.
 **Resuming a study.** Open the saved project and check **Coder name**.
 In **Quote review**, **Next unreviewed** jumps across themes to the next
 scored passage with a verified span and no current review by that coder.
+To finish one code, select it in **Themes** and choose **Unreviewed in theme**.
+The footer counts suggestions with exact spans that still need your review
+for this theme and the **Next in** source selection. The count includes the
+passage just opened. Opening a passage records no decision. A zero count can
+still leave deferred matches and passages the analysis never suggested for
+this code. Read a decline’s reason to see why the reader declined that pairing.
 **Next deferred** returns to passages where that coder last chose **Revisit
 later** and shows the saved reason. Use **Next supported** to find a passage
 you supported and read your earlier reason. To revise it, choose **Not this

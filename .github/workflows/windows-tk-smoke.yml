@@ -65,6 +65,7 @@ jobs:
           test_paired_match_reviews.PairedMatchReviewTests.test_changed_matches_are_excluded_instead_of_counted_as_missing_reviews
           test_resume_match_reviews.ResumeReviewTests.test_resume_across_codes_and_revisit_own_deferrals
           test_resume_match_reviews.ResumeReviewTests.test_two_coders_reopen_independent_copies_at_compact_size
+          test_resume_match_reviews.ResumeReviewTests.test_finish_one_theme_across_sessions_with_other_codes_still_unreviewed
           test_focus_codebook.FocusAndCodebookTests.test_exclusion_guidance_is_preserved_but_does_not_supply_search_terms
           test_suggestion_speakers.SpeakerSelectionTests.test_first_import_narrow_dialog_save_reopen_and_export
           test_speaker_turn_preview

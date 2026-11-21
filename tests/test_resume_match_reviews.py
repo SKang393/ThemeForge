@@ -109,7 +109,8 @@ class ResumeReviewTests(unittest.TestCase):
         label, = box.master.grid_slaves(row=0, column=0)
         self.assertEqual(label.cget("text"), "Next in")
         controls = dict(buttons(app))
-        for widget in (label, box, controls["Next unreviewed"], controls["Next deferred"], controls["Next supported"]):
+        for widget in (label, box, controls["Next unreviewed"], controls["Next deferred"],
+                       controls["Unreviewed in theme"], controls["Next supported"]):
             self.assertGreaterEqual(widget.winfo_width(), widget.winfo_reqwidth())
             x, y = widget.winfo_rootx(), widget.winfo_rooty()
             for px, py in ((x, y), (x + widget.winfo_width() - 1, y + widget.winfo_height() - 1)):
@@ -220,6 +221,56 @@ class ResumeReviewTests(unittest.TestCase):
                     self.assertIn("No current match review", self.app.match_review_text.get())
                 self.assertCountEqual(reached, expected)
                 self.assertEqual(self.app.audit_events, audit)
+
+    def test_finish_one_theme_across_sessions_with_other_codes_still_unreviewed(self):
+        label = "Unreviewed in theme"
+        code = "Cold checks"
+        first = self.current()
+        self.assertEqual(first[0], code)
+        self.app.researcher_name.set("Fern")
+        reason = "Return to the opening account before deciding."
+        self.mark("deferred", reason)
+        self.app.researcher_name.set("Elm")
+        self.press(label)
+        self.assertIn("3 unreviewed", self.app.status_text.get())
+        reviewed = self.current()
+        self.assertNotEqual(first, reviewed)
+        self.mark(*DECISIONS[reviewed])
+        project = self.root / "partial.tfproj"
+        with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(project)):
+            self.press("Save project")
+
+        self.reopen_compact(project)
+        self.choose_review_source(reviewed[1])
+        saved, audit = project.read_bytes(), list(self.app.audit_events)
+        self.press(label)
+        self.assertIn("No unreviewed suggestions with exact spans", self.app.status_text.get())
+        self.assertEqual(self.current(), first)
+        self.assertEqual(project.read_bytes(), saved)
+        self.assertEqual(self.app.audit_events, audit)
+
+        self.choose_review_source("All sources")
+        completed = {reviewed}
+        for count in (2, 1):
+            self.press(label)
+            self.assertIn(f"{count} unreviewed", self.app.status_text.get())
+            location = self.current()
+            self.assertEqual(location[0], code)
+            self.assertNotIn(location, completed)
+            self.mark(*DECISIONS[location])
+            completed.add(location)
+        self.assertEqual(completed, {k for k in DECISIONS if k[0] == code})
+        self.press(label)
+        self.assertIn("No unreviewed suggestions with exact spans", self.app.status_text.get())
+        self.assertEqual(self.current(), location)
+        self.press("Next unreviewed")
+        self.assertNotEqual(self.current()[0], code)
+        self.app.researcher_name.set("Fern")
+        self.press("Next deferred")
+        self.assertEqual(self.current(), first)
+        self.assertIn(reason, self.app.match_review_text.get())
+        self.press(label)
+        self.assertIn("2 unreviewed", self.app.status_text.get())
 
     def test_next_buttons_follow_one_source_and_the_named_reviewer(self):
         app = self.app

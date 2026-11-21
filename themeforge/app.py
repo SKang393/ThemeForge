@@ -2,7 +2,7 @@ from __future__ import annotations
 
 # noqa: SIZE_OK - one Tkinter window class; splitting callbacks adds UI indirection.
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import asdict, dataclass, replace
 import json
 from pathlib import Path
@@ -515,7 +515,10 @@ class ThemeForgeApp(tk.Tk):
         self.review_source_box.bind("<<ComboboxSelected>>", self._change_navigation_scope)
         ttk.Button(review_row, text="Next unreviewed", command=lambda: self.next_review_match(None)).grid(row=3, column=0, sticky="ew")
         ttk.Button(review_row, text="Next deferred", command=lambda: self.next_review_match("deferred")).grid(row=3, column=1, sticky="ew")
-        ttk.Button(review_row, text="Next supported", command=lambda: self.next_review_match("supported")).grid(row=4, column=0, sticky="ew")
+        ttk.Button(review_row, text="Unreviewed in theme",
+                   command=lambda: self.next_review_match(None, theme_only=True)).grid(row=4, column=0, sticky="ew")
+        ttk.Button(review_row, text="Next supported", width=-1, padding=(3, 4),
+                   command=lambda: self.next_review_match("supported")).grid(row=4, column=1, sticky="ew")
         review_note = ttk.Label(reason_frame, textvariable=self.match_review_text, style="Muted.TLabel", wraplength=520)
         review_note.grid(row=2, column=0, sticky="w")
 
@@ -2209,7 +2212,7 @@ class ThemeForgeApp(tk.Tk):
         widget.focus_set()
         return "break"
 
-    def next_review_match(self, disposition: str | None) -> None:
+    def next_review_match(self, disposition: str | None, *, theme_only: bool = False) -> None:
         reviewer = self.researcher_name.get().strip()
         if not reviewer:
             self.status_text.set("Enter your coder name to resume your match reviews.")
@@ -2224,17 +2227,58 @@ class ThemeForgeApp(tk.Tk):
         if not sources:
             self.status_text.set("Choose a transcript or All sources before continuing.")
             return
-        themes = self.result.themes
-        start_theme = self.current_theme_index or 0
+        if theme_only:
+            theme = self._current_theme()
+            if theme is None:
+                self.status_text.set("Select a theme to find its unreviewed suggestions.")
+                return
+            if not self.match_reviews.definition_is_current(theme):
+                self.status_text.set(HISTORICAL_DEFINITION)
+                return
+
+        queue = self._review_queue(self.result.themes, reviewer, sources, disposition, theme_only=theme_only)
+        match = next(queue, None)
+        if match is None:
+            scope = f" in {self.review_source_box.get()}" if self.review_source_box.current() > 0 else ""
+            if theme_only:
+                self.status_text.set(f"No unreviewed suggestions with exact spans · {reviewer} · "
+                                     f"{theme.name} · {self.review_source_box.get()}")
+            elif disposition is not None:
+                self.status_text.set(f"No verified {disposition} matches for {reviewer}{scope}.")
+            else:
+                self.status_text.set(f"No unreviewed scored matches with verified spans for {reviewer}{scope}. "
+                                     "Use Next deferred to revisit a saved deferral.")
+            return
+
+        index, quote_index = match
+        theme = self.result.themes[index]
+        quote = theme.quotes[quote_index]
+        if index == self.current_theme_index:
+            self.current_quote_index = quote_index
+            self._focus_current_quote()
+        else:
+            self._select_theme(index, quote_index=quote_index)
+            self.theme_list.see(index)
+        if theme_only:
+            remaining = 1 + sum(1 for _ in queue)
+            self.status_text.set(f"{remaining} unreviewed (including this match) · {reviewer} · "
+                                 f"{theme.name} · {self.review_source_box.get()}")
+        else:
+            self.status_text.set(f"{reviewer} · {disposition or 'unreviewed'} · {theme.name} · "
+                                 f"{quote.source_name}, line {quote.source_line}")
+
+    def _review_queue(self, themes: list[Theme], reviewer: str, sources: set[str], disposition: str | None,
+                      *, theme_only: bool) -> Iterator[tuple[int, int]]:
+        current = self.current_theme_index or 0
         after_quote = self.current_quote_index + 1
-        # Continue in the displayed order, wrapping once through the current match.
-        for offset in range(len(themes) + 1):
-            index = (start_theme + offset) % len(themes)
+        # Begin after the displayed quote and wrap through it once at the end.
+        order = [current] if theme_only else [*range(current, len(themes)), *range(current)]
+        for offset, index in enumerate([*order, current]):
             theme = themes[index]
             if not self.match_reviews.definition_is_current(theme):
                 continue
             start = after_quote if offset == 0 else 0
-            stop = after_quote if offset == len(themes) else len(theme.quotes)
+            stop = after_quote if offset == len(order) else len(theme.quotes)
             for quote_index in range(start, stop):
                 quote = theme.quotes[quote_index]
                 if quote.source_name not in sources:
@@ -2242,23 +2286,8 @@ class ThemeForgeApp(tk.Tk):
                 if disposition is None and quote.reported_relevance is None:
                     continue  # A manual unscored assignment is already a coding decision.
                 note = self.match_reviews.latest(theme, quote, self._display_sources, reviewer=reviewer)
-                if (note.disposition if note else None) != disposition or not self._resolve_quote(quote).verified:
-                    continue
-                if index == self.current_theme_index:
-                    self.current_quote_index = quote_index
-                    self._focus_current_quote()
-                else:
-                    self._select_theme(index, quote_index=quote_index)
-                    self.theme_list.see(index)
-                self.status_text.set(f"{reviewer} · {disposition or 'unreviewed'} · {theme.name} · "
-                                     f"{quote.source_name}, line {quote.source_line}")
-                return
-        scope = f" in {self.review_source_box.get()}" if self.review_source_box.current() > 0 else ""
-        if disposition is not None:
-            self.status_text.set(f"No verified {disposition} matches for {reviewer}{scope}.")
-        else:
-            self.status_text.set(f"No unreviewed scored matches with verified spans for {reviewer}{scope}. "
-                                 "Use Next deferred to revisit a saved deferral.")
+                if (note.disposition if note else None) == disposition and self._resolve_quote(quote).verified:
+                    yield index, quote_index
 
     def save_report(self) -> None:
         if self.result is None:
