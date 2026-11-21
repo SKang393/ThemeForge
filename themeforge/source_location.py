@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from bisect import bisect_left, bisect_right
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from hashlib import sha256
 import re
@@ -35,6 +35,13 @@ class TranscriptIndex:
                 self._sources[doc.name] = None
             else:
                 self._sources[doc.name] = (doc.text, [m.start() for m in re.finditer("\n", doc.text)])
+
+    def matches_documents(self, documents: Sequence[TranscriptDocument]) -> bool:
+        """Check the ordered source texts used to render the transcript tabs, ignoring memo edits."""
+        return len(documents) == len(self._sources) and all(
+            doc.name == name and entry is not None and doc.text == entry[0]
+            for doc, (name, entry) in zip(documents, self._sources.items(), strict=True)
+        )
 
     def has_unique_source(self, name: str) -> bool:
         return self._sources.get(name) is not None

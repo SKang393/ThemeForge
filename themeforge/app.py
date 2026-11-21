@@ -22,6 +22,7 @@ from .analysis import (
 from .analysis_types import QuoteUnit, SpeakerOverride
 from .audit import AuditEvent, create_audit_event
 from .codebook import load_codebook_entries
+from .codebook_match import build_codebook_themes
 from .definition_review import CodebookReuseDialog, MatchReviewReason, entry_label, review_definition
 from .exports import export_json, export_markdown, export_quotes_csv
 from .io import load_transcript_text
@@ -50,6 +51,7 @@ from .match_reviews import (
     HISTORICAL_DEFINITION, NO_CURRENT_REVIEW, REVIEW_ACTION, REVIEW_LABELS, MatchReviews, match_id, match_snapshot,
 )
 from .project_io import ProjectCopyRequired, ProjectState, UnsupportedProjectFormatError, load_project, save_project
+from .quote_units import speaker_stopwords, suggestion_inputs
 from .rigor_dialog import RigorContext, RigorDialog
 from .semantic_suggestions import SimilarPassage, find_similar_passages
 from .source_location import TranscriptIndex
@@ -116,6 +118,7 @@ class ThemeForgeApp(tk.Tk):
         self.similar_passages: list[SimilarPassage] = []
         self.unsuggested_passages: list[QuoteUnit] = []
         self.unsuggested_index = -1
+        self.coverage_is_preview = False
 
         self.file_summary = tk.StringVar(value=file_selection_summary([]))
         self.codebook_summary = tk.StringVar(value=codebook_selection_summary(None))
@@ -142,6 +145,7 @@ class ThemeForgeApp(tk.Tk):
         self._configure_styles()
         self._build_layout()
         self._render_transcript_tabs()
+        self.quotes_per_theme.trace_add("write", self._invalidate_coverage_preview)
         self.researcher_name.trace_add("write", self._show_match_review)
         self._empty_state = self._project_state()
         self._saved_state = self._empty_state
@@ -266,9 +270,12 @@ class ThemeForgeApp(tk.Tk):
         footer.grid(row=2, column=0, sticky="ew")
         footer.columnconfigure(0, weight=1)
         ttk.Label(footer, textvariable=self.status_text, style="Footer.TLabel").grid(row=0, column=0, sticky="ew")
+        self.preview_button = ttk.Button(footer, text="Preview coverage", padding=(6, 1), command=self.preview_coverage)
+        self.preview_button.grid(row=0, column=1, padx=(8, 0))
+        self.preview_button.grid_remove()
         self.unsuggested_button = ttk.Button(footer, text="Next without suggestion", padding=(6, 1),
                                              command=self.next_unsuggested_passage)
-        self.unsuggested_button.grid(row=0, column=1, padx=(8, 0))
+        self.unsuggested_button.grid(row=0, column=2, padx=(8, 0))
         self.unsuggested_button.grid_remove()
 
     def _build_controls(self, parent: ttk.Frame) -> None:
@@ -604,7 +611,7 @@ class ThemeForgeApp(tk.Tk):
         self._clear_similar_passages()
         self._record_audit_event("suggestion_speakers_changed", "project", "speakers",
                                  json.dumps(details, ensure_ascii=False))
-        self.status_text.set("Speaker choices apply to the next Analyze or Find. Save project to keep them.")
+        self.status_text.set("Speaker choices apply to Analyze, Find and Preview coverage. Save project to keep them.")
 
     def remove_transcripts(self) -> None:
         if self.documents or self.result is not None or self.audit_events:
@@ -754,16 +761,7 @@ class ThemeForgeApp(tk.Tk):
         autosave_status = self._autosave_project()
         self._clear_suggestion_coverage()
         if settings.codebook_entries and generated.quote_count:
-            # Count the suggestions from this run before manual assignments and older edits are restored.
-            suggested = {q.quote_id for theme in generated.themes if "generated_from_codebook_entry" in theme.validation
-                         for q in theme.quotes}
-            status = f"Codebook suggestions shown for {len(suggested)}/{generated.quote_count} eligible passages."
-            if not suggested and generated.themes:
-                status += " Showing automatic themes."
-            self.unsuggested_passages = [unit for unit in eligible if unit.id not in suggested]
-            if self.unsuggested_passages:
-                self.unsuggested_button.grid()
-            status += " Suggested passages may need other codes."
+            status = self._show_suggestion_coverage(eligible, generated.themes, preview=False)
             if autosave_status:
                 status = f"{autosave_status}. {status}"
         elif autosave_status:
@@ -981,6 +979,10 @@ class ThemeForgeApp(tk.Tk):
 
     def _refresh_definition_box(self) -> None:
         self._clear_suggestion_coverage()
+        if self.codebook_entries:
+            self.preview_button.grid()
+        else:
+            self.preview_button.grid_remove()
         self.match_reviews.set_codebook(self.codebook_entries)
         self.definition_box.configure(values=tuple(entry_label(i, e) for i, e in enumerate(self.codebook_entries)))
         self.definition_box.set("")
@@ -1848,12 +1850,69 @@ class ThemeForgeApp(tk.Tk):
 
     def _clear_suggestion_coverage(self) -> None:
         if self.unsuggested_index >= 0 and self.current_quote_index < 0:
+            self._focus_current_quote()
             self.detail_title.set("Transcript evidence")
             self.quote_status.set("")
-            self.quote_reason.set("Run Analyze with the current codebook to see passage coverage.")
+            self.quote_meta.set("")
+            self.quote_reason.set("Choose Preview coverage to check the project text with the current codebook.")
         self.unsuggested_passages = []
         self.unsuggested_index = -1
+        self.coverage_is_preview = False
         self.unsuggested_button.grid_remove()
+
+    def _invalidate_coverage_preview(self, *_trace_args: str) -> None:
+        if self.coverage_is_preview:
+            self._clear_suggestion_coverage()
+            self.status_text.set("Quote limit changed. Choose Preview coverage to update the count.")
+
+    def _show_suggestion_coverage(self, eligible: list[QuoteUnit], themes: list[Theme], *, preview: bool) -> str:
+        # Only count the matcher output, before any manual or retained themes are added.
+        suggested = {q.quote_id for t in themes if "generated_from_codebook_entry" in t.validation for q in t.quotes}
+        self.unsuggested_passages = [unit for unit in eligible if unit.id not in suggested]
+        self.coverage_is_preview = preview
+        if self.unsuggested_passages:
+            self.unsuggested_button.grid()
+        count = f"{len(suggested)}/{len(eligible)} eligible passages"
+        if preview:
+            return f"Preview on project text with current settings — {count} have suggestions."
+        fallback = " Showing automatic themes." if not suggested and themes else ""
+        return f"Codebook suggestions shown for {count}.{fallback} Suggested passages may need other codes."
+
+    def preview_coverage(self) -> None:
+        self._clear_suggestion_coverage()
+        if not self.codebook_entries:
+            self.status_text.set("Choose a codebook to preview suggestion coverage.")
+            return
+        try:
+            self._check_coverage_sources()
+            settings = self._analysis_settings()
+            segments, eligible = suggestion_inputs(self.documents, settings)
+            themes = build_codebook_themes(eligible, settings, speaker_stopwords(segments))
+        except (ValueError, tk.TclError) as exc:
+            self.status_text.set(f"Coverage preview unavailable. {exc}")
+            return
+        self.status_text.set(self._show_suggestion_coverage(eligible, themes, preview=True))
+
+    def _check_coverage_sources(self) -> None:
+        # Project snapshots are authoritative. Opening a project never follows its stored file paths.
+        if (not self.documents or not self._display_sources.matches_documents(self.documents)
+                or (self.input_paths and len(self.input_paths) != len(self.documents))
+                or (self.result and self.result.document_count > len(self.documents))
+                or any(not doc.name.strip() or not doc.text.strip() for doc in self.documents)):
+            raise ValueError("Project transcript text is missing, changed or ambiguous.")
+        if self.result and any(self._display_sources.locate(q).status == "conflict" or
+                               not self._display_sources.has_unique_source(q.source_name)
+                               for theme in self.result.themes for q in theme.quotes):
+            raise ValueError("A saved passage conflicts with the project transcripts.")
+        for event in self.audit_events:
+            if event.action == REVIEW_ACTION and event.target_type == "theme_quote_match":
+                try:
+                    match = json.loads(event.details)["match"]
+                    name, digest = match["quote"]["source_name"], match["source_sha256"]
+                except (KeyError, TypeError, ValueError):
+                    raise ValueError("A saved review's source cannot be verified.") from None
+                if not isinstance(name, str) or not digest or self._display_sources.digest(name) != digest:
+                    raise ValueError("Project transcript text differs from a saved review.")
 
     def next_unsuggested_passage(self) -> None:
         if not self.unsuggested_passages:
@@ -1865,8 +1924,9 @@ class ThemeForgeApp(tk.Tk):
         self.unsuggested_index = (self.unsuggested_index + 1) % count
         unit = self.unsuggested_passages[self.unsuggested_index]
         location = self._locate_quote(unit)
-        if location is None:
-            self.status_text.set("Could not verify this passage in the transcript. Choose Next to continue.")
+        if location is None or not self._display_sources.matches_documents(self.documents):
+            self._clear_suggestion_coverage()
+            self.status_text.set("Coverage unavailable. The passage no longer matches the project transcript.")
             return
         widget, start, end = location
         # The theme can still be a manual coding target. Match actions require a focused quote.
@@ -1875,10 +1935,11 @@ class ThemeForgeApp(tk.Tk):
         self._focus_current_quote()
         self.quote_memo_text.configure(state="disabled")
         self.quote_meta.set(f"{unit.source_name}, line {unit.source_line} | {unit.speaker}")
-        self.detail_title.set("No displayed codebook suggestion")
+        self.detail_title.set("No suggestion in preview" if self.coverage_is_preview else "No displayed codebook suggestion")
         self.quote_status.set(f"Passage {self.unsuggested_index + 1} of {count}")
-        self.quote_reason.set("No code was suggested for this passage in the last Analyze. "
-                              "A passage shown under one code may still need another.")
+        scope = ("No codebook suggestion for this project text under current settings." if self.coverage_is_preview
+                 else "No code was suggested for this passage in the last Analyze.")
+        self.quote_reason.set(f"{scope} A passage shown under one code may still need another.")
         self.transcript_notebook.select(self.transcript_frames[unit.source_name])
         widget.tag_remove(tk.SEL, "1.0", tk.END)
         widget.tag_add(tk.SEL, start, end)

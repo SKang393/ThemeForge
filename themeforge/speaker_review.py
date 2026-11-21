@@ -31,7 +31,7 @@ class SpeakerReview(tk.Toplevel):
         body.pack(fill="both", expand=True)
         body.columnconfigure(0, weight=1)
         body.rowconfigure(1, weight=1)
-        guidance = ttk.Label(body, text="Select speakers for the next Analyze or Find. "
+        guidance = ttk.Label(body, text="Select speakers for Analyze, Find and Preview coverage. "
                              "Passage length and prompt filters still apply.", wraplength=440)
         guidance.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
         columns = ("transcript", "speaker", "turns", "automatic", "choice")

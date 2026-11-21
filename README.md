@@ -145,10 +145,17 @@ select each remaining passage in transcript order, wrapping back to the first.
 Read the surrounding text and, if a definition fits, use **Apply codebook
 entry…**. Browsing records no decision. A passage with one suggested code may
 still need another. A declined or deferred suggestion still counts as displayed.
-The filter describes the last run in this session. To **resume a saved review**,
-use **Open project**, check **Coder name**, then choose **Next unreviewed** or
-**Next deferred** in **Quote review**. To refresh passage coverage after reopening
-or changing the codebook or speaker choices, start a new pass with **Analyze**.
+
+To resume, use **Open project**, check **Coder name**, then choose **Next
+unreviewed** or **Next deferred** in **Quote review**. Choose **Preview
+coverage** in the footer to count codebook suggestions under the current
+settings and browse omissions with **Next without suggestion**. The preview
+uses the transcript text inside the project, even if the original files have
+moved or changed. A different quote limit, codebook or speaker selection can
+give a different count from the saved review pass. Previewing and browsing
+leave the saved reviews and evidence intact.
+
+Choose **Analyze** when you want to start a new review pass for all coders.
 Earlier decisions stay in the audit history, and the supported evidence table
 needs fresh support decisions. To keep the reviewed pass, save the project,
 use **Save as…** for a working copy, then analyze that copy. If prompted to
@@ -158,7 +165,7 @@ After **Choose files**, open **Speakers for suggestions** before your first
 **Analyze**. It shows the parsed labels in each imported transcript,
 the automatic decision, the number of turns and a sample with its source line.
 Select one or more rows and choose **Include**, **Exclude**, or **Use automatic**,
-then **Apply**. Analyze and both Find actions use these choices before ranking.
+then **Apply**. Preview coverage, Analyze and both Find actions use these choices before ranking.
 Automatic uses the existing Analyze role rules across the open study. A correction
 applies only to the selected transcript and label. Passage filters still apply.
 You can still read and manually code any source. Apply clears the open Find list
