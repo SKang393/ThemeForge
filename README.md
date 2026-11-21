@@ -305,19 +305,25 @@ are counted separately. Browsing leaves both projects' decisions intact.
 The comparison on screen covers all shared sources. Each paired CSV starts
 with an empty source selection. The chooser lists transcripts with at least
 one shared, verified match. **Select all sources** includes every listed
-transcript. Each highlighted transcript contributes every theme/passage match
-with the same recorded snapshot and verified span in both projects, including
-pairs with no reviews. The supported evidence export has its own source
+transcript. The export includes comparable matches with verified spans, even
+when a reader has yet to review one. It also flags a changed codebook entry
+when its original code name, displayed label, speaker and exact passage identify
+one match in each copy of the same source. The supported evidence export has its own source
 selection in **Audit log**. Before sharing a paired CSV, check excerpts, labels,
 names and both readers' free-text reasons for identifying details and references
 to other transcripts.
 Each recorded decision includes the reader's reason, time, and audit CSV target.
-If the readers reviewed labels with different spacing, use
+The theme and quote IDs describe the current project's row. For different targets, use
 `current_review_target_id` and `comparison_review_target_id` to look up each
 decision. The shared `match_review_target_id` is blank when the targets differ.
 Filter `review_comparison` to find support versus
 decline (`disagreement`), two supports or two declines, missing reviews, or
-decisions awaiting a revisit. Where one review is missing, the other reader's
+decisions awaiting a revisit. A row marked `different_definitions` keeps both
+available decisions and their original audit targets. Each suggestion must still
+verify against its own project's codebook. Earlier decisions remain in the audit.
+Check the recorded entries in both audits before interpreting those judgments. Word spacing
+alone in a description or example preserves comparability when the rest of the
+match snapshot agrees. Where one review is missing, the other reader's
 disposition is still shown. Exclusion counts cover stored quote rows in the
 selected sources that fall outside the shared set, including changed suggestions
 or unverifiable spans. Matching decisions record what two named readers entered.
@@ -332,7 +338,10 @@ shared, verified theme/passage match once. Agreement is split into both
 supported and both declined. Disagreement means support versus decline.
 A match with two reviews and at least one deferral counts as deferred. A match
 missing one or both reviews goes in the corresponding missing category, even
-if the available review was deferred. All six counts sum to the stated total.
+if the available review was deferred. The six outcomes sum to the comparable-pair
+denominator. Adding pairs excluded for different definitions or examples gives
+the total paired across the selected sources. Two further counts show each
+project's unpaired quote rows, including unverifiable or ambiguous matches.
 These are descriptive counts of match reviews. The file contains only fixed
 labels and integers. Small counts can still identify people in context.
 

@@ -43,6 +43,8 @@ class RigorContext:
 class PairedExportScope(simpledialog.Dialog):
     def __init__(self, parent: tk.Misc, report: PairedReviewReport):
         self.counts = Counter(row.quote.source_name for row in report.matches)
+        self.definition_exclusions = Counter(row.quote.source_name for row in report.matches
+                                             if row.outcome == "different_definitions")
         self.report = report
         self.preview = tk.StringVar(parent)
         self.counts_only = tk.BooleanVar(parent, value=False)
@@ -94,6 +96,10 @@ class PairedExportScope(simpledialog.Dialog):
             self.warning.configure(text="The CSV includes all review outcomes for the highlighted sources. Excerpts, "
                                    "labels, names and either reader’s free-text reasons can identify people or refer "
                                    "to other transcripts. Check these fields before sharing.")
+        excluded = sum(self.definition_exclusions[name] for name in selected)
+        if excluded:
+            self.preview.set(f"{self.preview.get()} Comparable pairs ({rows - excluded} of {rows}) · "
+                             f"Different codebook entries ({excluded})")
 
     def validate(self):
         if self.selected_names():
@@ -429,6 +435,9 @@ class RigorDialog(tk.Toplevel):
         counts = report.outcome_counts
         missing = counts["missing_current_review"] + counts["missing_comparison_review"] + counts["neither_reviewed"]
         summary = f"Both reviewed with a deferral ({counts['deferred']}) · Missing one or both reviews ({missing})"
+        excluded = counts["different_definitions"]
+        if excluded:
+            summary += f" · Comparable pairs ({report.shared - excluded} of {report.shared}) · Different codebook entries ({excluded})"
         if not disputes:
             self.status.set(f"No support-versus-decline disagreements. {summary}")
             return

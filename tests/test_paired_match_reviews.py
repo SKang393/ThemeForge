@@ -186,7 +186,7 @@ class PairedMatchReviewTests(unittest.TestCase):
         # Hand counts from the independent decisions above, including the two deferrals on late.txt.
         labels = ["Agreement (both supported)", "Agreement (both declined)", "Disagreement (support versus decline)",
                   "Deferral (both reviewed and at least one deferred)", "Missing exactly one review",
-                  "Missing both reviews", "Total across selected sources (denominator)"]
+                  "Missing both reviews", "Comparable pairs (denominator for the six review outcomes)"]
         copies = [path.read_bytes() for path in self.paths]
         report = self.dialog._paired_reviews()
         for names, expected in ((("early.txt",), (1, 1, 1, 0, 1, 0, 4)),
@@ -214,9 +214,13 @@ class PairedMatchReviewTests(unittest.TestCase):
                 self.assertEqual(picker.call_args.kwargs["initialfile"], "paired-review-counts.csv")
                 with path.open(encoding="utf-8", newline="") as stream:
                     header, *rows = csv.reader(stream)
-                self.assertEqual(header, ["Paired review outcome", "Count of shared verified theme/passage matches"])
-                self.assertEqual(rows, [[label, str(value)] for label, value in zip(labels, expected, strict=True)])
-                self.assertEqual(sum(int(row[1]) for row in rows[:-1]), int(rows[-1][1]))
+                self.assertEqual(header, ["Paired review outcome or scope", "Count"])
+                self.assertEqual(rows[:7], [[label, str(value)] for label, value in zip(labels, expected, strict=True)])
+                self.assertEqual(rows[7:], [["Excluded pairs (different codebook definitions or examples)", "0"],
+                                            ["Total pairs across selected sources", str(expected[-1])],
+                                            ["Unpaired quote rows in current project", "0"],
+                                            ["Unpaired quote rows in comparison project", "0"]])
+                self.assertEqual(sum(int(row[1]) for row in rows[:6]), int(rows[6][1]))
         self.assertEqual(self.dialog._paired_reviews(), report)
         self.assertEqual([path.read_bytes() for path in self.paths], copies)
 
