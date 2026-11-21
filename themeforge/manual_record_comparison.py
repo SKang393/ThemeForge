@@ -12,7 +12,8 @@ from .manual_editing import assignment_creation, recorded_definition
 from .rigor import CodedProject
 
 SCOPE = ("Exact recorded manual definition and source span only. An absent record is not a negative decision. "
-         "Review completeness and coder independence are not established; no agreement statistic.")
+         "Review completeness and coder independence are not established; no agreement statistic. "
+         "Overlap ranges locate other selections under the same definition in this source for discussion.")
 RecordKey = tuple[str, int, int, str]  # Source, start, end, canonical definition snapshot.
 
 
@@ -101,6 +102,31 @@ def current_assignment_csv(project: CodedProject) -> tuple[str, int, int]:
     return output.getvalue(), len(assignments), skipped
 
 
+def _overlap_hints(one_sided: set[RecordKey], other: dict[RecordKey, str]) -> dict[RecordKey, str]:
+    """Find opposite spans for discussion within the same verified source and definition."""
+    events = defaultdict(list)
+    for is_query, records in ((True, one_sided), (False, other)):
+        for key in records:
+            source, start, end, definition = key
+            group = (source, definition)
+            if is_query or group in events:
+                events[group].extend(((start, True, is_query, key), (end, False, is_query, key)))
+    overlaps = defaultdict(list)
+    for boundaries in events.values():
+        active = {True: set(), False: set()}
+        # End events sort first: selections that only touch share no characters.
+        for _, begins, is_query, key in sorted(boundaries):
+            if not begins:
+                active[is_query].remove(key)
+                continue
+            for opposite in active[not is_query]:
+                query, counterpart = (key, opposite) if is_query else (opposite, key)
+                overlaps[query].append(counterpart[1:3])
+            active[is_query].add(key)
+    return {key: "; ".join(f"[{start}, {end})" for start, end in sorted(ranges))
+            for key, ranges in overlaps.items()}
+
+
 def compare_recorded_assignments(current: CodedProject, comparison: CodedProject) -> RecordedComparison:
     sources = _sources(current)
     if sources != _sources(comparison):
@@ -115,13 +141,16 @@ def compare_recorded_assignments(current: CodedProject, comparison: CodedProject
     writer = csv.writer(output)
     writer.writerow(("recorded_by", "current_coder", "comparison_coder", "definition_json",
                      "source", "source_start", "source_end", "passage", "current_quote_id", "comparison_quote_id",
-                     "matching_documents", "other_current_quote_rows_excluded", "other_comparison_quote_rows_excluded", "scope"))
+                     "matching_documents", "other_current_quote_rows_excluded", "other_comparison_quote_rows_excluded", "scope",
+                     "other_project_overlapping_spans"))
     both = len(left.keys() & right.keys())
+    hints = _overlap_hints(left.keys() - right.keys(), right)
+    hints.update(_overlap_hints(right.keys() - left.keys(), left))
     for key in sorted(left.keys() | right.keys()):
         source, start, end, snapshot = key
         side = "both" if key in left and key in right else "current only" if key in left else "comparison only"
         writer.writerow((side, neutralize_csv_cell(coder_a), neutralize_csv_cell(coder_b), snapshot,
                          neutralize_csv_cell(source), start, end, neutralize_csv_cell(sources[source][start:end]),
                          neutralize_csv_cell(left.get(key, "")), neutralize_csv_cell(right.get(key, "")),
-                         len(sources), skipped_a, skipped_b, SCOPE))
+                         len(sources), skipped_a, skipped_b, SCOPE, hints.get(key, "")))
     return RecordedComparison(output.getvalue(), both, len(left) - both, len(right) - both)

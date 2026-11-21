@@ -365,7 +365,9 @@ alone in a description or example preserves comparability when the rest of the
 match snapshot agrees. Where one review is missing, the other reader's
 disposition is still shown. Exclusion counts cover stored quote rows in the
 selected sources that fall outside the shared set, including changed suggestions
-or unverifiable spans. Matching decisions record what two named readers entered.
+or unverifiable spans. The disagreement navigator lists these unpaired rows as
+separate counts for each project. Missing reviews are counted only on shared
+matches. Matching decisions record what two named readers entered.
 Adjudication requires a
 separate discussion. **Export coverage statistics** and **Export coverage
 differences** compare stored theme quotes across transcript units, including
@@ -417,7 +419,22 @@ interpret an unselected passage as a negative decision or supply a denominator
 for agreement or establish coder independence. Other quote rows, including
 lexical suggestions, are excluded and counted separately.
 Choose a new CSV filename. Spreadsheet-sensitive text cells receive a leading
-apostrophe; the offsets always refer to the original transcript.
+apostrophe. Offsets refer to the original transcript.
+
+For a one-sided row, `other_project_overlapping_spans` lists the other
+project’s ranges that share characters in the same source under that exact
+definition. Each range starts at the first included character and ends just
+after the last. Use these offsets to discuss where each reader drew the
+boundary. Each selection keeps its original exact-span count. A blank cell
+on a one-sided row means no qualifying overlap was found.
+
+To record a follow-up after discussion, open each reader’s first-pass project,
+choose **Save as…** and use a new filename. In each working copy the reader
+can revisit the exact match and record a decision with their own reason.
+If they choose a new extent for a manual assignment, use **Update boundary**
+in that reader’s working copy and check the highlighted replacement.
+Earlier reviews remain in the audit log. Keep the original files for the
+first-pass comparison.
 
 **Move quote** requires a researcher name or pseudonym and prompts for why
 the passage belongs under the destination theme. It retains the quote ID,

@@ -556,6 +556,8 @@ class RigorDialog(tk.Toplevel):
         counts = report.outcome_counts
         missing = counts["missing_current_review"] + counts["missing_comparison_review"] + counts["neither_reviewed"]
         summary = f"Both reviewed with a deferral ({counts['deferred']}) · Missing one or both reviews ({missing})"
+        if report.current_excluded or report.comparison_excluded:
+            summary += f" · Unpaired quote rows ({report.current_excluded} current, {report.comparison_excluded} comparison)"
         excluded = counts["different_definitions"]
         if excluded:
             summary += f" · Comparable pairs ({report.shared - excluded} of {report.shared}) · Different codebook entries ({excluded})"
@@ -632,7 +634,7 @@ class RigorDialog(tk.Toplevel):
         if self._export_text(comparison.csv_text, "recorded-manual-assignments.csv", new_file=True):
             self.status.set(f"Exported exact manual records: {comparison.both} both, "
                             f"{comparison.current_only} current only, {comparison.comparison_only} comparison only. "
-                            "No agreement statistic.")
+                            "The CSV lists overlapping ranges for one-sided records. No agreement statistic.")
 
     def _export_matrix(self, axis_label: str) -> None:
         self.refresh_current_state()

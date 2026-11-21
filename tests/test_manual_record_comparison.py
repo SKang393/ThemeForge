@@ -51,8 +51,10 @@ class ManualRecordComparisonTests(unittest.TestCase):
         self.dialog = next(w for w in self.app.winfo_children() if isinstance(w, RigorDialog))
         self.dialog.withdraw()
 
-    def assign(self, index, start, end):
-        widget = self.app.transcript_widgets[self.doc.name]
+    def assign(self, index, start, end, source=None):
+        name = source or self.doc.name
+        self.app.transcript_notebook.select(self.app.transcript_frames[name])
+        widget = self.app.transcript_widgets[name]
         widget.tag_remove("sel", "1.0", "end")
         widget.tag_add("sel", start, end)
         self.app.definition_box.current(index)
@@ -89,6 +91,29 @@ class ManualRecordComparisonTests(unittest.TestCase):
             self.dialog._export_manual_records()
         self.assertIn("existing file was not changed", self.dialog.status.get())
         self.assertEqual([p.read_bytes() for p in self.paths], original)
+
+    def test_boundary_hints_preserve_exact_records_and_definition_scope(self):
+        self.app.researcher_name.set("Amber")
+        self.assign(0, "1.5", "1.8")
+        self.assign(0, "1.8", "1.9")  # Adjacent to Blue's shorter [4, 8) selection.
+        self.assign(0, "1.5", "1.7", "backstage.txt")
+        self.choose(self.paths[1])
+        destination = self.folder / "boundaries.csv"
+        with patch("themeforge.rigor_dialog.filedialog.asksaveasfilename", return_value=str(destination)):
+            self.dialog._export_manual_records()
+        with destination.open(encoding="utf-8", newline="") as source:
+            rows = list(csv.DictReader(source))
+        self.assertCountEqual([(r["recorded_by"], r["source_start"], r["source_end"],
+                                r["other_project_overlapping_spans"]) for r in rows], [
+            ("both", "4", "9", ""),
+            ("comparison only", "4", "8", "[4, 9); [5, 8)"),
+            ("current only", "5", "8", "[4, 8); [4, 9)"),
+            ("current only", "8", "9", "[4, 9)"),
+            ("current only", "5", "7", ""),  # Other source at overlapping offsets.
+            # Identical coordinates under different examples remain two unpaired records.
+            ("current only", "15", "40", ""),
+            ("comparison only", "15", "40", ""),
+        ])
 
     def test_unverifiable_comparisons_cannot_export(self):
         original = load_project(self.paths[1])
