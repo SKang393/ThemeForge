@@ -227,9 +227,12 @@ current codebook support. The desktop supplies the saved entries on reopen.
 In **Quote review**, **Next unreviewed** jumps across themes to the next
 scored passage with a verified span and no current review by that coder.
 **Next deferred** returns to passages where that coder last chose **Revisit
-later**, including the saved reason. Both start after the displayed match
-and wrap around the study. **Previous quote** and **Next quote** still
-browse every recorded passage in the selected theme.
+later** and shows the saved reason. Use **Next supported** to find a passage
+you supported and read your earlier reason. To revise it, choose **Not this
+match** or **Revisit later** and record a new reason. The audit keeps both
+decisions. These navigation buttons
+start after the displayed match and wrap around the study. **Previous quote**
+and **Next quote** browse every recorded passage in the selected theme.
 
 **Handing off reviewed evidence.** In **Rigor tools → Audit log**, select the
 transcripts your collaborator may see, then choose **Export supported matches

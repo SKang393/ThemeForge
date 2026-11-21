@@ -469,6 +469,7 @@ class ThemeForgeApp(tk.Tk):
                    command=self.code_match_to_definition).grid(row=1, column=0, sticky="ew")
         ttk.Button(review_row, text="Next unreviewed", command=lambda: self.next_review_match(None)).grid(row=2, column=0, sticky="ew")
         ttk.Button(review_row, text="Next deferred", command=lambda: self.next_review_match("deferred")).grid(row=2, column=1, sticky="ew")
+        ttk.Button(review_row, text="Next supported", command=lambda: self.next_review_match("supported")).grid(row=3, column=0, sticky="ew")
         review_note = ttk.Label(reason_frame, textvariable=self.match_review_text, style="Muted.TLabel", wraplength=520)
         review_note.grid(row=2, column=0, sticky="w")
 
@@ -1916,8 +1917,8 @@ class ThemeForgeApp(tk.Tk):
                 self.status_text.set(f"{reviewer} · {disposition or 'unreviewed'} · {theme.name} · "
                                      f"{quote.source_name}, line {quote.source_line}")
                 return
-        if disposition == "deferred":
-            self.status_text.set(f"No verified deferred matches for {reviewer}.")
+        if disposition is not None:
+            self.status_text.set(f"No verified {disposition} matches for {reviewer}.")
         else:
             self.status_text.set(f"No unreviewed scored matches with verified spans for {reviewer}. "
                                  "Use Next deferred to revisit a saved deferral.")
