@@ -69,6 +69,7 @@ jobs:
           test_suggestion_speakers.SpeakerSelectionTests.test_desktop_change_save_find_and_export
           test_suggestion_coverage
           test_source_scoped_find
+          test_cross_case_reviews.CrossCaseReviewTests.test_trace_supported_declined_and_deferred_passages_without_deciding_for_a_source
           test_overlapping_assignments.OverlappingAssignmentsTests.test_revise_one_boundary_and_reopen_its_evidence
           test_review_context.ReviewContextTests.test_neighboring_turns_in_decision_dialog_keep_exact_occurrence_and_export_scope
           test_review_revision.ReviewRevisionTests.test_revisit_own_support_and_export_current_evidence

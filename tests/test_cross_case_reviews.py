@@ -1,11 +1,12 @@
 """Read one fictional market finding across interviews through the source matrix."""
+from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from tkinter import ttk
 import unittest
 from unittest.mock import patch
 
-from test_evidence_handoff import descendants, press
+from test_evidence_handoff import descendants, export, press
 from themeforge.app import ThemeForgeApp
 from themeforge.match_reviews import REVIEW_LABELS
 from themeforge.rigor_dialog import RigorDialog
@@ -46,8 +47,12 @@ class CrossCaseReviewTests(unittest.TestCase):
                         "in response to the bell.\n", encoding="utf-8")
         app = ThemeForgeApp()
         self.addCleanup(app.destroy)
-        app.minsize(1, 1)
-        app.geometry("1024x705+0+0")
+        screen = app.winfo_screenwidth(), app.winfo_screenheight()
+        if app.tk.call("tk", "windowingsystem") == "win32" and screen == (1024, 768):
+            app.state("zoomed")
+        else:
+            app.minsize(1, 1)
+            app.geometry("1024x705+0+0")
         app.update()
         with patch("themeforge.app.filedialog.askopenfilenames", return_value=[str(root / name) for name in CASES]):
             press(app, "Choose files")
@@ -90,6 +95,27 @@ class CrossCaseReviewTests(unittest.TestCase):
         dialog.geometry("900x600+0+0")
         app.update()
         tree = dialog.source_matrix_tree
+        def export_tables(stage):
+            tabs = tree.master.master
+            tabs.select(tree.master)
+            app.update()
+            matrix, audit, evidence = (root / f"{stage}-{name}.csv" for name in ("matrix", "audit", "evidence"))
+            rows = export(tree.master, "Export matrix CSV", matrix)
+            self.assertEqual([(r["source"], r["quote_count"]) for r in rows], [(name, "2") for name in CASES])
+            tabs.select(dialog.audit_tree.master)
+            app.update()
+            export(dialog.audit_tree.master, "Export audit CSV", audit)
+            scope = dialog.supported_sources
+            scope.selection_clear(0, "end")
+            scope.selection_set(scope.get(0, "end").index("cove.txt"))
+            row, = export(dialog.audit_tree.master, "Export supported matches CSV", evidence)
+            self.assertEqual((row["source_file"], row["match_review_actor"], row["match_review_reason"]),
+                             ("cove.txt", "Flax", CASES["cove.txt"][0][4]))
+            tabs.select(tree.master)
+            app.update()
+            return {p: p.read_bytes() for p in (matrix, audit, evidence)}
+
+        original_exports = export_tables("before")
         self.assertIn("by Flax", dialog.source_review_hint.get())
         parents = {tree.set(i, "source"): i for i in tree.get_children()}
         self.assertEqual(set(parents), set(CASES))
@@ -103,6 +129,7 @@ class CrossCaseReviewTests(unittest.TestCase):
             if not children:
                 continue
             tree.focus_force()
+            app.update()
             tree.focus(parent)
             tree.selection_set(parent)
             tree.event_generate("<Right>")
@@ -131,6 +158,8 @@ class CrossCaseReviewTests(unittest.TestCase):
                 self.assertTrue(app.quote_review_page.winfo_viewable())
                 self.assertIn(f"{status} by Flax", app.match_review_text.get())
                 self.assertIn(reason, app.match_review_text.get())
+                if name == "cove.txt" and status == "declined":
+                    self.assertNotIn("counterexample", app.match_review_text.get().lower())
                 label, = [w for w in descendants(app.quote_review_page) if isinstance(w, ttk.Label)
                           and str(w.cget("textvariable")) == str(app.match_review_text)]
                 self.assertTrue(label.winfo_viewable())
@@ -146,14 +175,45 @@ class CrossCaseReviewTests(unittest.TestCase):
                 self.assertTrue(tree.item(parent, "open"))
         self.assertEqual(path.read_bytes(), saved_bytes)
 
-        # Changing the named reader while the matrix is open cannot reuse the previous reader’s decisions.
-        app.researcher_name.set("Reed")
-        dialog.refresh_current_state()
+        # Return to the main window through the selected review, then switch readers in the Coder name entry.
+        def open_focused_passage():
+            tree.focus_force()
+            app.update()
+            tree.event_generate("<Return>")
+            app.update()
+            self.assertEqual(dialog.state(), "withdrawn")
+
+        def switch_reader(name):
+            entry, = [w for w in descendants(app) if isinstance(w, ttk.Entry)
+                      and str(w.cget("textvariable")) == str(app.researcher_name)]
+            entry.delete(0, "end")
+            entry.insert(0, name)
+            press(app, "Rigor tools")
+            app.update()
+            self.assertTrue(tree.winfo_viewable())
+
+        open_focused_passage()
+        switch_reader("Reed")
         reed_rows = {tree.set(i, "source"): tree.set(i, "reviews") for i in tree.get_children()}
         self.assertEqual(reed_rows, {"cove.txt": "1 deferred", "dune.txt": "No current reviews",
                                      "fen.txt": "No current reviews"})
-        app.researcher_name.set("")
-        dialog.refresh_current_state()
+        after_exports = export_tables("after")
+        self.assertEqual(list(original_exports.values()), list(after_exports.values()))
+        for original, data in original_exports.items():
+            self.assertEqual(original.read_bytes(), data)
+        cove = next(i for i in tree.get_children() if tree.set(i, "source") == "cove.txt")
+        reed_note, = tree.get_children(cove)
+        tree.see(reed_note)
+        tree.selection_set(reed_note)
+        tree.focus(reed_note)
+        open_focused_passage()
+        self.assertIn("deferred by Reed", app.match_review_text.get())
+        self.assertIn("I want to check the timing.", app.match_review_text.get())
+        self.assertEqual(app._project_state(), replace(saved_state, researcher_name="Reed"))
+        switch_reader("")
         self.assertTrue(all(not tree.get_children(i) for i in tree.get_children()))
         self.assertIn("Enter a coder name", dialog.source_review_hint.get())
         self.assertEqual(path.read_bytes(), saved_bytes)
+        print(f"Cross-case reviews on {screen[0]}x{screen[1]}, matrix {dialog.winfo_width()}x{dialog.winfo_height()}. "
+              "Verified four Flax passages and Reed’s independent deferral. "
+              "Project, source matrix, audit and scoped evidence bytes preserved.")
