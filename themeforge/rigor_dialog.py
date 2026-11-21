@@ -5,7 +5,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 import tkinter as tk
-from tkinter import filedialog, ttk
+from tkinter import filedialog, simpledialog, ttk
 from tkinter.scrolledtext import ScrolledText
 import zipfile
 
@@ -38,6 +38,60 @@ class RigorContext:
     audit_events: Sequence[AuditEvent]
     coder_name: str
     codebook_entries: Sequence[CodebookEntry] = ()
+
+
+class PairedExportScope(simpledialog.Dialog):
+    def __init__(self, parent: tk.Misc, report: PairedReviewReport):
+        self.counts = Counter(row.quote.source_name for row in report.matches)
+        self.report = report
+        self.preview = tk.StringVar(parent)
+        super().__init__(parent, "Choose sources for the paired CSV")
+
+    def body(self, master):
+        master.columnconfigure(0, weight=1)
+        ttk.Label(master, text=f"Paired reviews by {self.report.reviewers.coder_a} and {self.report.reviewers.coder_b}",
+                  wraplength=480).grid(row=0, column=0, sticky="w")
+        ttk.Label(master, text="Click a source to include or remove its shared matches.").grid(
+            row=1, column=0, sticky="w", pady=(6, 2))
+        self.sources = tk.Listbox(master, selectmode=tk.MULTIPLE, exportselection=False,
+                                  height=min(8, len(self.counts)))
+        self.sources.grid(row=2, column=0, sticky="ew")
+        self.sources.insert(tk.END, *sorted(self.counts))
+        vertical = ttk.Scrollbar(master, orient="vertical", command=self.sources.yview)
+        vertical.grid(row=2, column=1, sticky="ns")
+        horizontal = ttk.Scrollbar(master, orient="horizontal", command=self.sources.xview)
+        horizontal.grid(row=3, column=0, sticky="ew")
+        self.sources.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
+        self.sources.bind("<<ListboxSelect>>", self.show_preview)
+        ttk.Button(master, text="Select all sources", command=self.select_all).grid(row=4, column=0, sticky="w", pady=4)
+        ttk.Label(master, textvariable=self.preview, wraplength=480).grid(row=5, column=0, sticky="w")
+        ttk.Label(master, text="The CSV includes all review outcomes for the highlighted sources. Excerpts, labels, "
+                  "names and either reader’s free-text reasons can identify people or refer to other transcripts. "
+                  "Check these fields before sharing.", wraplength=480).grid(row=6, column=0, sticky="w", pady=(6, 0))
+        self.show_preview()
+        return self.sources
+
+    def select_all(self):
+        self.sources.selection_set(0, tk.END)
+        self.show_preview()
+
+    def selected_names(self) -> frozenset[str]:
+        return frozenset(self.sources.get(i) for i in self.sources.curselection())
+
+    def show_preview(self, _event=None):
+        selected = self.selected_names()
+        rows = sum(self.counts[name] for name in selected)
+        self.preview.set(f"The CSV will include {rows} of {self.report.shared} paired rows from "
+                         f"{len(selected)} of {len(self.counts)} sources.")
+
+    def validate(self):
+        if self.selected_names():
+            return True
+        self.preview.set("Choose at least one source. The CSV preview is empty.")
+        return False
+
+    def apply(self):
+        self.result = self.selected_names()
 
 
 class RigorDialog(tk.Toplevel):
@@ -131,9 +185,9 @@ class RigorDialog(tk.Toplevel):
             ttk.Button(actions, text="Next review disagreement", command=self._next_review_disagreement).grid(row=0, column=2)
         for box in (self.current_reviewer, self.comparison_reviewer):
             box.bind("<<ComboboxSelected>>", self._clear_review_location)
-        ttk.Label(actions, wraplength=800, text="The paired CSV includes matching excerpts across all shared sources. "
-                  "Audit log source selections apply only to supported evidence. Check excerpts, names and both "
-                  "readers’ reasons before sharing.").grid(row=2, column=0, columnspan=3, sticky="w", pady=(0, 6))
+        ttk.Label(actions, wraplength=800, text="The comparison on screen covers all shared sources. Choose sources "
+                  "when exporting paired reviews. Check excerpts, names and both readers’ reasons before sharing.").grid(
+            row=2, column=0, columnspan=3, sticky="w", pady=(0, 6))
         ttk.Label(actions, text="Quote coverage by meaning unit").grid(row=3, column=0, sticky="w")
         ttk.Button(actions, text="Export coverage statistics", command=self._export_reliability).grid(row=3, column=1)
         ttk.Button(actions, text="Export coverage differences", command=self._export_disagreements).grid(row=3, column=2)
@@ -326,7 +380,7 @@ class RigorDialog(tk.Toplevel):
             return
         self._export_text(export_disagreements_csv(self.report), "quote-coverage-differences.csv")
 
-    def _paired_reviews(self) -> PairedReviewReport | None:
+    def _paired_reviews(self, *, source_names: frozenset[str] | None = None) -> PairedReviewReport | None:
         context = self._context_source() if self._context_source else self.context
         if context.result is None or self._comparison_project is None:
             self.status.set("Choose a comparison project for paired match reviews.")
@@ -339,7 +393,7 @@ class RigorDialog(tk.Toplevel):
         try:
             return compare_match_reviews(
                 CodedProject(context.documents, context.result, context.audit_events, context.codebook_entries), self._comparison_project,
-                CoderLabels(self.current_reviewer.get(), self.comparison_reviewer.get()),
+                CoderLabels(self.current_reviewer.get(), self.comparison_reviewer.get()), source_names=source_names,
             )
         except ValueError as exc:
             self.status.set(str(exc))
@@ -386,12 +440,25 @@ class RigorDialog(tk.Toplevel):
         self.dispute_text.pack(fill="x")
 
     def _export_paired_reviews(self) -> None:
-        comparison = self._paired_reviews()
+        preview = self._paired_reviews()
+        if preview is None:
+            return
+        selected = PairedExportScope(self, preview).result
+        if selected is None:
+            self.status.set("Export canceled.")
+            return
+        comparison = self._paired_reviews(source_names=selected)
         if comparison is None:
             return
+        # The match key binds the preview to the transcript digest as well as the exact span.
+        expected = tuple(row for row in preview.matches if row.quote.source_name in selected)
+        if comparison.matches != expected or comparison.reviewers != preview.reviewers:
+            self.status.set("The paired reviews changed since the preview. Choose sources again.")
+            return
         if self._export_text(comparison.csv_text, "paired-match-reviews.csv", new_file=True):
-            self.status.set(f"Exported {comparison.shared} shared match(es). Other quote rows excluded: "
-                            f"{comparison.current_excluded} current, {comparison.comparison_excluded} comparison.")
+            self.status.set(f"Exported {comparison.shared} shared match(es) from {len(selected)} selected source(s). "
+                            f"Those sources had {comparison.current_excluded} current and "
+                            f"{comparison.comparison_excluded} comparison quote row(s) outside the shared set.")
 
     def _export_current_assignments(self) -> None:
         context = self._context_source() if self._context_source is not None else self.context

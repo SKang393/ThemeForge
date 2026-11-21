@@ -266,8 +266,10 @@ each reader a separate copy before either starts reviewing. In each copy, enter
 a distinct reviewer name or pseudonym, review passages, and save. Open one
 copy, go to **Rigor tools → Intercoder**, and choose the other saved project.
 Check the **Current reviewer** and **Comparison reviewer** names, then select
-**Export paired match reviews** and choose a new CSV filename. Each side uses that person's latest audit
-note on the exact match in their project since its last **Analyze**. A project
+**Export paired match reviews**. Highlight the sources to include, check the
+preview's paired row count, then choose **OK** and a new CSV filename. Each side
+uses that person's latest audit note on the exact match in their project since
+its last **Analyze**. A project
 can contain several readers' notes. Choose the two whose decisions you want
 to compare. Use **Next review disagreement** to visit shared passages where one
 reader supported the match and the other declined it. The Intercoder tab shows
@@ -275,11 +277,15 @@ the exact occurrence and both saved reasons. Close **Rigor tools** to read the
 highlighted occurrence in the full transcript. Deferrals and missing reviews
 are counted separately. Browsing leaves both projects' decisions intact.
 
-The paired CSV covers all shared sources. It includes every theme/passage
-match with the same recorded snapshot and verified source span in both
-projects, including pairs with no reviews. Source selections in **Audit log**
-apply only to the supported evidence export. Before sharing a paired CSV,
-check its excerpts, source names, reviewer names and free-text reasons.
+The comparison on screen covers all shared sources. Each paired CSV starts
+with an empty source selection. The chooser lists transcripts with at least
+one shared, verified match. **Select all sources** includes every listed
+transcript. Each highlighted transcript contributes every theme/passage match
+with the same recorded snapshot and verified span in both projects, including
+pairs with no reviews. The supported evidence export has its own source
+selection in **Audit log**. Before sharing a paired CSV, check excerpts, labels,
+names and both readers' free-text reasons for identifying details and references
+to other transcripts.
 Each recorded decision includes the reader's reason, time, and audit CSV target.
 If the readers reviewed labels with different spacing, use
 `current_review_target_id` and `comparison_review_target_id` to look up each
@@ -287,9 +293,10 @@ decision. The shared `match_review_target_id` is blank when the targets differ.
 Filter `review_comparison` to find support versus
 decline (`disagreement`), two supports or two declines, missing reviews, or
 decisions awaiting a revisit. Where one review is missing, the other reader's
-disposition is still shown. Exclusion counts cover stored quote rows outside
-the shared set, including changed suggestions or unverifiable spans. Matching
-decisions record what two named readers entered. Adjudication requires a
+disposition is still shown. Exclusion counts cover stored quote rows in the
+selected sources that fall outside the shared set, including changed suggestions
+or unverifiable spans. Matching decisions record what two named readers entered.
+Adjudication requires a
 separate discussion. **Export coverage statistics** and **Export coverage
 differences** compare stored theme quotes across transcript units, including
 automatically suggested quotes.

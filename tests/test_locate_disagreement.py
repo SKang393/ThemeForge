@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from test_evidence_handoff import descendants, export, open_audit, press
+from test_paired_match_reviews import answer_paired_scope
 from themeforge.app import ThemeForgeApp
 from themeforge.definition_review import MatchReviewReason
 from themeforge.match_reviews import REVIEW_ACTION, REVIEW_LABELS
@@ -124,7 +125,7 @@ class LocateDisagreementTests(unittest.TestCase):
         self.assertEqual(dialog.disagreement_tree.get_children(), ())
         controls = {w.cget("text"): w for w in descendants(tab) if isinstance(w, ttk.Button)}
         notice, = [w for w in descendants(tab) if isinstance(w, ttk.Label) and "all shared sources" in w.cget("text")]
-        self.assertIn("only to supported evidence", notice.cget("text"))
+        self.assertIn("Choose sources", notice.cget("text"))
         self.assertIn("before sharing", notice.cget("text"))
         for control in (controls["Next review disagreement"], controls["Export paired match reviews"], notice):
             self.assertTrue(control.winfo_viewable())
@@ -135,7 +136,10 @@ class LocateDisagreementTests(unittest.TestCase):
                 self.assertTrue(0 <= px < min(screen[0], 1024) and 0 <= py < min(screen[1], 768))
                 self.assertEqual(dialog.winfo_containing(px, py), control)
         self.assertEqual((dialog.current_reviewer.get(), dialog.comparison_reviewer.get()), ("Jute", "Slate"))
-        paired = export(dialog, "Export paired match reviews", root / "paired.csv")
+        all_pairs = dialog._paired_reviews()
+        coverage = dialog.report
+        with answer_paired_scope():
+            paired = export(dialog, "Export paired match reviews", root / "paired.csv")
         self.assertEqual(len(paired), 6)
         reserve, = [r for r in paired if r["source_file"] == "reserve.txt"]
         self.assertEqual((reserve["quote"], reserve["current_reason"], reserve["comparison_reason"]),
@@ -202,8 +206,32 @@ class LocateDisagreementTests(unittest.TestCase):
         check_scoped(dialog, "Jute")
         tab.master.select(tab)
         app.update()
-        export(dialog, "Export paired match reviews", root / "paired-after.csv")
-        self.assertEqual((root / "paired-after.csv").read_bytes(), (root / "paired.csv").read_bytes())
+
+        def choose_packet(scope, _window):
+            scope.update()
+            self.assertEqual(scope.sources.curselection(), ())
+            self.assertIn("0 of 6 paired rows", scope.preview.get())
+            index = scope.sources.get(0, "end").index("packet.txt")
+            x, y, width, height = scope.sources.bbox(index)
+            for event in ("<ButtonPress-1>", "<ButtonRelease-1>"):
+                scope.sources.event_generate(event, x=x + width // 2, y=y + height // 2)
+            scope.update()
+            preview, = [w for w in descendants(scope) if isinstance(w, ttk.Label)
+                        and str(w.cget("textvariable")) == str(scope.preview)]
+            self.assertTrue(preview.winfo_viewable())
+            self.assertIn("5 of 6 paired rows from 1 of 2 sources", preview.cget("text"))
+            self.assertLessEqual(preview.winfo_rooty() + preview.winfo_height(), screen[1])
+            scope.ok()
+
+        scoped_path = root / "paired-packet.csv"
+        with answer_paired_scope(choose_packet):
+            scoped = export(dialog, "Export paired match reviews", scoped_path)
+        self.assertEqual(scoped, [r for r in paired if r["source_file"] == "packet.txt"])
+        contents = scoped_path.read_text(encoding="utf-8")
+        for outside in ("reserve.txt", WITHHELD, NOTES["Jute"][0][1], NOTES["Slate"][0][1]):
+            self.assertNotIn(outside, contents)
+        self.assertEqual(dialog._paired_reviews(), all_pairs)
+        self.assertEqual(dialog.report, coverage)
         with patch("themeforge.rigor_dialog.filedialog.askopenfilename", return_value=str(seed)):
             press(dialog, "Choose comparison project")
         press(dialog, "Next review disagreement")
@@ -218,4 +246,5 @@ class LocateDisagreementTests(unittest.TestCase):
         check_scoped(open_audit(app, root / "Slate.tfproj"), "Slate")
         self.assertEqual({p: p.read_bytes() for p in copies}, copies)
         print(f"Desktop {screen[0]}x{screen[1]}. Read both reasons at each disputed span. "
-              "Paired CSV retained all six matches after a source-scoped export. Both saved copies retained their bytes.")
+              "Explicit all-source CSV had six matches. Packet-only CSV had five, including two disputes. "
+              "Both saved copies retained their bytes.")

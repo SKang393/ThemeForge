@@ -12,7 +12,7 @@ from unittest.mock import patch
 from themeforge.app import ThemeForgeApp
 from themeforge.match_reviews import REVIEW_LABELS
 from themeforge.project_io import load_project, save_project
-from themeforge.rigor_dialog import RigorDialog
+from themeforge.rigor_dialog import PairedExportScope, RigorDialog
 
 
 # The intended question is whether the speaker checked a closed door. The two scripts
@@ -50,6 +50,16 @@ def press(widget, label):
         if press(child, label):
             return True
     return False
+
+
+def choose_all(scope, _window):
+    if not press(scope, "Select all sources"):
+        raise AssertionError("Missing all-source choice")
+    scope.ok()
+
+
+def answer_paired_scope(answer=choose_all):
+    return patch.object(PairedExportScope, "wait_window", autospec=True, side_effect=answer)
 
 
 class PairedMatchReviewTests(unittest.TestCase):
@@ -137,7 +147,9 @@ class PairedMatchReviewTests(unittest.TestCase):
 
     def paired_rows(self, filename="reviews.csv"):
         def export():
-            self.assertTrue(press(self.dialog, "Export paired match reviews"), "Missing paired review comparison")
+            with answer_paired_scope() as chooser:
+                self.assertTrue(press(self.dialog, "Export paired match reviews"), "Missing paired review comparison")
+            chooser.assert_called_once()
         return self.export(export, filename)
 
     def test_independent_reviews_survive_reopen_and_comparison(self):
@@ -205,7 +217,52 @@ class PairedMatchReviewTests(unittest.TestCase):
                   else q for q in theme.quotes]
         revised = self.folder / "changed.tfproj"
         save_project(revised, replace(state, documents=docs, result=replace(state.result, themes=[replace(theme, quotes=quotes)])))
-        self.choose(revised)
+
+        def stale_selection(scope, window):
+            choose_all(scope, window)
+            self.choose(revised)  # Only one of the two selected sources still has verified pairs.
+
+        with answer_paired_scope(stale_selection), patch("themeforge.rigor_dialog.filedialog.asksaveasfilename") as picker:
+            self.dialog._export_paired_reviews()
+        picker.assert_not_called()
+        self.assertIn("Choose sources again", self.dialog.status.get())
+        report = self.dialog._paired_reviews()
+        self.assertEqual((report.current_excluded, report.comparison_excluded), (5, 5))
         rows = self.paired_rows()
         self.assertEqual([(r["source_file"], r["source_line"]) for r in rows], [("late.txt", str(i)) for i in (1, 2, 3)])
-        self.assertEqual({(r["current_quote_rows_excluded"], r["comparison_quote_rows_excluded"]) for r in rows}, {("5", "5")})
+        self.assertEqual({(r["current_quote_rows_excluded"], r["comparison_quote_rows_excluded"]) for r in rows}, {("1", "1")})
+
+    def test_empty_canceled_and_replaced_source_previews_cannot_write_a_file(self):
+        def cancel(scope, window):
+            scope.sources.selection_set(0)
+            scope.cancel()
+
+        def empty(scope, window):
+            self.assertEqual(scope.sources.curselection(), ())
+            scope.ok()
+            self.assertIn("Choose at least one source", scope.preview.get())
+            self.assertTrue(scope.winfo_exists())
+            scope.cancel()
+
+        def replace_source(scope, window):
+            scope.sources.selection_set(scope.sources.get(0, "end").index("early.txt"))
+            scope.ok()
+            # Same filenames, excerpts and offsets on both sides, but new transcript digests.
+            docs = tuple(replace(d, text=d.text + "\nFinch: The boxes arrived.") if d.name == "early.txt" else d
+                         for d in self.app.documents)
+            self.app.documents = list(docs)
+            self.dialog._comparison_project = replace(self.dialog._comparison_project, documents=docs)
+
+        destination = self.folder / "scope.csv"
+        for answer, status in ((cancel, "canceled"), (empty, "canceled"), (replace_source, "changed since the preview")):
+            with self.subTest(status=status), answer_paired_scope(answer), \
+                    patch("themeforge.rigor_dialog.filedialog.asksaveasfilename", return_value=str(destination)) as picker:
+                self.dialog._export_paired_reviews()
+                picker.assert_not_called()
+                self.assertIn(status, self.dialog.status.get())
+                self.assertFalse(destination.exists())
+        with answer_paired_scope(), patch("themeforge.rigor_dialog.filedialog.asksaveasfilename", return_value="") as picker:
+            self.dialog._export_paired_reviews()
+        picker.assert_called_once()
+        self.assertIn("canceled", self.dialog.status.get())
+        self.assertFalse(destination.exists())

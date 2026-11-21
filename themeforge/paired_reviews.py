@@ -54,16 +54,18 @@ class PairedReviewReport:
         return output.getvalue()
 
 
-def _matches(project: CodedProject, reviews: MatchReviews) -> tuple[dict[str, tuple[Theme, ThemeQuote, str]], int]:
-    sources = TranscriptIndex(project.documents)
+def _matches(project: CodedProject, reviews: MatchReviews,
+             source_names: frozenset[str] | None) -> tuple[dict[str, tuple[Theme, ThemeQuote, str]], int]:
+    sources = TranscriptIndex(doc for doc in project.documents if source_names is None or doc.name in source_names)
     matches = {}
     total = 0
     for theme in project.result.themes:
-        total += len(theme.quotes)
-        if not reviews.definition_is_current(theme):
-            continue
+        current_definition = reviews.definition_is_current(theme)
         for quote in theme.quotes:
-            if sources.locate(quote).status == "exact_span":
+            if source_names is not None and quote.source_name not in source_names:
+                continue
+            total += 1
+            if current_definition and sources.locate(quote).status == "exact_span":
                 snapshot = match_snapshot(theme, quote, sources)
                 target_id = match_id(snapshot)
                 matches[review_key(snapshot, target_id)] = theme, quote, target_id
@@ -88,15 +90,20 @@ def _fields(note: ReviewNote | None) -> tuple[str, str, str]:
     return note.disposition, note.reason, note.timestamp_utc
 
 
-def compare_match_reviews(current: CodedProject, comparison: CodedProject, reviewers: CoderLabels) -> PairedReviewReport:
+def compare_match_reviews(current: CodedProject, comparison: CodedProject, reviewers: CoderLabels,
+                          *, source_names: frozenset[str] | None = None) -> PairedReviewReport:
     a, b = reviewers.coder_a.strip(), reviewers.coder_b.strip()
     if not a or not b or a.casefold() == b.casefold():
         raise ValueError("Select two distinct named reviewers, one from each project.")
+    if source_names is not None and not source_names:
+        raise ValueError("Choose at least one source for the paired CSV.")
     current_notes = MatchReviews(current.audit_events, reviewer=a, codebook_entries=current.codebook_entries)
     comparison_notes = MatchReviews(comparison.audit_events, reviewer=b, codebook_entries=comparison.codebook_entries)
-    left, left_total = _matches(current, current_notes)
-    right, right_total = _matches(comparison, comparison_notes)
+    left, left_total = _matches(current, current_notes, source_names)
+    right, right_total = _matches(comparison, comparison_notes, source_names)
     shared = left.keys() & right.keys()
+    if source_names is not None and source_names != {left[key][1].source_name for key in shared}:
+        raise ValueError("A selected source has no verified shared matches. Choose sources again.")
     if not shared:
         raise ValueError(f"No identical, source-verified matches across {left_total} current and "
                          f"{right_total} comparison quote rows. Check the source text, saved themes and codebook entries.")
