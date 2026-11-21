@@ -80,6 +80,10 @@ class MatchReviews:
         for event in events:
             self.observe(event)
 
+    @property
+    def has_reviews_since_analysis(self) -> bool:
+        return bool(self._notes)
+
     def set_codebook(self, entries: Iterable[CodebookEntry]) -> None:
         self._definitions = {entry.snapshot(): entry for entry in entries}
 

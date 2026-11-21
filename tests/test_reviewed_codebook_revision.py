@@ -239,7 +239,8 @@ class ReviewedCodebookRevisionTests(unittest.TestCase):
         press(app, "Next unreviewed")
         self.assertIn("No unreviewed", app.status_text.get())
 
-        press(app, "Analyze")
+        with patch("themeforge.app.messagebox.askokcancel", return_value=True):
+            press(app, "Analyze")
         self.save_reopen()
         retained, fresh, packing = app.result.themes
         self.assertEqual(self.rows(), [])

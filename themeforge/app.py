@@ -706,6 +706,15 @@ class ThemeForgeApp(tk.Tk):
             messagebox.showinfo("Open transcripts", "Choose one or more transcript files first.")
             return
 
+        if self.match_reviews.has_reviews_since_analysis and not messagebox.askokcancel(
+            "Start a new review pass?",
+            "Analyze starts a fresh pass for all coders. Earlier decisions stay in Rigor tools → Audit log. "
+            "The supported evidence table will be empty until passages are supported again.\n\n"
+            "Choose Cancel to continue this pass in Quote review. Choose OK to run Analyze.",
+            parent=self, default=messagebox.CANCEL, icon=messagebox.WARNING,
+        ):
+            return
+
         try:
             settings = self._analysis_settings()
             previous_result = self.result

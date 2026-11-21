@@ -145,8 +145,14 @@ select each remaining passage in transcript order, wrapping back to the first.
 Read the surrounding text and, if a definition fits, use **Apply codebook
 entry…**. Browsing records no decision. A passage with one suggested code may
 still need another. A declined or deferred suggestion still counts as displayed.
-The filter describes the last run in this session. Run **Analyze** again after
-reopening or changing the codebook or speaker choices to refresh it.
+The filter describes the last run in this session. To **resume a saved review**,
+use **Open project**, check **Coder name**, then choose **Next unreviewed** or
+**Next deferred** in **Quote review**. To refresh passage coverage after reopening
+or changing the codebook or speaker choices, start a new pass with **Analyze**.
+Earlier decisions stay in the audit history, and the supported evidence table
+needs fresh support decisions. To keep the reviewed pass, save the project,
+use **Save as…** for a working copy, then analyze that copy. If prompted to
+start a new pass, **Cancel** keeps the current one open.
 
 After **Choose files**, open **Speakers for suggestions** before your first
 **Analyze**. It shows the parsed labels in each imported transcript,

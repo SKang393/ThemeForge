@@ -173,7 +173,8 @@ class SupportedMatchTests(unittest.TestCase):
         self.review("Not this match", "Withdrawing support after checking the context.")
         self.assertEqual(self.export_csv(rigor, "Export supported matches CSV", "latest.csv"), [])
         self.review("Supports this theme", reason)
-        app.analyze()
+        with patch("themeforge.app.messagebox.askokcancel", return_value=True):
+            app.analyze()
         self.assertEqual(self.export_csv(rigor, "Export supported matches CSV", "new-run.csv"), [])
         history = self.export_csv(rigor, "Export audit CSV", "history.csv")
         self.assertIn(event, history)

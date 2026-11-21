@@ -94,8 +94,20 @@ class MatchReviewTests(unittest.TestCase):
             self.assertIn(detail["reason"], report_text)
         rows = list(csv.DictReader(io.StringIO(self.export("csv"))))
         self.assertEqual([r["match_review_disposition"] for r in rows].count("declined"), 1)
-        app.analyze()
+        original = project.read_bytes()
+        # A reader joining the study can also reset other readers' current decisions.
+        app.researcher_name.set("Reader C")
+        before = app._project_state()
+        with patch("themeforge.app.messagebox.askokcancel", return_value=False) as confirm:
+            app.analyze()
+        confirm.assert_called_once()
+        self.assertEqual(confirm.call_args.kwargs["default"], "cancel")
+        self.assertEqual(app._project_state(), before)
+        self.assertEqual(project.read_bytes(), original)
+        with patch("themeforge.app.messagebox.askokcancel", return_value=True):
+            app.analyze()
         self.assertEqual(app.result, self.first)
+        self.assertFalse(app.match_reviews.has_reviews_since_analysis)
         self.assertNotIn("Reader B", app.match_review_text.get())
         self.assertTrue(all(r["latest_match_review"] is None for t in json.loads(self.export("json"))["themes"] for r in t["quotes"]))
         self.assertEqual([e for e in load_project(project).audit_events if e.action == "match_review_note"], events)
