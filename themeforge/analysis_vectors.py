@@ -59,6 +59,7 @@ def _bounded_seed_clusters(
 ) -> list[list[int]]:
     seed_indexes = _diverse_seed_indexes(vectors, target)
     clusters = [[index] for index in seed_indexes]
+    centers = [centroid([vectors[index]]) for index in seed_indexes]
     seed_lookup = set(seed_indexes)
 
     for index, vector in enumerate(vectors):
@@ -66,12 +67,14 @@ def _bounded_seed_clusters(
             continue
         best_cluster = 0
         best_score = -1.0
-        for cluster_index, cluster in enumerate(clusters):
-            score = cosine(vector, centroid(vectors[item] for item in cluster))
+        for cluster_index, center in enumerate(centers):
+            score = cosine(vector, center)
             if score > best_score:
                 best_score = score
                 best_cluster = cluster_index
-        clusters[best_cluster].append(index)
+        cluster = clusters[best_cluster]
+        cluster.append(index)
+        centers[best_cluster] = centroid(vectors[item] for item in cluster)
 
     return clusters
 

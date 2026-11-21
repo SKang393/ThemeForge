@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from themeforge import __version__
 import themeforge.analysis as analysis
+from themeforge import analysis_vectors
 from themeforge.analysis import (
     AnalysisSettings,
     CodebookEntry,
@@ -77,6 +78,18 @@ class ThematicAnalysisTests(unittest.TestCase):
         self.assertIn("Theme color:", markdown)
         self.assertIn("> ", markdown)
         self.assertIn("Participant", markdown)
+
+    def test_bounded_clustering_reuses_unchanged_centroids(self):
+        vectors = [
+            analysis_vectors.normalize_vector({"paper": 1.0, "wire": weight})
+            for weight in (1.0, 0.0, 0.30, 0.45, 0.65)
+        ]
+        with patch.object(analysis_vectors, "centroid", wraps=analysis_vectors.centroid) as center:
+            clusters, _ = analysis_vectors.cluster_quotes(vectors, 2, 1, 2)
+
+        # Adding vector 2 moves the second seed's center far enough to attract vector 3.
+        self.assertEqual(clusters, [[1, 2, 3], [0, 4]])
+        self.assertLessEqual(center.call_count, len(vectors))
 
     def test_large_transcript_uses_bounded_clustering_path(self):
         transcript = "\n".join(
