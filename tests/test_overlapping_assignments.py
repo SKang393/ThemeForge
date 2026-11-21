@@ -2,10 +2,11 @@
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from tkinter import ttk
 import unittest
 from unittest.mock import patch
 
-from test_evidence_handoff import export, open_audit, press
+from test_evidence_handoff import descendants, export, open_audit, press
 from themeforge.app import ThemeForgeApp
 from themeforge.definition_review import MatchReviewReason
 
@@ -28,7 +29,22 @@ class OverlappingAssignmentsTests(unittest.TestCase):
                         "Guided practice,Support is withdrawn as the learner takes over.\n", encoding="utf-8")
         app = ThemeForgeApp()
         self.addCleanup(app.destroy)
+        screen = app.winfo_screenwidth(), app.winfo_screenheight()
+        if app.tk.call("tk", "windowingsystem") == "win32" and screen == (1024, 768):
+            app.state("zoomed")
+        else:
+            app.minsize(1, 1)
+            app.geometry("1024x705+0+0")
         app.update()
+
+        def visible(widget):
+            self.assertTrue(widget.winfo_viewable(), str(widget))
+            x, y = widget.winfo_rootx(), widget.winfo_rooty()
+            for px, py in ((x, y), (x + widget.winfo_width() - 1, y + widget.winfo_height() - 1)):
+                self.assertTrue(0 <= px < min(screen[0], 1024) and 0 <= py < min(screen[1], 768),
+                                f"{widget} at {px}, {py} on {screen}")
+                self.assertEqual(widget.winfo_containing(px, py), widget)
+
         with patch("themeforge.app.filedialog.askopenfilenames", return_value=[str(source)]):
             press(app, "Choose files")
         with patch("themeforge.app.filedialog.askopenfilename", return_value=str(book)):
@@ -63,6 +79,9 @@ class OverlappingAssignmentsTests(unittest.TestCase):
         app.theme_list.selection_set(0)
         app.theme_list.event_generate("<<ListboxSelect>>")
         app.update()
+        memo_tab = app.quote_memo_text.master
+        memo_tab.master.select(memo_tab)
+        app.update()
         app.quote_memo_text.insert("1.0", "Track who chose the task.")
         press(app, "Save quote memo")
         project = root / "loom.tfproj"
@@ -71,7 +90,12 @@ class OverlappingAssignmentsTests(unittest.TestCase):
 
         def tables(stage):
             dialog = open_audit(app, project)
+            tabs = dialog.source_matrix_tree.master.master
+            tabs.select(dialog.source_matrix_tree.master)
+            app.update()
             manual = export(dialog, MANUAL, root / f"{stage}-assignments.csv")
+            tabs.select(dialog.audit_tree.master)
+            app.update()
             dialog.supported_sources.selection_set(0)
             supported = export(dialog, "Export supported matches CSV", root / f"{stage}-supported.csv")
             dialog.destroy()
@@ -92,22 +116,45 @@ class OverlappingAssignmentsTests(unittest.TestCase):
         select(6, 25, SHORT)
 
         def boundary(dialog, action):
+            dialog.update_idletasks()
+            self.assertEqual(app.grab_current(), dialog)
+            buttons = {w.cget("text"): w for w in descendants(dialog) if isinstance(w, ttk.Button)}
+            for widget in (dialog.location, dialog.passage, dialog.definitions, dialog.choice,
+                           buttons["Cancel"], buttons["Replace assignment"]):
+                visible(widget)
+            self.assertGreaterEqual(dialog.location.winfo_height(), dialog.location.winfo_reqheight())
+            self.assertGreaterEqual(dialog.location.winfo_width(), dialog.location.winfo_reqwidth())
+            self.assertIsNotNone(dialog.passage.bbox("evidence.first"))
+            self.assertIsNotNone(dialog.passage.bbox("evidence.last-1c"))
             self.assertEqual(dialog.passage.get("evidence.first", "evidence.last"), SHORT)
             location = dialog.location.cget("text")
             for value in ("loom.txt", "Learner choice", original["theme_id"], CHOICE, "[6:58]", "[6:25]", "Lark"):
                 self.assertIn(value, location)
             self.assertIn("The learner chooses a pattern or task.", dialog.definitions.get("1.0", "end"))
             self.assertEqual(len(dialog.choice.cget("values")), 1)
-            press(dialog, action)
+            if action == "Replace assignment":
+                print(f"Boundary dialog {dialog.winfo_width()}x{dialog.winfo_height()} on {screen[0]}x{screen[1]}. "
+                      "Original citation, replacement highlight, definition and both actions visible.", flush=True)
+            buttons[action].invoke()
 
-        with patch.object(app, "wait_window", side_effect=lambda d: boundary(d, "Cancel")) as modal:
-            press(app, "Update boundary")
-        modal.assert_called_once()
+        def edit(action):
+            update, = [w for w in descendants(app) if isinstance(w, ttk.Button) and w.cget("text") == "Update boundary"]
+            app.update()
+            visible(update)
+            with patch.object(app, "wait_window", side_effect=lambda d: boundary(d, action)) as modal, \
+                    patch.object(app, "report_callback_exception") as errors:
+                update.invoke()
+                if errors.called:
+                    raise errors.call_args.args[1]
+            modal.assert_called_once()
+
+        edit("Cancel")
         self.assertEqual(project.read_bytes(), saved)
         self.assertEqual(tuple(app.audit_events), prior_events)
-        with patch.object(app, "wait_window", side_effect=lambda d: boundary(d, "Replace assignment")) as modal:
-            press(app, "Update boundary")
-        modal.assert_called_once()
+        self.assertEqual(tables("canceled"), ([original, other], [old_support, other_support]))
+        self.assertEqual(project.read_bytes(), saved)
+        select(6, 25, SHORT)
+        edit("Replace assignment")
         new_id = app._current_quote_match().quote.quote_id
         self.assertNotEqual(new_id, original["assignment_id"])
         self.assertEqual(app._current_quote_match().quote.text, SHORT)
@@ -128,6 +175,9 @@ class OverlappingAssignmentsTests(unittest.TestCase):
         self.assertEqual((revision.target_id, revision.actor), (original["assignment_id"], "Lark"))
         self.assertEqual(json.loads(revision.details), {"replacement_id": new_id, "theme_id": original["theme_id"],
                          "source": source.name, "previous_span": [6, 58], "replacement_span": [6, 25]})
+        review_tab = app.review_source_box.master.master.master
+        review_tab.master.select(review_tab)
+        app.update()
         support("The shorter excerpt identifies the choice on its own.")
         _, current = tables("reviewed")
         self.assertEqual(current[1], other_support)

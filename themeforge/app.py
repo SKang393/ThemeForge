@@ -451,12 +451,14 @@ class ThemeForgeApp(tk.Tk):
 
         navigation = ttk.Frame(parent, style="Surface.TFrame")
         navigation.grid(row=1, column=0, sticky="ew", pady=(0, 8))
-        navigation.columnconfigure(2, weight=1)
-        ttk.Button(navigation, text="Previous quote", style="Secondary.TButton", command=self.previous_quote).grid(row=0, column=0, sticky="w", padx=(0, 8))
-        ttk.Button(navigation, text="Next quote", style="Secondary.TButton", command=self.next_quote).grid(row=0, column=1, sticky="w", padx=(0, 10))
-        ttk.Button(navigation, text="Uncode quote", style="Secondary.TButton", command=self.uncode_current_quote).grid(row=0, column=2, sticky="w", padx=(0, 10))
-        ttk.Button(navigation, text="Update boundary", style="Secondary.TButton", command=self.update_current_quote_boundary).grid(row=0, column=3, sticky="w", padx=(0, 10))
-        ttk.Label(navigation, textvariable=self.quote_status, style="Muted.TLabel").grid(row=0, column=4, sticky="w")
+        # Keep navigation and editing reachable in the visible part of a narrow evidence pane.
+        for label, command, row, column in (
+            ("Previous quote", self.previous_quote, 0, 0), ("Next quote", self.next_quote, 0, 1),
+            ("Uncode quote", self.uncode_current_quote, 1, 0), ("Update boundary", self.update_current_quote_boundary, 1, 1),
+        ):
+            ttk.Button(navigation, text=label, style="Secondary.TButton", width=-1, padding=(4, 2),
+                       command=command).grid(row=row, column=column, sticky="ew", padx=(0, 6))
+        ttk.Label(navigation, textvariable=self.quote_status, style="Muted.TLabel").grid(row=0, column=2, sticky="w")
 
         ttk.Label(parent, textvariable=self.quote_meta, style="Muted.TLabel", wraplength=520).grid(row=2, column=0, sticky="ew", pady=(0, 8))
 
