@@ -11,8 +11,10 @@ import unittest
 from unittest.mock import patch
 
 from test_evidence_handoff import descendants, export, press
+from themeforge.analysis import analyze_documents
+from themeforge.analysis_types import TranscriptDocument
 from themeforge.app import ThemeForgeApp
-from themeforge.project_io import load_project
+from themeforge.project_io import ProjectState, load_project, save_project
 from themeforge.rigor_dialog import RigorDialog
 
 
@@ -85,12 +87,15 @@ class ProjectRecoveryTests(unittest.TestCase):
             press(self.app, "Open project")
         self.app.update()
 
-    def supported(self):
+    def supported(self, source=None):
         press(self.app, "Rigor tools")
         dialog = next(w for w in self.app.winfo_children() if isinstance(w, RigorDialog))
         tab = dialog.audit_tree.master
         tab.master.select(tab)
-        press(dialog, "Select all sources")
+        if source is None:
+            press(dialog, "Select all sources")
+        else:
+            dialog.supported_sources.selection_set(dialog.supported_sources.get(0, "end").index(source))
         rows = export(dialog, "Export supported matches CSV", self.root / "supported.csv")
         dialog.destroy()
         return rows
@@ -207,6 +212,135 @@ class ProjectRecoveryTests(unittest.TestCase):
                          (row["quote"], row["source_start"], row["source_end"]))
         self.assertNotEqual(current["match_review_target_id"], row["match_review_target_id"])
         self.assertEqual(self.original.read_bytes(), original_bytes)
+
+    def test_memo_drafts_survive_canceled_navigation_and_stay_in_their_study(self):
+        app = self.app
+        app.update()
+        before = self.original.read_bytes()
+        row, = self.supported("count.txt")
+        quote = app._current_quote_match().quote
+        theme = app._current_theme()
+        self.assertEqual((quote.source_name, quote.source_start, quote.source_end, quote.text),
+                         ("count.txt", COUNT.index(PASSAGE), len(COUNT), PASSAGE))
+        # The other study reuses a filename and codebook with independently analyzed text.
+        doc = TranscriptDocument("count.txt", "Pip: We mailed the return card from the pier.", "Pier visit.")
+        other = self.root / "pier.tfproj"
+        other_source = self.root / "pier" / doc.name
+        other_source.parent.mkdir()
+        other_source.write_text(doc.text, encoding="utf-8")
+        pier = ProjectState((other_source,), None, (doc,), self.good.settings,
+                            analyze_documents([doc], self.good.settings), "Pip")
+        save_project(other, pier)
+        incoming_bytes = other.read_bytes()
+
+        def switch(source):
+            app.transcript_notebook.select(app.transcript_frames[source])
+            app.update()
+
+        def type_memo(editor, text):
+            editor.master.master.select(editor.master)
+            editor.delete("1.0", "end")
+            editor.insert("1.0", text)
+
+        def contents(editor):
+            return editor.get("1.0", "end-1c")
+
+        observation = "Look for a second account of the crate transfer."
+        claim = "A card may record either a plan or a completed count."
+        annotation = "This speaker marked the card after counting."
+        switch("shift.txt")
+        type_memo(app.document_memo_text, observation)
+        switch("count.txt")
+        type_memo(app.theme_memo_text, claim)
+        type_memo(app.quote_memo_text, annotation)
+
+        def check_passage():
+            self.assertEqual(app._current_document_name(), "count.txt")
+            self.assertEqual(app._visible_review_match().quote, quote)
+            self.assertEqual(app.theme_list.curselection(), (app.current_theme_index,))
+            widget = app.transcript_widgets["count.txt"]
+            self.assertEqual(widget.get("selected_quote.first", "selected_quote.last"), PASSAGE)
+            self.assertEqual(len(widget.get("1.0", "selected_quote.first")), quote.source_start)
+            self.assertEqual((contents(app.theme_memo_text), contents(app.quote_memo_text)), (claim, annotation))
+
+        for button in ("Previous quote", "Next quote"):
+            with patch("themeforge.app.messagebox.askokcancel", return_value=False) as confirm:
+                press(app, button)
+                confirm.assert_called_once()
+                self.assertEqual(confirm.call_args.kwargs["default"], "cancel")
+                self.assertIn("quote memo", confirm.call_args.args[1])
+                self.assertNotIn("theme memo", confirm.call_args.args[1])
+            check_passage()
+        with patch("themeforge.app.messagebox.askokcancel", return_value=False) as confirm:
+            app.theme_list.selection_clear(0, "end")
+            app.theme_list.selection_set(app.result.themes.index(self.manual))
+            app.theme_list.event_generate("<<ListboxSelect>>")
+            app.update()
+            confirm.assert_called_once()
+            for field in ("theme memo", "quote memo"):
+                self.assertIn(field, confirm.call_args.args[1])
+        check_passage()
+
+        switch("shift.txt")
+        with patch("themeforge.app.messagebox.askyesnocancel", return_value=None) as cancel:
+            self.open(other)
+            app.tk.call(app.protocol("WM_DELETE_WINDOW"))
+            self.assertEqual(cancel.call_count, 2)
+        self.assertEqual(app._current_document_name(), "shift.txt")
+        self.assertEqual(contents(app.document_memo_text), observation)
+        switch("count.txt")
+        check_passage()
+        self.assertEqual(app._project_state(), self.good)
+        self.assertEqual((self.original.read_bytes(), other.read_bytes()), (before, incoming_bytes))
+
+        # OK discards only the quote draft named by Next quote.
+        with patch("themeforge.app.messagebox.askokcancel", return_value=True) as discard:
+            press(app, "Next quote")
+            discard.assert_called_once()
+        self.assertNotEqual(app._current_quote_match().quote, quote)
+        self.assertEqual(contents(app.theme_memo_text), claim)
+        press(app, "Previous quote")
+        self.assertEqual(contents(app.quote_memo_text), quote.memo)
+        type_memo(app.quote_memo_text, annotation)
+        check_passage()
+        press(app, "Save quote memo")
+        press(app, "Save theme memo")
+        switch("shift.txt")
+        self.assertEqual(contents(app.document_memo_text), observation)
+        press(app, "Save document memo")
+        press(app, "Save project")
+        saved = load_project(self.original)
+        saved_bytes = self.original.read_bytes()
+        self.assertEqual(saved.audit_events[:-3], self.good.audit_events)
+        self.assertEqual([(e.action, e.target_id, e.actor) for e in saved.audit_events[-3:]],
+                         [("quote_memo_updated", quote.quote_id, "Wren"), ("theme_memo_updated", theme.id, "Wren"),
+                          ("document_memo_updated", "shift.txt", "Wren")])
+
+        for editor in (app.document_memo_text, app.theme_memo_text, app.quote_memo_text):
+            type_memo(editor, "Discard this working note.")
+        switch("count.txt")
+        with patch("themeforge.app.messagebox.askyesnocancel", return_value=False) as discard:
+            self.open(other)
+            discard.assert_called_once()
+        self.assertEqual(app._project_state(), pier)
+        self.assertEqual(tuple(contents(e) for e in (app.document_memo_text, app.theme_memo_text, app.quote_memo_text)),
+                         ("Pier visit.", "", ""))
+        # Both arrows wrap to the same single quote here, so no edit would be lost.
+        type_memo(app.quote_memo_text, "Check the pier postmark.")
+        with patch("themeforge.app.messagebox.askokcancel", side_effect=AssertionError("same passage")):
+            press(app, "Next quote")
+            press(app, "Previous quote")
+        self.assertEqual(contents(app.quote_memo_text), "Check the pier postmark.")
+        with patch("themeforge.app.messagebox.askyesnocancel", return_value=False):
+            self.open(self.original)
+        press(app, "Next supported")
+        self.assertEqual(app._current_quote_match().quote.quote_id, quote.quote_id)
+        self.assertEqual((contents(app.theme_memo_text), contents(app.quote_memo_text)), (claim, annotation))
+        switch("shift.txt")
+        self.assertEqual(contents(app.document_memo_text), observation)
+        self.assertEqual(app._project_state(), saved)
+        self.assertEqual(self.supported("count.txt"), [row])
+        self.assertEqual((self.original.read_bytes(), other.read_bytes()), (saved_bytes, incoming_bytes))
 
     def test_writer_exit_mid_archive_leaves_the_last_project_reopenable(self):
         original = self.original.read_bytes()

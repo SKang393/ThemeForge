@@ -111,8 +111,9 @@ class TranscriptHandoffTests(unittest.TestCase):
         self.assertEqual(self.app.project_path, self.first)
         self.assertEqual(self.first.read_bytes(), original)
         self.assertIn("Not applied yet.", self.app.document_memo_text.get("1.0", "end-1c"))
-        self.app.documents[0] = replace(self.app.documents[0], memo="Revised outgoing memo.")
-        self.app._refresh_document_memo()
+        self.app.document_memo_text.delete("1.0", "end")
+        self.app.document_memo_text.insert("1.0", "Revised outgoing memo.")
+        self.app.save_document_memo()
         with patch("themeforge.app.messagebox.askyesnocancel", side_effect=[True]), \
                 patch("themeforge.app.CodebookReuseDialog") as dialog:
             dialog.return_value.result = ()
@@ -228,7 +229,8 @@ class TranscriptHandoffTests(unittest.TestCase):
                     close()
                 destroy.assert_not_called()
                 self.assertIn("Unapplied.", self.app.document_memo_text.get("1.0", "end-1c"))
-            self.app._refresh_document_memo()
+            self.app.document_memo_text.delete("1.0", "end")
+            self.app.document_memo_text.insert("1.0", self.state.documents[0].memo)
             self.app.researcher_name.set("Changed reviewer")
             with patch("themeforge.app.messagebox.askyesnocancel", return_value=True), \
                     patch("themeforge.app.messagebox.showerror"), \

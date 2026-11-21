@@ -701,15 +701,23 @@ class ThemeForgeApp(tk.Tk):
 
     def _has_pending_source_edits(self, *, all_documents: bool = False) -> bool:
         self._refresh_document_memo()
-        theme = self._current_theme()
-        match = self._current_quote_match()
         document = self.documents[self._memo_tab] if self._memo_tab is not None else None
-        return bool((theme and (self.theme_name.get() != theme.name or
-                     self.theme_keywords.get() != ", ".join(theme.keywords) or
-                     self.theme_memo_text.get("1.0", "end-1c") != theme.memo)) or
-                    (match and self.quote_memo_text.get("1.0", "end-1c") != match.quote.memo) or
+        return bool(self._pending_review_edits(include_theme=True) or
                     (document and self.document_memo_text.get("1.0", "end-1c") != document.memo) or
                     (all_documents and self._other_memo_drafts))
+
+    def _pending_review_edits(self, *, include_theme: bool) -> list[str]:
+        edits = []
+        theme = self._current_theme()
+        if include_theme and theme:
+            if self.theme_name.get() != theme.name or self.theme_keywords.get() != ", ".join(theme.keywords):
+                edits.append("theme name or keywords")
+            if self.theme_memo_text.get("1.0", "end-1c") != theme.memo:
+                edits.append("theme memo")
+        match = self._current_quote_match()
+        if match and self.quote_memo_text.get("1.0", "end-1c") != match.quote.memo:
+            edits.append("quote memo")
+        return edits
 
     def open_codebook(self) -> None:
         path = filedialog.askopenfilename(
@@ -1962,7 +1970,27 @@ class ThemeForgeApp(tk.Tk):
         selection = self.theme_list.curselection()
         if not selection:
             return
+        if not self._confirm_review_navigation(include_theme=True):
+            index = self.current_theme_index
+            self.theme_list.selection_clear(0, tk.END)
+            if index is not None:
+                self.theme_list.selection_set(index)
+                self.theme_list.selection_anchor(index)
+                self.theme_list.activate(index)
+                self.theme_list.see(index)
+            return
         self.show_theme(selection[0])
+
+    def _confirm_review_navigation(self, *, include_theme: bool) -> bool:
+        edits = self._pending_review_edits(include_theme=include_theme)
+        if not edits:
+            return True
+        return messagebox.askokcancel(
+            "Discard unfinished edits?",
+            "Continuing will discard edits to your " + " and ".join(edits) +
+            ".\n\nChoose Cancel to keep your text and save it first.",
+            parent=self, default=messagebox.CANCEL, icon=messagebox.WARNING,
+        )
 
     def show_theme(self, index: int, *, quote_index: int = 0) -> None:
         if self.result is None or index >= len(self.result.themes):
@@ -1982,18 +2010,21 @@ class ThemeForgeApp(tk.Tk):
         self._focus_current_quote()
 
     def previous_quote(self) -> None:
-        if not self.current_quote_matches:
-            self.quote_status.set(evidence_navigation_status(0, 0))
-            return
-        self.current_quote_index = (max(0, self.current_quote_index) - 1) % len(self.current_quote_matches)
-        self._focus_current_quote()
+        self._browse_quote(max(0, self.current_quote_index) - 1)
 
     def next_quote(self) -> None:
+        self._browse_quote(self.current_quote_index + 1)
+
+    def _browse_quote(self, index: int) -> None:
         if not self.current_quote_matches:
             self.quote_status.set(evidence_navigation_status(0, 0))
             return
-        self.current_quote_index = (self.current_quote_index + 1) % len(self.current_quote_matches)
-        self._focus_current_quote()
+        index %= len(self.current_quote_matches)
+        changing_quote = index != self.current_quote_index
+        if changing_quote and not self._confirm_review_navigation(include_theme=False):
+            return
+        self.current_quote_index = index
+        self._focus_current_quote(refresh_memo=changing_quote)
 
     def _reset_omission_position(self) -> None:
         if self.unsuggested_index >= 0 and self.current_quote_index < 0:
@@ -2483,7 +2514,7 @@ class ThemeForgeApp(tk.Tk):
             return QuoteLocation("The recorded line or full excerpt does not match the source location.")
         return QuoteLocation(loc.note, a, b, loc.status == "exact_span")
 
-    def _focus_current_quote(self) -> None:
+    def _focus_current_quote(self, *, refresh_memo: bool = True) -> None:
         self.similar_list.selection_clear(0, tk.END)
         for widget in self.transcript_widgets.values():
             widget.configure(state="normal")
@@ -2547,7 +2578,7 @@ class ThemeForgeApp(tk.Tk):
         excerpt = match.quote.text if len(match.quote.text) <= 300 else match.quote.text[:300] + "… (full text in project/report)"
         self.quote_reason.set(match.quote.rationale if loc.start else
                               f"No source highlight. Stored excerpt: {excerpt}\nRecorded rationale: {match.quote.rationale}")
-        if hasattr(self, "quote_memo_text"):
+        if refresh_memo and hasattr(self, "quote_memo_text"):
             self._set_editable_text_content(self.quote_memo_text, match.quote.memo)
             if not loc.verified:
                 self.quote_memo_text.configure(state="disabled")
