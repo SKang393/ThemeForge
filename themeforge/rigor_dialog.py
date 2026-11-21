@@ -18,6 +18,7 @@ from .match_reviews import MatchReviews, REVIEW_ACTION
 from .paired_reviews import PairedReviewReport, compare_match_reviews
 from .project_io import UnsupportedProjectFormatError, load_project
 from .source_location import TranscriptIndex
+from .source_selection import source_listbox
 from .rigor import (
     CodedProject,
     CoderLabels,
@@ -106,15 +107,7 @@ class PairedExportScope(simpledialog.Dialog):
                   wraplength=480).grid(row=0, column=0, sticky="w")
         ttk.Label(master, text="Click a source to include or remove its shared matches.").grid(
             row=1, column=0, sticky="w", pady=(6, 2))
-        self.sources = tk.Listbox(master, selectmode=tk.MULTIPLE, exportselection=False,
-                                  height=min(8, len(self.counts)))
-        self.sources.grid(row=2, column=0, sticky="ew")
-        self.sources.insert(tk.END, *sorted(self.counts))
-        vertical = ttk.Scrollbar(master, orient="vertical", command=self.sources.yview)
-        vertical.grid(row=2, column=1, sticky="ns")
-        horizontal = ttk.Scrollbar(master, orient="horizontal", command=self.sources.xview)
-        horizontal.grid(row=3, column=0, sticky="ew")
-        self.sources.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
+        self.sources = source_listbox(master, sorted(self.counts), 2)
         self.sources.bind("<<ListboxSelect>>", self.show_preview)
         ttk.Button(master, text="Select all sources", command=self.select_all).grid(row=4, column=0, sticky="w", pady=4)
         ttk.Checkbutton(master, text="Export outcome counts only", variable=self.counts_only,

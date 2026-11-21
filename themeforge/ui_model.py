@@ -132,7 +132,10 @@ def evidence_navigation_status(current_index: int, total_count: int) -> str:
 def transcript_tab_label(name: str, max_length: int = 28) -> str:
     if len(name) <= max_length:
         return name
-    return f"{name[: max(1, max_length - 3)]}..."
+    # Keep the ending visible, including the import number for repeated filenames.
+    visible = max(1, max_length - 3)
+    tail = visible // 2
+    return f"{name[:visible - tail]}...{name[len(name) - tail:]}"
 
 
 def about_text(version: str) -> str:

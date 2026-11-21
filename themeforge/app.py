@@ -59,6 +59,7 @@ from .quote_units import speaker_stopwords, suggestion_inputs
 from .rigor_dialog import RigorContext, RigorDialog
 from .semantic_suggestions import SimilarPassage, find_similar_passages
 from .source_location import TranscriptIndex
+from .source_selection import FindTextScope
 from .speaker_review import review_speakers
 from .ui_model import (
     APP_THEMES,
@@ -89,6 +90,14 @@ class QuoteMatch:
     source_name: str
     location: QuoteLocation
     quote: ThemeQuote
+
+
+@dataclass(frozen=True, slots=True)
+class LiteralHit:
+    query: str
+    sources: tuple[str, ...]
+    source: str
+    end: str
 
 
 class ThemeForgeApp(tk.Tk):
@@ -123,6 +132,9 @@ class ThemeForgeApp(tk.Tk):
         self.current_theme_index: int | None = None
         self.current_quote_matches: list[QuoteMatch] = []
         self.current_quote_index = -1
+        self.literal_hit: LiteralHit | None = None
+        self.find_origin: tuple[str, ThemeQuote] | None = None
+        self.find_reviewer: str | None = None
         self.similar_passages: list[SimilarPassage] = []
         # An empty coverage result has zero omissions. None means coverage is unavailable.
         self.unsuggested_passages: list[QuoteUnit] | None = None
@@ -155,7 +167,7 @@ class ThemeForgeApp(tk.Tk):
         self._build_layout()
         self._render_transcript_tabs()
         self.quotes_per_theme.trace_add("write", self._invalidate_coverage_preview)
-        self.researcher_name.trace_add("write", self._show_match_review)
+        self.researcher_name.trace_add("write", self._on_reviewer_changed)
         self._empty_state = self._project_state()
         self._saved_state = self._empty_state
         self.protocol("WM_DELETE_WINDOW", self.request_close)
@@ -286,6 +298,11 @@ class ThemeForgeApp(tk.Tk):
                                              command=self.next_unsuggested_passage)
         self.unsuggested_button.grid(row=0, column=2, padx=(8, 0))
         self.unsuggested_button.grid_remove()
+
+        self.next_hit_button = ttk.Button(footer, text="Next hit", padding=(6, 1), command=self.next_literal_hit)
+        self.next_hit_button.grid(row=0, column=3, padx=(8, 0))
+        self.back_to_review = ttk.Button(footer, text="Back to review", padding=(6, 1), command=self.return_from_find)
+        self.back_to_review.grid(row=0, column=4, padx=(8, 0))
 
     def _build_controls(self, parent: ttk.Frame) -> None:
         ttk.Label(parent, text="Transcripts", style="Panel.TLabel").grid(row=0, column=0, sticky="w")
@@ -1347,7 +1364,13 @@ class ThemeForgeApp(tk.Tk):
         self._show_match_review()
         self._set_manual_status("Review note recorded. No coding assignment changed")
 
-    def _show_match_review(self, *_trace_args: str) -> None:
+    def _on_reviewer_changed(self, *_trace_args: str) -> None:
+        if self.find_reviewer is not None and self.find_reviewer != self.researcher_name.get().strip():
+            self._clear_literal_search()
+            self.status_text.set("Reviewer changed. Use Find text to start a new search.")
+        self._show_match_review()
+
+    def _show_match_review(self) -> None:
         theme = self._current_theme()
         if theme is None or self.current_quote_index < 0 or not self.current_quote_matches:
             self.match_review_text.set("")
@@ -1876,6 +1899,7 @@ class ThemeForgeApp(tk.Tk):
         self.show_theme(index, quote_index=quote_index)
 
     def _render_transcript_tabs(self) -> None:
+        self._clear_literal_search()
         for tab_id in self.transcript_notebook.tabs():
             self.transcript_notebook.forget(tab_id)
         for child in self.transcript_notebook.winfo_children():
@@ -2181,36 +2205,111 @@ class ThemeForgeApp(tk.Tk):
         if self._has_pending_source_edits():
             self.status_text.set("Apply unfinished theme or memo edits before finding text.")
             return "break"
-        previous = widget.tag_ranges("literal_hit")
-        last_text = widget.get(*previous) if previous else ""
-        query = last_text
-        if not last_text or event is None or event.keysym != "F3":
-            query = simpledialog.askstring("Find text", f"Exact text in {name}", initialvalue=last_text, parent=self)
-        if not query or not query.strip():
-            return "break"
-        if self._current_document_name() != name or self.transcript_widgets.get(name) is not widget:
-            self.status_text.set("The transcript changed. Find the text again in the open tab.")
+        previous = self.literal_hit
+        if (event is not None and event.keysym == "F3" and previous and name == previous.source
+                and widget.tag_ranges("literal_hit")):
+            self.next_literal_hit()
             return "break"
 
-        start = str(previous[1]) if previous and last_text == query else "1.0"
-        # With no stop index Tk wraps once, staying within this transcript.
-        hit = widget.search(query, start, exact=True)
-        if not hit:
-            self.status_text.set(f"No exact occurrence in {name}.")
+        names = tuple(doc.name for doc in self.documents if self._display_sources.has_unique_source(doc.name))
+        initial = previous.query if previous and name == previous.source else ""
+        reviewer = self.researcher_name.get().strip()
+        choice = FindTextScope(widget, names, name, initial).result
+        if choice is None:
             return "break"
-        end = widget.index(f"{hit} + {len(query)} chars")
-        if widget.get(hit, end) != query or widget.compare(end, ">", "end-1c"):
-            self.status_text.set("The exact transcript selection could not be verified.")
+        if self.researcher_name.get().strip() != reviewer:
+            self.status_text.set("The reviewer changed. Open Find text again.")
             return "break"
-        self.unsuggested_index = -1
-        self._select_for_reading(name, widget, hit, end, "literal_hit")
-        self.detail_title.set("Transcript text")
-        self.quote_status.set("")
-        self.quote_meta.set(f"{name}, line {hit.split('.')[0]}")
-        self.quote_reason.set("Literal text found. Read the surrounding turn and select the exact passage to code.")
-        self.status_text.set(f"Found text in {name}. F3 finds the next occurrence in this transcript.")
-        widget.focus_set()
+        query, sources = choice
+        if (self._current_document_name() != name or self.transcript_widgets.get(name) is not widget
+                or not sources or any(s not in names for s in sources)):
+            self.status_text.set("The source selection changed. Open Find text again.")
+            return "break"
+        resume = (previous if previous and previous.source == name and widget.tag_ranges("literal_hit")
+                  and query == previous.query and sources == previous.sources else None)
+        match = self._visible_review_match()
+        self._find_literal(query, sources, resume)
+        if self.literal_hit and match:
+            self.find_origin = (self.result.themes[match.theme_index].id, match.quote)
+            self.back_to_review.grid()
         return "break"
+
+    def next_literal_hit(self) -> None:
+        previous = self.literal_hit
+        if previous is None:
+            return
+        if self._has_pending_source_edits():
+            self.status_text.set("Apply unfinished theme or memo edits before finding the next hit.")
+            return
+        self._find_literal(previous.query, previous.sources, previous)
+
+    def _find_literal(self, query: str, sources: tuple[str, ...], previous: LiteralHit | None) -> None:
+        self.find_reviewer = self.researcher_name.get().strip()
+        self.literal_hit = None
+        self.next_hit_button.grid_remove()
+        # Scan the rest of the current file, then the other chosen tabs, then its prefix.
+        ranges = [(source, "1.0", "end-1c") for source in sources]
+        wrap_at = len(ranges)
+        if previous:
+            i = sources.index(previous.source)
+            wrap_at = len(sources) - i
+            ranges = ([(previous.source, previous.end, "end-1c")] + ranges[i + 1:] + ranges[:i]
+                      + [(previous.source, "1.0", previous.end)])
+        scope = sources[0] if len(sources) == 1 else f"{len(sources)} selected transcripts"
+        for index, (source, start, stop) in enumerate(ranges):
+            widget = self.transcript_widgets[source]
+            hit = widget.search(query, start, stopindex=stop, exact=True)
+            if not hit:
+                continue
+            end = widget.index(f"{hit} + {len(query)} chars")
+            if widget.get(hit, end) != query or widget.compare(end, ">", "end-1c"):
+                self.status_text.set("The exact transcript selection could not be verified.")
+                return
+            self.unsuggested_index = -1
+            self._select_for_reading(source, widget, hit, end, "literal_hit")
+            self.literal_hit = LiteralHit(query, sources, source, end)
+            self.next_hit_button.grid()
+            self.detail_title.set("Transcript text")
+            self.quote_status.set("")
+            self.quote_meta.set(f"{source}, line {hit.split('.')[0]}")
+            self.quote_reason.set("Literal text found. Read the surrounding turn and select the exact passage to code.")
+            progress = "Wrapped to first hit" if index >= wrap_at else "Exact hit"
+            self.status_text.set(f"{progress} in {scope}. Use Next hit or F3 to continue.")
+            widget.focus_set()
+            return
+        self.status_text.set(f"No exact occurrence in {scope}. The idea may be expressed in other words.")
+
+    def _clear_literal_search(self) -> None:
+        if self.find_reviewer is not None:
+            for widget in self.transcript_widgets.values():
+                if self._clear_reading_tag(widget, "literal_hit"):
+                    self.quote_meta.set("")
+                    self.quote_reason.set("")
+        self.find_reviewer = None
+        self.literal_hit = None
+        self.find_origin = None
+        self.next_hit_button.grid_remove()
+        self.back_to_review.grid_remove()
+
+    def return_from_find(self) -> None:
+        if not self.find_origin or not self.result:
+            return
+        theme_id, quote = self.find_origin
+        theme = next((t for t in self.result.themes if t.id == theme_id), None)
+        if theme is None or quote not in theme.quotes:
+            self.status_text.set("The original review passage changed. Select its theme to review it again.")
+            self._clear_literal_search()
+            return
+        try:
+            self._locate_review_match(theme, quote)
+        except ValueError as exc:
+            self.status_text.set(str(exc))
+            return
+        # The quote highlight marks the restored location. A text selection from Find
+        # must not become the active manual selection on the returning transcript.
+        self.transcript_widgets[quote.source_name].tag_remove(tk.SEL, "1.0", tk.END)
+        self._clear_literal_search()
+        self.status_text.set(f"Returned to {theme.name} · {quote.source_name}, line {quote.source_line}")
 
     def next_review_match(self, disposition: str | None, *, theme_only: bool = False) -> None:
         reviewer = self.researcher_name.get().strip()
@@ -2550,16 +2649,22 @@ class ThemeForgeApp(tk.Tk):
             return QuoteLocation("The recorded line or full excerpt does not match the source location.")
         return QuoteLocation(loc.note, a, b, loc.status == "exact_span")
 
+    @staticmethod
+    def _clear_reading_tag(widget: tk.Text, tag: str) -> bool:
+        marked = widget.tag_ranges(tag)
+        if not marked:
+            return False
+        if marked == widget.tag_ranges(tk.SEL):
+            widget.tag_remove(tk.SEL, "1.0", tk.END)
+        widget.tag_delete(tag)
+        return True
+
     def _focus_current_quote(self, *, refresh_memo: bool = True) -> None:
         self.similar_list.selection_clear(0, tk.END)
         for widget in self.transcript_widgets.values():
             widget.configure(state="normal")
             for tag in ("coverage_selection", "literal_hit"):
-                selected = widget.tag_ranges(tag)
-                if selected:
-                    if selected == widget.tag_ranges(tk.SEL):
-                        widget.tag_remove(tk.SEL, "1.0", tk.END)
-                    widget.tag_delete(tag)
+                self._clear_reading_tag(widget, tag)
             widget.tag_remove("selected_quote", "1.0", tk.END)
             widget.tag_remove("similar_suggestion", "1.0", tk.END)
             widget.configure(state="disabled")

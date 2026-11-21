@@ -12,6 +12,7 @@ from test_evidence_handoff import descendants, open_audit, export, press
 from themeforge.app import ThemeForgeApp
 from themeforge.exports import export_quotes_csv
 from themeforge.semantic_suggestions import find_similar_passages
+from themeforge.source_selection import FindTextScope
 
 SEED = "I stopped weaving when the brass shuttle began to rattle against the guard."
 MISSED = "I laid the shuttle in my lap and left the cloth half done until the pin sat tight."
@@ -78,6 +79,31 @@ def open_similar(app):
         notebook.event_generate(event, x=x, y=y)
     app.update()
     assert notebook.select() == str(frame)
+
+
+def answer_find(query, selected=None, *, initial=None):
+    def respond(dialog, _window):
+        assert dialog.sources.curselection() == (dialog.names.index(dialog.current),)
+        if initial is not None:
+            assert dialog.query.get() == initial
+        if query is None:
+            dialog.cancel()
+            return
+        dialog.query.delete(0, "end")
+        dialog.query.insert(0, query)
+        if selected is not None:
+            for index, name in enumerate(dialog.names):
+                if (index in dialog.sources.curselection()) != (name in selected):
+                    dialog.sources.see(index)
+                    dialog.update_idletasks()
+                    x, y, width, height = dialog.sources.bbox(index)
+                    for event in ("<ButtonPress-1>", "<ButtonRelease-1>"):
+                        dialog.sources.event_generate(event, x=x + 2, y=y + height // 2)
+        dialog.ok()
+        if selected == ():
+            assert dialog.winfo_exists() and "select at least one" in dialog.notice.cget("text")
+            dialog.cancel()
+    return patch.object(FindTextScope, "wait_window", autospec=True, side_effect=respond)
 
 
 class ScopedFindTests(unittest.TestCase):
@@ -233,7 +259,7 @@ class ScopedFindTests(unittest.TestCase):
         self.assertEqual(app.winfo_containing(find.winfo_rootx() + find.winfo_width() - 1,
                                               find.winfo_rooty() + find.winfo_height() - 1), find)
         text = app.transcript_widgets[source]
-        with patch("themeforge.app.simpledialog.askstring", return_value="임시 받침") as prompt:
+        with answer_find("임시 받침") as prompt:
             find.invoke()
             app.update()
             prompt.assert_called_once()
@@ -252,7 +278,7 @@ class ScopedFindTests(unittest.TestCase):
             press(app, "Supports this theme")
             prompt.assert_not_called()
         for query in (None, "unprinted phrase"):
-            with patch("themeforge.app.simpledialog.askstring", return_value=query) as prompt:
+            with answer_find(query) as prompt:
                 text.event_generate("<Control-f>")
                 app.update()
                 prompt.assert_called_once()
@@ -280,6 +306,189 @@ class ScopedFindTests(unittest.TestCase):
         self.assertEqual(rows, list(csv.DictReader(StringIO(original))))
         self.assertEqual([e for e in app.audit_events if e.action == "match_review_note"],
                          [e for e in state.audit_events if e.action == "match_review_note"])
+
+    def test_literal_search_selected_tabs_wrap_and_return_to_exact_review(self):
+        sources = {
+            "kiln.txt": "Potter: I put a wax dot on the first tile.\nPotter: The next tile carried a wax dot underneath.",
+            "ledger.txt": ("Clerk: I entered the tray number in the ledger.\nClerk: The drawing showed a wax dot.\n"
+                           "Clerk: I entered the tray number in the ledger."),
+            "rack.txt": "Glazer: A wax dot survived the rinse on the glazed tile.",
+        }
+        folder = TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        root = Path(folder.name)
+        for name, content in sources.items():
+            (root / name).write_text(content, encoding="utf-8")
+        book = root / "codes.csv"
+        book.write_text("code,definition\nInventory,tray number ledger\nMarker,physical marker on tile\n", encoding="utf-8")
+        with patch.object(ThemeForgeApp, "maxsize", return_value=(1024, 705)):
+            app = ThemeForgeApp()
+        self.addCleanup(app.destroy)
+        with patch("themeforge.app.filedialog.askopenfilenames", return_value=[str(root / n) for n in sources]):
+            press(app, "Choose files")
+        with patch("themeforge.app.filedialog.askopenfilename", return_value=str(book)):
+            press(app, "Choose codebook")
+        app.researcher_name.set("Slate")
+        press(app, "Analyze")
+        press(app, "Next quote")
+        origin = app._visible_review_match().quote
+        self.assertEqual((origin.source_name, origin.source_line), ("ledger.txt", 3))
+        reason = "The later entry records the tray number."
+        with patch("themeforge.app.MatchReviewReason") as prompt:
+            prompt.return_value.result = reason
+            press(app, "Supports this theme")
+        project = root / "tiles.tfproj"
+        with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(project)):
+            press(app, "Save project")
+        saved = project.read_bytes()
+        events = list(app.audit_events)
+
+        def table(only_supported):
+            return export_quotes_csv(app.result, app.documents, app.audit_events, supported_only=only_supported,
+                                     codebook_entries=app.codebook_entries).encode("utf-8")
+
+        supported, full = table(True), table(False)
+        set_scope(app, "ledger.txt")
+        scope = ("kiln.txt", "rack.txt")
+        with answer_find("drawing", ()):
+            press(app, "Find text…")
+        with answer_find("drawing", scope):
+            press(app, "Find text…")  # The literal exists only in the excluded transcript.
+        self.assertIn("No exact occurrence", app.status_text.get())
+        self.assertIn("other words", app.status_text.get())
+        self.assertEqual(app._visible_review_match().quote, origin)
+
+        with answer_find("wax dot", scope) as prompt:
+            press(app, "Find text…")
+            app.update()
+            for button in (app.next_hit_button, app.back_to_review):
+                self.assertTrue(button.winfo_viewable())
+                x = button.winfo_rootx() + button.winfo_width() - 1
+                y = button.winfo_rooty() + button.winfo_height() - 1
+                self.assertTrue(0 <= x < 1024 and 0 <= y < 768)
+                self.assertEqual(app.winfo_containing(x, y), button)
+            for index, (name, start) in enumerate((("kiln.txt", 16), ("kiln.txt", 75), ("rack.txt", 10),
+                                                    ("kiln.txt", 16))):
+                if index == 2:
+                    app.transcript_widgets["kiln.txt"].focus_force()
+                    app.update()
+                    app.transcript_widgets["kiln.txt"].event_generate("<F3>")
+                elif index:
+                    press(app, "Next hit")
+                app.update()
+                selected = app._selected_transcript_text()
+                self.assertEqual((selected.source_name, selected.source_start, selected.source_end, selected.text),
+                                 (name, start, start + 7, "wax dot"))
+                self.assertIsNone(app._visible_review_match())
+                self.assertEqual("Wrapped" in app.status_text.get(), index == 3)
+            prompt.assert_called_once()
+        self.assertEqual(app.review_source_box.get(), "ledger.txt")
+        press(app, "Back to review")
+        app.update()
+        self.assertEqual(app._visible_review_match().quote, origin)
+        self.assertIn(reason, app.match_review_text.get())
+        self.assertEqual((app.audit_events, table(True), table(False), project.read_bytes()),
+                         (events, supported, full, saved))
+
+        with answer_find("wax dot", scope):
+            press(app, "Find text…")
+        press(app, "Next hit")
+        press(app, "Next hit")
+        widget = app.transcript_widgets["rack.txt"]
+        widget.tag_remove("sel", "1.0", "end")
+        widget.tag_add("sel", "1.8", "1.end")
+        app.definition_box.current(1)
+        with patch.object(app, "wait_window", side_effect=lambda d: press(d, "Apply selected definition")):
+            press(app, "Apply codebook entry…")
+        assigned = app._visible_review_match().quote
+        self.assertEqual((assigned.source_name, assigned.source_start, assigned.text, assigned.reported_relevance),
+                         ("rack.txt", 8, sources["rack.txt"][8:], None))
+        press(app, "Back to review")
+        self.assertEqual(app._visible_review_match().quote, origin)
+        self.assertIn(reason, app.match_review_text.get())
+        self.assertEqual([e.action for e in app.audit_events[len(events):]], ["codebook_passage_assigned"])
+        self.assertEqual(table(True), supported)
+        self.assertEqual(project.read_bytes(), saved)
+
+        copy = root / "tiles-with-marker.tfproj"
+        with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(copy)):
+            press(app, "Save as…")
+        with answer_find("wax dot", scope):
+            press(app, "Find text…")
+        with patch("themeforge.app.filedialog.askopenfilename", return_value=str(copy)):
+            press(app, "Open project")
+        app.update()
+        self.assertFalse(app.next_hit_button.winfo_ismapped())
+        self.assertFalse(app.back_to_review.winfo_ismapped())
+        self.assertEqual(table(True), supported)
+        self.assertEqual([q for t in app.result.themes for q in t.quotes if q.manual_definition_assignment], [assigned])
+        self.assertEqual(project.read_bytes(), saved)
+
+    def test_reader_change_ends_find_and_clears_only_its_selection(self):
+        folder = TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        with patch.object(ThemeForgeApp, "maxsize", return_value=(1024, 705)):
+            app = ThemeForgeApp()
+        self.addCleanup(app.destroy)
+        original = prepare(app, folder.name)
+        project = Path(folder.name) / "weaving.tfproj"
+        with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(project)):
+            press(app, "Save project")
+
+        def evidence():
+            return export_quotes_csv(app.result, app.documents, app.audit_events, supported_only=True,
+                                     codebook_entries=app.codebook_entries)
+
+        before = project.read_bytes(), tuple(app.audit_events), evidence()
+        with answer_find("brass shuttle", ("studio.txt", "gallery.txt")):
+            press(app, "Find text…")
+        press(app, "Next hit")
+        press(app, "Next hit")
+        app.update()
+        hit = app._selected_transcript_text()
+        self.assertEqual((hit.source_name, hit.source_start, hit.source_end), ("gallery.txt", 10, 23))
+        reviewer = next(w for w in descendants(app) if isinstance(w, ttk.Entry)
+                        and str(w.cget("textvariable")) == str(app.researcher_name))
+        reviewer.insert("end", " ")
+        self.assertEqual(app._selected_transcript_text(), hit)
+        draft = "Compare the recording with the demonstration."
+        app.document_memo_text.insert("end", draft)
+        reviewer.delete(0, "end")
+        reviewer.insert(0, "Ochre")
+        app.update()
+        self.assertEqual(app._current_document_name(), "gallery.txt")
+        self.assertFalse(app.next_hit_button.winfo_ismapped())
+        self.assertFalse(app.back_to_review.winfo_ismapped())
+        self.assertIsNone(app._selected_transcript_text())
+        self.assertFalse(app.quote_meta.get() or app.quote_reason.get())
+        self.assertEqual(app.document_memo_text.get("1.0", "end-1c"), draft)
+        app.document_memo_text.delete("1.0", "end")
+
+        # F3 opens a new, current-tab-only query, with no return into the first reader's review.
+        gallery = app.transcript_widgets["gallery.txt"]
+        gallery.focus_force()
+        app.update()
+        with answer_find("held up", initial="") as prompt:
+            gallery.event_generate("<F3>")
+            app.update()
+            prompt.assert_called_once()
+        self.assertEqual(app._selected_transcript_text().text, "held up")
+        self.assertFalse(app.back_to_review.winfo_ismapped())
+        # A failed query leaves the previous reading selection; a hand-selected span is independent.
+        with answer_find("unprinted phrase"):
+            press(app, "Find text…")
+        self.assertIn("No exact occurrence", app.status_text.get())
+        gallery.tag_remove("sel", "1.0", "end")
+        gallery.tag_add("sel", "1.0", "1.4")
+        reviewer.delete(0, "end")
+        reviewer.insert(0, "Fern")
+        self.assertEqual(app._selected_transcript_text().text, "Felt")
+        self.assertFalse(gallery.tag_ranges("literal_hit"))
+
+        press(app, "Next supported")
+        self.assertEqual(app._visible_review_match().quote, original)
+        self.assertIn(WHY, app.match_review_text.get())
+        self.assertEqual((project.read_bytes(), tuple(app.audit_events), evidence()), before)
 
     def test_switch_sources_while_drafting_memos_and_coding_repeated_text(self):
         folder = TemporaryDirectory()
@@ -328,7 +537,7 @@ class ScopedFindTests(unittest.TestCase):
                 prompt.assert_called_once()
 
         def assign(name):
-            with patch("themeforge.app.simpledialog.askstring", return_value=phrase):
+            with answer_find(phrase):
                 press(app, "Find text…")
             selection = app._selected_transcript_text()
             self.assertEqual((selection.source_name, selection.source_start, selection.source_end, selection.text),

@@ -8,10 +8,20 @@ from themeforge.ui_model import (
     file_selection_summary,
     format_validation_summary,
     theme_list_label,
+    transcript_tab_label,
 )
 
 
 class UiModelTests(unittest.TestCase):
+    def test_shortened_transcript_tabs_keep_duplicate_filename_numbers(self):
+        name = "workshop_inventory_followup_interview.txt"
+        first = transcript_tab_label(name)
+        second = transcript_tab_label(f"{name} [2]")
+        self.assertTrue(first.endswith(".txt"))
+        self.assertTrue(second.endswith(".txt [2]"))
+        self.assertLessEqual(max(len(first), len(second)), 28)
+        self.assertEqual(transcript_tab_label("shift.txt [2]"), "shift.txt [2]")
+
     def test_file_selection_summary_is_compact_for_professional_header(self):
         self.assertEqual(file_selection_summary([]), "No transcripts selected")
         self.assertEqual(file_selection_summary([Path("teacher.txt")]), "teacher.txt")

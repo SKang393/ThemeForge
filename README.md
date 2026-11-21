@@ -317,14 +317,21 @@ manual assignment. Evidence exports have their own source chooser.
 **Previous quote** and **Next quote** browse every recorded passage in the
 selected theme.
 
-To look up wording you remember, open the transcript tab and choose **Find
-text…** (or press **Ctrl+F** in the transcript). Enter a literal substring,
-such as `임시 받침` to find occurrences including `임시 받침을` and
-`임시 받침대`. **F3** advances to the next occurrence and wraps in that
-tab. Search is case-sensitive and includes passages already suggested for
-another code. Read the turn, select the exact span you want, and use **Apply
-codebook entry…** to record a manual assignment. Finding text leaves the
-review decisions and suggestion scores intact.
+To look up wording, open a transcript and choose **Find text…** (or press
+**Ctrl+F** in the transcript). The current tab starts selected. Click names
+to add or remove transcripts, enter a case-sensitive substring, and choose
+**OK**. **Next hit** or **F3** in the highlighted passage advances through
+the chosen tabs in order. The footer announces a wrap to the first hit. A
+search for `임시 받침`, for example, also finds that wording inside `임시 받침을`.
+An empty result leaves open the possibility that the idea is expressed in
+other words.
+
+Read each occurrence in its own transcript. To record an assignment, select
+the exact passage and use **Apply codebook entry…**. **Back to review** returns
+to the verified quote where you started, including after a manual assignment.
+The search selection is temporary and independent of review and export scope.
+Changing the reviewer closes the search and clears its return point. The next
+reader can start a fresh search from the open transcript.
 
 **Handing off reviewed evidence.** Select a theme and choose **Supported CSV…**
 beside **Analyze**. This opens **Rigor tools → Audit log** with the displayed
