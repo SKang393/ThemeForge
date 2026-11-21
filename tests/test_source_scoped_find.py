@@ -187,3 +187,96 @@ class ScopedFindTests(unittest.TestCase):
         self.assertEqual(export(audit, "Export supported matches CSV", root / "supported.csv"),
                          list(csv.DictReader(StringIO(original_table))))
         self.assertEqual(path.read_bytes(), saved)
+
+    def test_find_literal_in_already_suggested_text_then_assign_by_hand(self):
+        directory = TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = Path(directory.name)
+        source = "진열실.txt"
+        passage = "다리가 갈라져서 임시 받침을 끼워 진열장을 잠시 세워 뒀어요."
+        turns = [passage, "임시 받침대 그림은 안내판 아래쪽에 있었어요.",
+                 "지난 장부에서 임시 받침을 찾아 철자 하나를 고쳤어요."]
+        (root / source).write_text("\n".join("모래: " + text for text in turns), encoding="utf-8")
+        (root / "shelf.txt").write_text("Robin: I braced the shelf with a temporary prop.\n"
+                                       "솔: 임시 받침을 어디 두었는지 기억이 안 나요.", encoding="utf-8")
+        book = root / "book.csv"
+        book.write_text("code,definition,example\nInterim support,temporary prop,임시 받침\n"
+                        "Leg damage,A cracked leg,다리가 갈라져서\n", encoding="utf-8")
+        app = ThemeForgeApp()
+        self.addCleanup(app.destroy)
+        app.minsize(1, 1)
+        app.geometry("1024x705+0+0")
+        paths = [str(root / source), str(root / "shelf.txt")]
+        with patch("themeforge.app.filedialog.askopenfilenames", return_value=paths):
+            press(app, "Choose files")
+        with patch("themeforge.app.filedialog.askopenfilename", return_value=str(book)):
+            press(app, "Choose codebook")
+        app.researcher_name.set("Jade")
+        press(app, "Analyze")
+        prop, leg = app.result.themes
+        self.assertFalse(any(q.text == passage for q in prop.quotes))
+        app._select_theme_by_id(leg.id)
+        self.assertEqual(app._current_quote_match().quote.text, passage)
+        with patch("themeforge.app.MatchReviewReason") as prompt:
+            prompt.return_value.result = "The display case leg had cracked."
+            press(app, "Supports this theme")
+        project = root / "display.tfproj"
+        with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(project)):
+            press(app, "Save project")
+        saved = project.read_bytes()
+        state = app._project_state()
+        original = export_quotes_csv(app.result, app.documents, app.audit_events, supported_only=True,
+                                     codebook_entries=app.codebook_entries)
+        app.update()
+        find, = [w for w in descendants(app) if isinstance(w, ttk.Button) and w.cget("text") == "Find text…"]
+        self.assertTrue(find.winfo_viewable())
+        self.assertEqual(app.winfo_containing(find.winfo_rootx() + find.winfo_width() - 1,
+                                              find.winfo_rooty() + find.winfo_height() - 1), find)
+        text = app.transcript_widgets[source]
+        with patch("themeforge.app.simpledialog.askstring", return_value="임시 받침") as prompt:
+            find.invoke()
+            app.update()
+            prompt.assert_called_once()
+        self.assertTrue(text.winfo_viewable())
+        self.assertIsNotNone(text.bbox("sel.first"))
+        text.focus_force()
+        app.update()
+        for index, line in enumerate((1, 2, 3, 1)):
+            if index:
+                text.event_generate("<F3>")
+                app.update()
+            selected = app._selected_transcript_text()
+            self.assertEqual((selected.source_name, selected.source_line, selected.text), (source, line, "임시 받침"))
+        self.assertIsNone(app._current_quote_match())
+        with patch("themeforge.app.MatchReviewReason") as prompt:
+            press(app, "Supports this theme")
+            prompt.assert_not_called()
+        for query in (None, "unprinted phrase"):
+            with patch("themeforge.app.simpledialog.askstring", return_value=query) as prompt:
+                text.event_generate("<Control-f>")
+                app.update()
+                prompt.assert_called_once()
+            self.assertEqual(app._selected_transcript_text(), selected)
+        self.assertEqual(app._project_state(), state)
+        self.assertEqual(project.read_bytes(), saved)
+
+        # The reader extends the literal hit to the full supporting turn.
+        text.tag_remove("sel", "1.0", "end")
+        text.tag_add("sel", "1.4", "1.end")
+        app.definition_box.current(0)
+        with patch.object(app, "wait_window", side_effect=lambda d: press(d, "Apply selected definition")):
+            press(app, "Apply codebook entry…")
+        recovered = root / "recovered.tfproj"
+        with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(recovered)):
+            press(app, "Save as…")
+        dialog = open_audit(app, recovered)
+        self.assertEqual(project.read_bytes(), saved)
+        assignment, = export(dialog, "Export this project's manual codebook assignments", root / "manual.csv")
+        self.assertEqual((assignment["code_name"], assignment["assigned_by"], assignment["source"],
+                          assignment["source_start"], assignment["source_end"], assignment["passage"]),
+                         ("Interim support", "Jade", source, "4", "38", passage))
+        dialog.supported_sources.selection_set(0, "end")
+        rows = export(dialog, "Export supported matches CSV", root / "evidence.csv")
+        self.assertEqual(rows, list(csv.DictReader(StringIO(original))))
+        self.assertEqual([e for e in app.audit_events if e.action == "match_review_note"],
+                         [e for e in state.audit_events if e.action == "match_review_note"])

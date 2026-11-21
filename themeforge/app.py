@@ -461,6 +461,8 @@ class ThemeForgeApp(tk.Tk):
             ttk.Button(navigation, text=label, style="Secondary.TButton", width=-1, padding=(4, 2),
                        command=command).grid(row=row, column=column, sticky="ew", padx=(0, 6))
         ttk.Label(navigation, textvariable=self.quote_status, style="Muted.TLabel").grid(row=0, column=2, sticky="w")
+        ttk.Button(navigation, text="Find text…", command=self.find_transcript_text, style="Secondary.TButton",
+                   width=-1, padding=(4, 2)).grid(row=1, column=2, sticky="w")
 
         ttk.Label(parent, textvariable=self.quote_meta, style="Muted.TLabel", wraplength=520).grid(row=2, column=0, sticky="ew", pady=(0, 8))
 
@@ -1903,6 +1905,8 @@ class ThemeForgeApp(tk.Tk):
             )
             text.grid(row=0, column=1, sticky="nsew")
             self._set_text_content(text, document.text)
+            text.bind("<Control-f>", self.find_transcript_text)
+            text.bind("<F3>", self.find_transcript_text)
 
             scrollbar = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=text.yview)
             scrollbar.grid(row=0, column=2, sticky="ns")
@@ -2088,11 +2092,7 @@ class ThemeForgeApp(tk.Tk):
             self.status_text.set("Coverage unavailable. The passage no longer matches the project transcript.")
             return
         widget, start, end = location
-        # The theme can still be a manual coding target. Match actions require a focused quote.
-        self.current_quote_index = -1
-        self._clear_similar_passages()
-        self._focus_current_quote()
-        self.quote_memo_text.configure(state="disabled")
+        self._select_for_reading(unit.source_name, widget, start, end, "coverage_selection")
         self.quote_meta.set(f"{unit.source_name}, line {unit.source_line} | {unit.speaker}")
         self.detail_title.set("No suggestion in preview" if self.coverage_is_preview else "No displayed codebook suggestion")
         self.quote_status.set(f"Passage {self.unsuggested_index + 1} of {count} · {self.review_source_box.get()}")
@@ -2100,14 +2100,61 @@ class ThemeForgeApp(tk.Tk):
                  else "No code was suggested for this passage in the last Analyze.")
         self.quote_reason.set(f"{scope} Coverage counts suggestions. Review decisions are separate. "
                               "A passage shown under one code may still need another.")
-        self.transcript_notebook.select(self.transcript_frames[unit.source_name])
+        self.status_text.set("Use Apply codebook entry… to assign the selection, or a document memo to record uncertainty.")
+
+    def _select_for_reading(self, source: str, widget: tk.Text, start: str, end: str, tag: str) -> None:
+        # The selection is available to manual coding. It has no active match to approve.
+        self.current_quote_index = -1
+        self._clear_similar_passages()
+        self._focus_current_quote()
+        self.quote_memo_text.configure(state="disabled")
+        self.transcript_notebook.select(self.transcript_frames[source])
         widget.tag_remove(tk.SEL, "1.0", tk.END)
         widget.tag_add(tk.SEL, start, end)
-        widget.tag_add("coverage_selection", start, end)
+        widget.tag_add(tag, start, end)
         widget.tag_raise(tk.SEL)
         widget.update_idletasks()
         widget.see(start)
-        self.status_text.set("Use Apply codebook entry… to assign the selection, or a document memo to record uncertainty.")
+
+    def find_transcript_text(self, event: tk.Event | None = None) -> str:
+        name = self._current_document_name()
+        widget = self.transcript_widgets.get(name)
+        if widget is None or not self._display_sources.has_unique_source(name):
+            self.status_text.set("Open a uniquely named transcript to find text.")
+            return "break"
+        if self._has_pending_source_edits():
+            self.status_text.set("Apply unfinished theme or memo edits before finding text.")
+            return "break"
+        previous = widget.tag_ranges("literal_hit")
+        last_text = widget.get(*previous) if previous else ""
+        query = last_text
+        if not last_text or event is None or event.keysym != "F3":
+            query = simpledialog.askstring("Find text", f"Exact text in {name}", initialvalue=last_text, parent=self)
+        if not query or not query.strip():
+            return "break"
+        if self._current_document_name() != name or self.transcript_widgets.get(name) is not widget:
+            self.status_text.set("The transcript changed. Find the text again in the open tab.")
+            return "break"
+
+        start = str(previous[1]) if previous and last_text == query else "1.0"
+        # With no stop index Tk wraps once, staying within this transcript.
+        hit = widget.search(query, start, exact=True)
+        if not hit:
+            self.status_text.set(f"No exact occurrence in {name}.")
+            return "break"
+        end = widget.index(f"{hit} + {len(query)} chars")
+        if widget.get(hit, end) != query or widget.compare(end, ">", "end-1c"):
+            self.status_text.set("The exact transcript selection could not be verified.")
+            return "break"
+        self.unsuggested_index = -1
+        self._select_for_reading(name, widget, hit, end, "literal_hit")
+        self.detail_title.set("Transcript text")
+        self.quote_status.set("")
+        self.quote_meta.set(f"{name}, line {hit.split('.')[0]}")
+        self.quote_reason.set("Literal text found. Read the surrounding turn and select the exact passage to code.")
+        self.status_text.set(f"Found text in {name}. F3 finds the next occurrence in this transcript.")
+        widget.focus_set()
+        return "break"
 
     def next_review_match(self, disposition: str | None) -> None:
         reviewer = self.researcher_name.get().strip()
@@ -2421,11 +2468,12 @@ class ThemeForgeApp(tk.Tk):
         self.similar_list.selection_clear(0, tk.END)
         for widget in self.transcript_widgets.values():
             widget.configure(state="normal")
-            coverage = widget.tag_ranges("coverage_selection")
-            if coverage:
-                if coverage == widget.tag_ranges(tk.SEL):
-                    widget.tag_remove(tk.SEL, "1.0", tk.END)
-                widget.tag_delete("coverage_selection")
+            for tag in ("coverage_selection", "literal_hit"):
+                selected = widget.tag_ranges(tag)
+                if selected:
+                    if selected == widget.tag_ranges(tk.SEL):
+                        widget.tag_remove(tk.SEL, "1.0", tk.END)
+                    widget.tag_delete(tag)
             widget.tag_remove("selected_quote", "1.0", tk.END)
             widget.tag_remove("similar_suggestion", "1.0", tk.END)
             widget.configure(state="disabled")
