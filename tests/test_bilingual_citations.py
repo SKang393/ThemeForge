@@ -3,10 +3,12 @@ from hashlib import sha256
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unicodedata import normalize
 import unittest
 from unittest.mock import patch
 
 from test_evidence_handoff import export, press
+from test_paired_match_reviews import answer_paired_scope
 from themeforge.app import ThemeForgeApp
 from themeforge.definition_review import MatchReviewReason
 from themeforge.rigor_dialog import RigorDialog
@@ -178,3 +180,93 @@ class BilingualCitationTests(unittest.TestCase):
             self.assertIn(reason, app.match_review_text.get())
         self.assertEqual(self.export_tables(app, root, "after"), before)
         self.assertEqual(project.read_bytes(), original)
+
+    def test_heading_normalization_preserves_each_slice_and_keeps_unlinked_renderings_unpaired(self):
+        folder = TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        root = Path(folder.name)
+        book = root / "codes.csv"
+        book.write_text("code,definition\n상자 이동,상자를 선반으로 옮긴 일. Moving a crate onto a shelf.\n", encoding="utf-8")
+        korean = "나무 상자를 파란 선반으로 옮겼어요."
+        english = "I moved the wooden crate onto the blue shelf."
+        control = "확인용 상자를 낮은 선반으로 옮겼어요."
+        projects = []
+        for form, reader, start, end in (("NFC", "Reed", 10, 30), ("NFD", "Flax", 17, 37)):
+            with self.subTest(form=form):
+                edition = root / form
+                edition.mkdir()
+                rendering = f"rendering-{reader}.txt"  # Independently supplied, with no common source identity.
+                sources = {"shared.txt": f"봄: {control}",
+                           "shift.txt": normalize(form, "작업 기록") + f"\n\n솔: {korean}",
+                           rendering: f"Guide: {english}"}
+                for name, text in sources.items():
+                    (edition / name).write_bytes(text.replace("\n", "\r\n").encode("utf-8-sig"))
+                # Offsets are frozen in each imported LF document's Unicode code points.
+                shift = ("shift.txt", 3, start, end, "솔", korean)
+                translation = (rendering, 1, 7, 52, "Guide", english)
+                shared = ("shared.txt", 1, 3, 24, "봄", control)
+                app = ThemeForgeApp()
+                try:
+                    with patch("themeforge.app.filedialog.askopenfilenames",
+                               return_value=[str(edition / name) for name in sources]):
+                        press(app, "Choose files")
+                    with patch("themeforge.app.filedialog.askopenfilename", return_value=str(book)):
+                        press(app, "Choose codebook")
+                    app.researcher_name.set(reader)
+                    press(app, "Analyze")
+                    for citation in (shared, shift, translation):
+                        self.review(app, citation, "Supports this theme", "The speaker describes moving the crate.")
+                    for name, line, begin, stop, speaker, passage in (shift, translation):
+                        app.transcript_notebook.select(app.transcript_frames[name])
+                        app.update()
+                        widget = app.transcript_widgets[name]
+                        widget.tag_add("sel", f"{line}.{len(speaker) + 2}", f"{line}.end")
+                        selected = app._selected_transcript_text()
+                        self.assertEqual((selected.source_name, selected.source_line, selected.source_start,
+                                          selected.source_end, selected.text), (name, line, begin, stop, passage))
+                        self.assertEqual(sources[name][begin:stop], passage)
+                        app.definition_box.current(0)
+                        with patch.object(app, "wait_window", side_effect=lambda d: press(d, "Apply selected definition")):
+                            press(app, "Apply codebook entry…")
+                    project = edition / "saved.tfproj"
+                    with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(project)):
+                        self.assertTrue(app.save_project())
+                    projects.append(project)
+                finally:
+                    app.destroy()
+
+                reopened = ThemeForgeApp()
+                self.addCleanup(reopened.destroy)
+                with patch("themeforge.app.filedialog.askopenfilename", return_value=str(project)):
+                    press(reopened, "Open project")
+                restored = {d.name: d.text for d in reopened.documents}
+                self.assertEqual(restored, sources)
+                press(reopened, "Rigor tools")
+                audit, = [w for w in reopened.winfo_children() if isinstance(w, RigorDialog)]
+                rows = export(audit, "Export this project's manual codebook assignments", edition / "assignments.csv")
+                self.assertEqual({r["source"] for r in rows}, {"shift.txt", rendering})
+                self.assertEqual(len(rows), 2)
+                for row in rows:
+                    name, line, begin, stop, _, passage = shift if row["source"] == "shift.txt" else translation
+                    self.assertEqual((int(row["source_line"]), int(row["source_start"]), int(row["source_end"]),
+                                      row["passage"], row["assigned_by"]), (line, begin, stop, passage, reader))
+                    self.assertEqual(restored[name][int(row["source_start"]):int(row["source_end"])], row["passage"])
+                    self.assertEqual(row["source_snapshot_sha256"], sha256(sources[name].encode()).hexdigest())
+                audit.destroy()
+
+        # The same Korean passage under different headings and the separately sourced
+        # English text were actually reviewed in both studies. Only the shared control aligns.
+        press(reopened, "Rigor tools")
+        dialog, = [w for w in reopened.winfo_children() if isinstance(w, RigorDialog)]
+        with patch("themeforge.rigor_dialog.filedialog.askopenfilename", return_value=str(projects[0])):
+            press(dialog, "Choose comparison project")
+        report = dialog._paired_reviews()
+        self.assertEqual([(m.quote.source_name, m.quote.text, m.outcome) for m in report.matches],
+                         [("shared.txt", control, "both_supported")])
+        self.assertEqual((report.current_excluded, report.comparison_excluded), (4, 4))
+        with answer_paired_scope(counts_only=True):
+            rows = export(dialog, "Export paired match reviews", root / "paired-counts.csv")
+        counts = {r["Paired review outcome or scope"]: int(r["Count"]) for r in rows}
+        self.assertEqual(counts["Comparable pairs (denominator for the six review outcomes)"], 1)
+        self.assertEqual(counts["Agreement (both supported)"], 1)
+        self.assertEqual(counts["Total pairs across selected sources"], 1)
