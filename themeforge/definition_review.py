@@ -81,6 +81,13 @@ class MatchReviewReason(simpledialog.Dialog):
         self.reason_label.configure(text="Enter a reason to record this review, or choose Cancel.")
         return False
 
+    def ok(self, event=None):
+        # simpledialog routes Return to OK even when Cancel has keyboard focus.
+        if event is not None and isinstance(event.widget, tk.Button):
+            event.widget.invoke()
+            return "break"
+        return super().ok(event)
+
     def apply(self):
         self.result = self.reason.get()
 

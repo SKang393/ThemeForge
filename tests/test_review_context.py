@@ -136,10 +136,17 @@ class ReviewContextTests(unittest.TestCase):
                     self.assertEqual(area.get("evidence.first", "evidence.last"), excerpt)
                     self.assertEqual(app.audit_events, initial_events)
                     dialog.reason.delete(0, "end")
-                if reason is not None:
+                if reason is None:
+                    # A typed reason must not turn keyboard cancellation into evidence.
+                    dialog.reason.insert(0, "Tentative reading; check the correction.")
+                    cancel = actions["Cancel"]
+                    cancel.focus_force()
+                    dialog.update()
+                    self.assertEqual(dialog.focus_get(), cancel)
+                    cancel.event_generate("<Return>")
+                else:
                     dialog.reason.insert(0, reason)
-                action = "Cancel" if reason is None else "OK"
-                actions[action].invoke()
+                    actions["OK"].invoke()
 
             with patch.object(MatchReviewReason, "wait_window", autospec=True, side_effect=answer) as modal, \
                     patch.object(app, "report_callback_exception") as errors:
