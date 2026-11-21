@@ -461,8 +461,24 @@ class ThemeForgeApp(tk.Tk):
         self.transcript_notebook.grid(row=3, column=0, sticky="nsew", pady=(0, 8))
         self.transcript_notebook.bind("<<NotebookTabChanged>>", self._on_transcript_tab_changed)
 
-        evidence_tools = ttk.Notebook(parent)
+        evidence_tools = ttk.Notebook(parent, style="Evidence.TNotebook")
         evidence_tools.grid(row=4, column=0, sticky="ew")
+        style = ttk.Style(self)
+        right_margin = 0
+
+        def fit_tabs(event):
+            nonlocal right_margin
+            if event.widget not in (self, evidence_tools):
+                return
+            # Let ttk fit the tab strip into the visible part of the evidence column.
+            strip_right = evidence_tools.winfo_rootx() + evidence_tools.winfo_width()
+            window_right = self.winfo_rootx() + self.winfo_width()
+            overflow = max(0, strip_right - window_right)
+            if overflow != right_margin:
+                right_margin = overflow
+                style.configure("Evidence.TNotebook", tabmargins=(0, 0, right_margin, 0))
+
+        self.bind("<Configure>", fit_tabs, add="+")
         reason_frame = ttk.Frame(evidence_tools, style="Surface.TFrame", padding=(10, 8))
         evidence_tools.add(reason_frame, text="Quote review")
         reason_frame.columnconfigure(0, weight=1)
@@ -528,19 +544,19 @@ class ThemeForgeApp(tk.Tk):
         evidence_tools.add(similar, text="Similar passages")
         similar.columnconfigure(0, weight=1)
         search_actions = ttk.Frame(similar, style="Surface.TFrame")
-        search_actions.grid(row=0, column=0, sticky="ew", pady=(0, 6))
-        search_actions.columnconfigure(0, weight=1)
-        search_actions.columnconfigure(1, weight=1)
+        search_actions.grid(row=0, column=0, sticky="w", pady=(0, 6))
         ttk.Button(
             search_actions,
             text="Find from theme",
             style="Secondary.TButton",
+            padding=(5, 6),
             command=self.find_more_from_theme,
         ).grid(row=0, column=0, sticky="ew", padx=(0, 6))
         ttk.Button(
             search_actions,
             text="Find from quote",
             style="Secondary.TButton",
+            padding=(5, 6),
             command=self.find_more_from_quote,
         ).grid(row=0, column=1, sticky="ew")
         self.similar_list = tk.Listbox(
@@ -565,7 +581,7 @@ class ThemeForgeApp(tk.Tk):
             text="Code selected suggestion",
             style="Secondary.TButton",
             command=self.code_selected_similar_passage,
-        ).grid(row=3, column=0, sticky="ew")
+        ).grid(row=3, column=0, sticky="w")
 
     def open_transcript(self) -> None:
         paths = filedialog.askopenfilenames(

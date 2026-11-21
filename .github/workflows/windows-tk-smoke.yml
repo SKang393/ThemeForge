@@ -68,6 +68,7 @@ jobs:
           test_speaker_turn_preview
           test_suggestion_speakers.SpeakerSelectionTests.test_desktop_change_save_find_and_export
           test_suggestion_coverage
+          test_source_scoped_find
           test_review_context.ReviewContextTests.test_neighboring_turns_in_decision_dialog_keep_exact_occurrence_and_export_scope
           test_review_revision.ReviewRevisionTests.test_revisit_own_support_and_export_current_evidence
           test_locate_disagreement.LocateDisagreementTests.test_two_saved_first_passes_locate_exact_disputes_without_changing_them

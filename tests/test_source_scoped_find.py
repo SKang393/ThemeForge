@@ -4,10 +4,11 @@ from io import StringIO
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from tkinter import ttk
 import unittest
 from unittest.mock import patch
 
-from test_evidence_handoff import open_audit, export, press
+from test_evidence_handoff import descendants, open_audit, export, press
 from themeforge.app import ThemeForgeApp
 from themeforge.exports import export_quotes_csv
 from themeforge.semantic_suggestions import find_similar_passages
@@ -62,8 +63,21 @@ def set_scope(app, name):
 
 def open_similar(app):
     frame = app.similar_list.master
-    frame.master.select(frame)
+    notebook = frame.master
     app.update()
+    page = notebook.nametowidget(notebook.select())
+    y = (page.winfo_rooty() - notebook.winfo_rooty()) // 2
+    target = notebook.index(frame)
+    # Click the label as rendered, including when the notebook shrinks its tabs.
+    pixels = [x for x in range(notebook.winfo_width())
+              if notebook.identify(x, y) == "label" and notebook.index(f"@{x},{y}") == target]
+    assert pixels, "Similar passages tab label is missing"
+    x = pixels[len(pixels) // 2]
+    assert app.winfo_containing(notebook.winfo_rootx() + x, notebook.winfo_rooty() + y) == notebook
+    for event in ("<ButtonPress-1>", "<ButtonRelease-1>"):
+        notebook.event_generate(event, x=x, y=y)
+    app.update()
+    assert notebook.select() == str(frame)
 
 
 class ScopedFindTests(unittest.TestCase):
@@ -73,6 +87,12 @@ class ScopedFindTests(unittest.TestCase):
         root = Path(folder.name)
         app = ThemeForgeApp()
         self.addCleanup(app.destroy)
+        screen = app.winfo_screenwidth(), app.winfo_screenheight()
+        if app.tk.call("tk", "windowingsystem") == "win32" and screen == (1024, 768):
+            app.state("zoomed")
+        else:
+            app.minsize(1, 1)
+            app.geometry("1024x705+0+0")
         seed = prepare(app, folder.name)
         self.assertEqual((seed.source_name, seed.source_start, seed.source_end), ("studio.txt", 156, 231))
         unchanged = app._project_state()
@@ -106,7 +126,21 @@ class ScopedFindTests(unittest.TestCase):
         self.assertEqual(app.similar_passages, gallery_results)
         set_scope(app, "studio.txt")
         open_similar(app)
-        press(app, "Find from quote")
+        button, = [w for w in descendants(app.similar_list.master)
+                   if isinstance(w, ttk.Button) and w.cget("text") == "Find from quote"]
+        x, y = button.winfo_rootx(), button.winfo_rooty()
+        width, height = button.winfo_width(), button.winfo_height()
+        self.assertGreaterEqual(width, button.winfo_reqwidth())
+        self.assertGreaterEqual(height, button.winfo_reqheight())
+        for px in (x, x + width - 1):
+            for py in (y, y + height - 1):
+                self.assertTrue(0 <= px < min(1024, screen[0]) and 0 <= py < min(768, screen[1]), (px, py))
+                self.assertEqual(app.winfo_containing(px, py), button)
+        for event in ("<ButtonPress-1>", "<ButtonRelease-1>"):
+            button.event_generate(event, x=width // 2, y=height // 2)
+        app.update()
+        print(f"Find from quote clicked at compact size: button ({x},{y}) {width}x{height}, "
+              f"workspace {app.winfo_width()}x{app.winfo_height()}, desktop {screen[0]}x{screen[1]}")
         widget = app.transcript_widgets["studio.txt"]
         self.assertEqual(widget.get("similar_suggestion.first", "similar_suggestion.last"), MISSED)
         self.assertIn(CONTEXT, widget.get("5.0", "5.end"))
