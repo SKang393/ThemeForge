@@ -59,6 +59,7 @@ jobs:
           test_suggestion_speakers.SpeakerSelectionTests.test_first_import_narrow_dialog_save_reopen_and_export
           test_suggestion_speakers.SpeakerSelectionTests.test_desktop_change_save_find_and_export
           test_suggestion_coverage
+          test_review_context.ReviewContextTests.test_neighboring_turns_in_decision_dialog_keep_exact_occurrence_and_export_scope
       - name: Check supported evidence scope and cancel at 900x600
         if: ${{ !cancelled() }}
         env:

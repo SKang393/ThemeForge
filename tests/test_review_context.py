@@ -58,9 +58,14 @@ class ReviewContextTests(unittest.TestCase):
         source.write_text(TRANSCRIPT, encoding="utf-8")
         other.write_text("Clerk: The apricot stencil is hanging by the fountain.", encoding="utf-8")
         codes.write_text("code,definition\nSignal pause,The bell caused the loom to pause.\n", encoding="utf-8")
-        with patch.object(ThemeForgeApp, "maxsize", return_value=(1024, 705)):
-            app = ThemeForgeApp()
+        app = ThemeForgeApp()
         self.addCleanup(app.destroy)
+        screen = app.winfo_screenwidth(), app.winfo_screenheight()
+        if app.tk.call("tk", "windowingsystem") == "win32" and screen == (1024, 768):
+            app.state("zoomed")
+        else:
+            app.minsize(1, 1)
+            app.geometry("1024x705+0+0")
         with patch("themeforge.app.filedialog.askopenfilenames", return_value=(str(source), str(other))):
             press(app, "Choose files")
         with patch("themeforge.app.filedialog.askopenfilename", return_value=str(codes)):
@@ -83,6 +88,17 @@ class ReviewContextTests(unittest.TestCase):
                 self.assertEqual(app.grab_current(), dialog)
                 dialog.update()
                 area, = [w for w in descendants(dialog) if isinstance(w, ScrolledText)]
+                actions = {w.cget("text"): w for w in descendants(dialog) if isinstance(w, Button)}
+                for control in (area, area.vbar, dialog.reason, actions["OK"], actions["Cancel"]):
+                    self.assertTrue(control.winfo_viewable())
+                    x, y = control.winfo_rootx(), control.winfo_rooty()
+                    for px, py in ((x, y), (x + control.winfo_width() - 1, y + control.winfo_height() - 1)):
+                        self.assertTrue(0 <= px < min(screen[0], 1024) and 0 <= py < min(screen[1], 768))
+                        self.assertEqual(dialog.winfo_containing(px, py), control)
+                self.assertEqual(dialog.focus_lastfor(), dialog.reason)
+                focus = dialog.focus_get()
+                if focus is not None:
+                    self.assertEqual(focus, dialog.reason)
                 self.assertEqual(area.get("evidence.first", "evidence.last"), excerpt)
                 self.assertIn(LINES[line - 2], area.get("1.0", "evidence.first"))
                 self.assertIn(LINES[line], area.get("evidence.last", "end-1c"))
@@ -90,14 +106,22 @@ class ReviewContextTests(unittest.TestCase):
                 self.assertEqual(area.cget("state"), "disabled")
                 self.assertIsNotNone(area.bbox("evidence.first"))
                 following = area.search(LINES[line], "evidence.last", stopindex="end")
-                area.see(following)
+                area.see(f"{following} lineend -1c")
                 dialog.update_idletasks()
-                self.assertIsNotNone(area.bbox(following))
+                self.assertIsNotNone(area.bbox(f"{following} lineend -1c"))
+                area.see("evidence.first")
+                dialog.update_idletasks()
+                self.assertIsNotNone(area.bbox("evidence.first"))
+                self.assertEqual(area.get("evidence.first", "evidence.last"), excerpt)
+                if line == 3 and reason is None:
+                    focus_state = "reason entry" if focus is dialog.reason else "desktop inactive"
+                    print(f"Review dialog {dialog.winfo_width()}x{dialog.winfo_height()} on "
+                          f"{screen[0]}x{screen[1]}. Keyboard focus: {focus_state}. "
+                          "Following turn and exact highlight reachable.")
                 if reason is not None:
                     dialog.reason.insert(0, reason)
                 action = "Cancel" if reason is None else "OK"
-                button, = [w for w in descendants(dialog) if isinstance(w, Button) and w.cget("text") == action]
-                button.invoke()
+                actions[action].invoke()
 
             with patch.object(MatchReviewReason, "wait_window", autospec=True, side_effect=answer) as modal, \
                     patch.object(app, "report_callback_exception") as errors:
