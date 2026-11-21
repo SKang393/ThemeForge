@@ -151,6 +151,7 @@ class SemanticSuggestionTests(unittest.TestCase):
 
         self.assertEqual([item.speaker for item in suggestions.passages], ["Teacher 2"])
         self.assertIn("TF-IDF similarity", suggestions.note)
+        self.assertEqual(suggestions.method_label, "TF-IDF fallback")
 
     @patch("themeforge.semantic_suggestions.local_embedding_vectors")
     def test_local_embedding_mode_ranks_by_cosine_and_reports_backend(self, embedding_vectors):
@@ -178,6 +179,7 @@ class SemanticSuggestionTests(unittest.TestCase):
         embedding_vectors.return_value = EmbeddingResult(
             vectors=[{"e0": 1.0}, {"e0": 0.9, "e1": 0.1}, {"e1": 1.0}],
             note="Local embedding semantic retrieval used.",
+            model_name="sentence-transformers/all-MiniLM-L6-v2",
         )
 
         suggestions = find_similar_passages(
@@ -190,6 +192,7 @@ class SemanticSuggestionTests(unittest.TestCase):
 
         self.assertEqual([item.speaker for item in suggestions.passages], ["Teacher 2"])
         self.assertIn("Local embedding", suggestions.note)
+        self.assertEqual(suggestions.method_label, "all-MiniLM-L6-v2")
 
 
 if __name__ == "__main__":

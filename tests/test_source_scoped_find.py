@@ -144,13 +144,15 @@ class ScopedFindTests(unittest.TestCase):
         open_similar(app)
         press(app, "Code selected suggestion")
         self.assertEqual(app._project_state(), unchanged)
-        for label in ("Find from theme", "Find from quote"):
+        for label, origin in (("Find from theme", "From theme “Safety pause”"),
+                              ("Find from quote", f"From quote {seed.quote_id} · studio.txt, line 3")):
             press(app, label)
             hit, = app.similar_passages
             self.assertEqual((hit.source_name, hit.source_line, hit.source_start, hit.source_end, hit.text),
                              ("studio.txt", 4, 238, 320, MISSED))
             self.assertIn("studio.txt", app.similar_note.get())
             self.assertIn("TF-IDF", app.similar_note.get())
+            self.assertIn(origin, app.similar_note.get())
         set_scope(app, "All sources")
         open_similar(app)
         press(app, "Find from quote")

@@ -539,17 +539,6 @@ class ThemeForgeApp(tk.Tk):
         review_note = ttk.Label(reason_frame, textvariable=self.match_review_text, style="Muted.TLabel", wraplength=520)
         review_note.grid(row=2, column=0, sticky="w")
 
-        def wrap_review_note(event):
-            if event.widget not in (self, reason_frame, review_note):
-                return
-            # The evidence pane can extend beyond the client area on a narrow display.
-            right = min(self.winfo_rootx() + self.winfo_width(), reason_frame.winfo_rootx() + reason_frame.winfo_width())
-            width = min(520, right - review_note.winfo_rootx() - 12)
-            if width > 0 and width != review_note.winfo_pixels(review_note.cget("wraplength")):
-                review_note.configure(wraplength=width)
-
-        self.bind("<Configure>", wrap_review_note, add="+")
-
         quote_memo = ttk.Frame(evidence_tools, style="Surface.TFrame", padding=(10, 8))
         evidence_tools.add(quote_memo, text="Quote memo")
         quote_memo.columnconfigure(0, weight=1)
@@ -606,12 +595,21 @@ class ThemeForgeApp(tk.Tk):
         )
         self.similar_list.grid(row=1, column=0, sticky="ew")
         self.similar_list.bind("<<ListboxSelect>>", self.show_selected_similar_passage)
-        ttk.Label(similar, textvariable=self.similar_note, style="Muted.TLabel", wraplength=520).grid(
-            row=2,
-            column=0,
-            sticky="ew",
-            pady=(6, 6),
-        )
+        search_note = ttk.Label(similar, textvariable=self.similar_note, style="Muted.TLabel", wraplength=520)
+        search_note.grid(row=2, column=0, sticky="w", pady=(6, 6))
+
+        def wrap_evidence_notes(event):
+            for label in (review_note, search_note):
+                page = label.master
+                if event.widget not in (self, page, label):
+                    continue
+                # The evidence pane can extend beyond the client area on a narrow display.
+                right = min(self.winfo_rootx() + self.winfo_width(), page.winfo_rootx() + page.winfo_width())
+                width = min(520, right - label.winfo_rootx() - 12)
+                if width > 0 and width != label.winfo_pixels(label.cget("wraplength")):
+                    label.configure(wraplength=width)
+
+        self.bind("<Configure>", wrap_evidence_notes, add="+")
         ttk.Button(
             similar,
             text="Code selected suggestion",
@@ -1217,16 +1215,16 @@ class ThemeForgeApp(tk.Tk):
         self._set_manual_status("Selected text coded")
 
     def find_more_from_theme(self) -> None:
-        self._find_more_like_this("")
+        self._find_more_like_this(None)
 
     def find_more_from_quote(self) -> None:
         match = self._current_quote_match()
         if match is None:
             self.status_text.set("Select a highlighted quote first")
             return
-        self._find_more_like_this(match.quote.quote_id)
+        self._find_more_like_this(match.quote)
 
-    def _find_more_like_this(self, quote_id: str) -> None:
+    def _find_more_like_this(self, quote: ThemeQuote | None) -> None:
         theme = self._current_theme()
         if self.result is None or theme is None:
             self.status_text.set("Select a theme first")
@@ -1238,7 +1236,7 @@ class ThemeForgeApp(tk.Tk):
             return
         try:
             suggestion_result = find_similar_passages(
-                self.documents, self.result, theme.id, settings, quote_id=quote_id,
+                self.documents, self.result, theme.id, settings, quote_id=quote.quote_id if quote else "",
                 source_names=None if self.review_source_box.current() == 0 else self._navigation_sources(),
             )
         except ValueError as exc:
@@ -1246,7 +1244,15 @@ class ThemeForgeApp(tk.Tk):
             self.status_text.set(str(exc))
             return
         self.similar_passages = list(suggestion_result.passages)
-        self.similar_note.set(f"Find in {self.review_source_box.get()} · {suggestion_result.note}")
+        origin = (f"From quote {quote.quote_id} · {quote.source_name}, line {quote.source_line}"
+                  if quote else f"From theme “{theme.name}”")
+        scope = self.review_source_box.get()
+        if suggestion_result.method_label:
+            count = len(self.similar_passages)
+            self.similar_note.set(f"{count} ranked {'lead' if count == 1 else 'leads'} · {suggestion_result.method_label}"
+                                  f" · {scope}\n{origin}")
+        else:
+            self.similar_note.set(f"{origin} · {scope}\n{suggestion_result.note}")
         self.similar_list.delete(0, tk.END)
         for passage in self.similar_passages:
             preview = " ".join(passage.text.split())
@@ -1846,8 +1852,10 @@ class ThemeForgeApp(tk.Tk):
         self.similar_passages = []
         if hasattr(self, "similar_list"):
             self.similar_list.delete(0, tk.END)
-        self.similar_note.set(f"Find in {self.review_source_box.get()} · Choose the scope under Quote review → Next in."
-                              if len(self.documents) > 1 else "Find related uncoded passages from the selected theme or quote.")
+        note = "Run Find to show ranked leads for this session."
+        if len(self.documents) > 1:
+            note += f" Scope: {self.review_source_box.get()} (Quote review → Next in)."
+        self.similar_note.set(note)
         for widget in self.transcript_widgets.values():
             widget.configure(state="normal")
             widget.tag_remove("similar_suggestion", "1.0", tk.END)

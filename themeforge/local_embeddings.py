@@ -14,6 +14,7 @@ MULTILINGUAL_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v
 class EmbeddingResult:
     vectors: list[dict[str, float]]
     note: str
+    model_name: str = ""
 
 
 class EmbeddingModel(Protocol):
@@ -66,4 +67,5 @@ def _encode_with_model(
     return EmbeddingResult(
         vectors=vectors,
         note=f"Local embedding clustering used: {model_name}.",
+        model_name=model_name,
     )

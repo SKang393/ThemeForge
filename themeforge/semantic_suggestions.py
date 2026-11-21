@@ -33,6 +33,7 @@ class SimilarPassage:
 class SimilarPassageResult:
     passages: tuple[SimilarPassage, ...]
     note: str
+    method_label: str = ""
 
 
 def find_similar_passages(
@@ -58,7 +59,7 @@ def find_similar_passages(
         return SimilarPassageResult((), "No uncoded quote-length passages remain in the open transcripts.")
 
     texts = [query_text, *(candidate.text for candidate in candidates)]
-    vectors, note = _retrieval_vectors(texts, settings)
+    vectors, note, method_label = _retrieval_vectors(texts, settings)
     if len(vectors) != len(texts):
         return SimilarPassageResult((), "Similarity vectors could not be created for the open transcripts.")
 
@@ -85,8 +86,8 @@ def find_similar_passages(
     )
     passages = tuple(item for item in ranked if item.similarity > 0.0)[: max(0, limit)]
     if not passages:
-        return SimilarPassageResult((), f"{note} No related uncoded passages received a positive similarity score.")
-    return SimilarPassageResult(passages, note)
+        return SimilarPassageResult((), f"{note} No related uncoded passages received a positive similarity score.", method_label)
+    return SimilarPassageResult(passages, note, method_label)
 
 
 def _query_text(theme: Theme, quote_id: str) -> str:
@@ -123,12 +124,13 @@ def _is_already_coded(candidate: QuoteUnit, coded_quotes: Sequence[ThemeQuote]) 
 def _retrieval_vectors(
     texts: list[str],
     settings: AnalysisSettings,
-) -> tuple[list[dict[str, float]], str]:
+) -> tuple[list[dict[str, float]], str, str]:
     if settings.semantic_backend == "local_embeddings":
         embedding_result = local_embedding_vectors(texts, settings.language_mode)
         if len(embedding_result.vectors) == len(texts):
-            return embedding_result.vectors, "Local embedding cosine similarity was used for these suggestions."
+            label = embedding_result.model_name.rsplit("/", 1)[-1] or "Local embeddings"
+            return embedding_result.vectors, "Local embedding cosine similarity was used for these suggestions.", label
         vectors, _idf = tfidf_vectors(texts)
-        return vectors, f"{embedding_result.note} TF-IDF similarity was used for these suggestions."
+        return vectors, f"{embedding_result.note} TF-IDF similarity was used for these suggestions.", "TF-IDF fallback"
     vectors, _idf = tfidf_vectors(texts)
-    return vectors, "TF-IDF cosine similarity was used for these suggestions."
+    return vectors, "TF-IDF cosine similarity was used for these suggestions.", "TF-IDF"
