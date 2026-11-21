@@ -118,6 +118,15 @@ class ReviewContextTests(unittest.TestCase):
                     print(f"Review dialog {dialog.winfo_width()}x{dialog.winfo_height()} on "
                           f"{screen[0]}x{screen[1]}. Keyboard focus: {focus_state}. "
                           "Following turn and exact highlight reachable.")
+                if line == 3:
+                    self.assertIn("Required", dialog.reason_label.cget("text"))
+                    dialog.reason.insert(0, "   " if reason is not None else "")
+                    actions["OK"].invoke()
+                    self.assertEqual(app.grab_current(), dialog)
+                    self.assertIn("Enter a reason", dialog.reason_label.cget("text"))
+                    self.assertEqual(area.get("evidence.first", "evidence.last"), excerpt)
+                    self.assertEqual(app.audit_events, initial_events)
+                    dialog.reason.delete(0, "end")
                 if reason is not None:
                     dialog.reason.insert(0, reason)
                 action = "Cancel" if reason is None else "OK"

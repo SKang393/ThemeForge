@@ -208,11 +208,17 @@ interpretations remain unverified even for exact spans. Reports generated
 without the source documents cannot verify any locations. Older reports
 are unchanged; reopen the project and export again to see these checks.
 
-**Recording a match review:** Enter a reviewer name, select a source-verified
-quote in its transcript, then choose **Supports this theme**, **Not this match**
+**Recording a match review.** For an independent first pass, open the
+unreviewed project saved after Analyze and choose **Save as…** to make your
+working copy. **Save as…** carries over the suggestions and any reviews
+already in the file. Keep the unreviewed original for the other reader.
+
+Enter your own **Coder name** and select a source-verified quote in its
+transcript. In **Quote review**, choose **Supports this theme**, **Not this match**
 or **Revisit later**. The reason dialog highlights the exact proposed span and
 shows the neighboring turns from the saved transcript. Read them before
-recording your reason. The supported-evidence CSV includes the approved span
+entering your reason. Choose **OK** to record the decision or **Cancel** to
+leave the passage as it was. The supported-evidence CSV includes the approved span
 and your reason. Any context you type into the reason is also shared. Each review
 records one reader's judgment about that passage under that theme. With a
 coder name entered, **Quote review** shows that reader's latest note for the

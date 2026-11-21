@@ -69,10 +69,17 @@ class MatchReviewReason(simpledialog.Dialog):
         context.configure(state="disabled")
         context.pack(fill="both", expand=True)
         context.bind("<Map>", lambda event: context.see("evidence.first"))
-        ttk.Label(master, text="What in the passage led to this decision?").pack(anchor="w", pady=(8, 2))
+        self.reason_label = ttk.Label(master, text="What in the passage led to this decision? (Required)")
+        self.reason_label.pack(anchor="w", pady=(8, 2))
         self.reason = ttk.Entry(master)
         self.reason.pack(fill="x")
         return self.reason
+
+    def validate(self) -> bool:
+        if self.reason.get().strip():
+            return True
+        self.reason_label.configure(text="Enter a reason to record this review, or choose Cancel.")
+        return False
 
     def apply(self):
         self.result = self.reason.get()
