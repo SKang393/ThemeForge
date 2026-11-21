@@ -35,9 +35,9 @@ class SpeakerReview(tk.Toplevel):
         body.columnconfigure(0, weight=1)
         body.rowconfigure(1, weight=1)
         body.rowconfigure(4, weight=1)
-        guidance = ttk.Label(body, text="The highlight shows one parsed turn, including continuation lines. "
-                             "Include and Exclude apply to every turn with this label in this file. "
-                             "For a wrong boundary, correct a transcript copy and import it in a new project.",
+        guidance = ttk.Label(body, text="The highlight shows one parsed turn. Check the source to confirm who spoke. "
+                             "Include and Exclude filter this label's turns in this file. "
+                             "To correct a turn, edit a transcript copy and import it in a new project.",
                              wraplength=440)
         guidance.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
         columns = ("transcript", "speaker", "turns", "automatic", "choice")

@@ -170,6 +170,8 @@ After **Choose files**, open **Speakers for suggestions** before your first
 the automatic decision and the number of turns. Select one row to read a
 highlighted turn beside its source context. **Next turn** cycles through the
 occurrences of that label in that file. Include and Exclude apply to all of them.
+The highlight shows how ThemeForge grouped the text. Use the source to check
+who spoke. Changing eligibility leaves the transcript and its labels intact.
 Select one or more rows and choose **Include**, **Exclude**, or **Use automatic**,
 then **Apply**. Preview coverage, Analyze and both Find actions use these choices before ranking.
 Automatic uses the existing Analyze role rules across the open study. A correction

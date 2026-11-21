@@ -32,6 +32,8 @@ class SpeakerTurnPreviewTests(unittest.TestCase):
         book.write_text("code,definition\nStock count,Counting blue spools beside the clock.\n", encoding="utf-8")
         app = ThemeForgeApp()
         self.addCleanup(app.destroy)
+        app.geometry("1024x768+0+0")
+        app.update()
         with patch("themeforge.app.filedialog.askopenfilenames", return_value=list(map(str, paths))):
             press(app, "Choose files")
         with patch("themeforge.app.filedialog.askopenfilename", return_value=str(book)):
@@ -53,12 +55,14 @@ class SpeakerTurnPreviewTests(unittest.TestCase):
                 items.append(item)
                 self.assertEqual(dialog.table.set(item, "turns"), "2")
                 button = dialog.next_turn
+                self.assertEqual((dialog.winfo_width(), dialog.winfo_height()), (480, 360))
                 self.assertIs(dialog.winfo_containing(button.winfo_rootx() + button.winfo_width() // 2,
                                                       button.winfo_rooty() + button.winfo_height() // 2), button)
                 self.assertIn("Turn 1 of 2", dialog.preview.get())
                 self.assertIn(intro, dialog.context.get("1.0", "turn.first"))
                 self.assertEqual(dialog.context.get("turn.first", "turn.last"), BELL)
                 press(dialog, "Next turn")
+                dialog.update_idletasks()
                 self.assertIn(f"{name} · Note · Line 4 · Turn 2 of 2", dialog.preview.get())
                 self.assertEqual(dialog.context.get("turn.first", "turn.last"), second)
                 self.assertIsNotNone(dialog.context.bbox("turn.first"))
@@ -66,6 +70,10 @@ class SpeakerTurnPreviewTests(unittest.TestCase):
                 if name == "edited.txt":
                     self.assertTrue(dialog.context.get("1.0", "turn.first").endswith("Note: "))
                     self.assertIn("Clerk: I stored", dialog.context.get("turn.last", "end"))
+                    dialog.context.see("turn.last -1c")
+                    dialog.update_idletasks()
+                    self.assertIsNotNone(dialog.context.bbox("turn.last -1c"))
+                    self.assertEqual(dialog.context.get("turn.last linestart", "turn.last"), COUNT)
                 press(dialog, "Next turn")
                 self.assertEqual(dialog.context.get("turn.first", "turn.last"), BELL)
             dialog.table.selection_set(*items)
@@ -138,6 +146,7 @@ class SpeakerTurnPreviewTests(unittest.TestCase):
         saved = app._project_state()
         choose(inspect)
         self.assertEqual(app._project_state(), saved)
+        self.assertEqual(project.read_bytes(), original)
         self.assertEqual(evidence(root / "after.csv"), before)
         choose(lambda dialog: exclude(dialog, "role.txt"))
         self.assertEqual(note_spans(), [])

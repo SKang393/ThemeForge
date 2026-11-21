@@ -64,6 +64,7 @@ jobs:
           test_resume_match_reviews.ResumeReviewTests.test_two_coders_reopen_independent_copies_at_compact_size
           test_focus_codebook.FocusAndCodebookTests.test_exclusion_guidance_is_preserved_but_does_not_supply_search_terms
           test_suggestion_speakers.SpeakerSelectionTests.test_first_import_narrow_dialog_save_reopen_and_export
+          test_speaker_turn_preview
           test_suggestion_speakers.SpeakerSelectionTests.test_desktop_change_save_find_and_export
           test_suggestion_coverage
           test_review_context.ReviewContextTests.test_neighboring_turns_in_decision_dialog_keep_exact_occurrence_and_export_scope
