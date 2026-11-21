@@ -1579,7 +1579,12 @@ class ThemeForgeApp(tk.Tk):
                 return False
             state = self._project_state()
             try:
-                save_project(path, state, new_only=save_as or (self.project_path is None and state.needs_nullable_profile))
+                updating = self.project_path is not None and not save_as
+                revision = save_project(
+                    path, state,
+                    new_only=save_as or (self.project_path is None and state.needs_nullable_profile),
+                    expected_revision=self._saved_state.file_revision if updating else None,
+                )
             except ProjectCopyRequired:
                 chosen = filedialog.asksaveasfilename(
                     title="Save a separate nullable-score project (original stays unchanged)",
@@ -1592,7 +1597,7 @@ class ThemeForgeApp(tk.Tk):
                 if reserved_path is not None and self._same_project(path, reserved_path):
                     self.status_text.set("Not saved: choose a different file for the outgoing study.")
                     return False
-                save_project(path, state, new_only=True)
+                revision = save_project(path, state, new_only=True)
         except (OSError, ValueError, tk.TclError) as exc:
             self.status_text.set("Project save failed. The study remains open.")
             detail = str(exc)
@@ -1603,7 +1608,7 @@ class ThemeForgeApp(tk.Tk):
             messagebox.showerror("Save project failed", detail, parent=self)
             return False
         self.project_path = path
-        self._saved_state = state
+        self._saved_state = replace(state, file_revision=revision)
         summary = f"Saved project {path.name}"
         if self._has_pending_source_edits(all_documents=True):
             summary += ". " + (self._other_memo_notice() or "Apply the unfinished editor changes to include them.")
@@ -1638,14 +1643,14 @@ class ThemeForgeApp(tk.Tk):
             return None
         try:
             state = self._project_state()
-            save_project(self.project_path, state)
+            revision = save_project(self.project_path, state, expected_revision=self._saved_state.file_revision)
         except ProjectCopyRequired as exc:
             return str(exc)
         except OSError as exc:
             return f"autosave failed. Use Save as… to choose a writable folder. {exc}"
         except (ValueError, tk.TclError) as exc:
             return f"autosave failed: {exc}"
-        self._saved_state = state
+        self._saved_state = replace(state, file_revision=revision)
         return f"autosaved {self.project_path.name}"
 
     def _project_state(self) -> ProjectState:
@@ -1712,7 +1717,7 @@ class ThemeForgeApp(tk.Tk):
             if isinstance(child, RigorDialog):
                 child.destroy()  # The open comparison and audit belong to the outgoing study.
         self.researcher_name.set(state.researcher_name)
-        self._saved_state = self._project_state() if path else self._empty_state
+        self._saved_state = replace(self._project_state(), file_revision=state.file_revision) if path else self._empty_state
         self.status_text.set(f"Opened {path.name} using the project's saved transcripts and codebook."
                              if path else "New unsaved project")
 

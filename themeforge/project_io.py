@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from contextlib import contextmanager
+from dataclasses import asdict, dataclass, field
+from hashlib import sha256
 import json
 import math
 import os
 from pathlib import Path
 import tempfile
+from typing import BinaryIO
 import zipfile
 
 from .audit import AuditEvent
@@ -30,6 +33,12 @@ class ProjectCopyRequired(ValueError):
     """An older project must not be replaced with one its reader cannot open."""
 
 
+class ProjectChanged(ValueError):
+    def __init__(self):
+        super().__init__("The saved project changed or was removed. Your changes remain open. "
+                         "Use Save as… with a new filename to keep them, or reopen the project on disk.")
+
+
 @dataclass(frozen=True, slots=True)
 class UnsupportedProjectFormatError(Exception):
     format_version: int | str
@@ -48,6 +57,8 @@ class ProjectState:
     result: AnalysisResult | None = None
     researcher_name: str = ""
     audit_events: tuple[AuditEvent, ...] = ()
+    # Identifies the disk snapshot. It is neither study content nor part of the project format.
+    file_revision: bytes | None = field(default=None, compare=False, repr=False)
 
     @property
     def needs_nullable_profile(self) -> bool:
@@ -64,20 +75,65 @@ def _data_member(archive: zipfile.ZipFile) -> str:
     return members[0]
 
 
-def save_project(path: Path, state: ProjectState, *, new_only: bool = False) -> None:
+def _revision(stream: BinaryIO) -> bytes:
+    stream.seek(0)
+    digest = sha256()
+    for block in iter(lambda: stream.read(256 * 1024), b""):
+        digest.update(block)
+    return digest.digest()
+
+
+def _disk_revision(path: Path) -> bytes | None:
+    try:
+        with path.open("rb") as stream:
+            return _revision(stream)
+    except FileNotFoundError:
+        return None
+
+
+@contextmanager
+def _publish_guard(path: Path):
+    # Hold a kernel-released guard only for the final destination check and install.
+    if os.name == "nt":
+        marker = path.with_name(f".{path.name}.saving")
+        try:
+            fd = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_RDWR | os.O_TEMPORARY, 0o600)
+        except FileExistsError:
+            raise ValueError("Another save is finishing. Retry Save project or use Save as… with a new filename.") from None
+    else:
+        import fcntl
+        # The directory stays at the same inode when the project is atomically replaced.
+        fd = os.open(path.parent, os.O_RDONLY)
+    try:
+        if os.name != "nt":
+            fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
+
+
+def save_project(path: Path, state: ProjectState, *, new_only: bool = False,
+                 expected_revision: bytes | None = None) -> bytes:
     path = Path(path)
     nullable = state.needs_nullable_profile
-    if not new_only and path.exists():
+    previous = None
+    if not new_only:
         try:
-            with zipfile.ZipFile(path) as existing:
-                old_member = _data_member(existing)
+            with path.open("rb") as stream:
+                previous = _revision(stream)
+                if expected_revision is not None and previous != expected_revision:
+                    raise ProjectChanged()
+                with zipfile.ZipFile(stream) as existing:
+                    old_member = _data_member(existing)
+                if nullable and old_member != NULLABLE_MEMBER:
+                    raise ProjectCopyRequired("Older project unchanged. Use Save project to create a separate nullable-score copy.")
+                nullable = nullable or old_member == NULLABLE_MEMBER
+        except FileNotFoundError:
+            if expected_revision is not None:
+                raise ProjectChanged() from None
+            new_only = nullable
         except zipfile.BadZipFile as exc:
             raise ValueError("The existing project is unreadable; choose a new file instead.") from exc
-        if nullable and old_member != NULLABLE_MEMBER:
-            raise ProjectCopyRequired("Older project unchanged. Use Save project to create a separate nullable-score copy.")
-        nullable = nullable or old_member == NULLABLE_MEMBER
-    elif nullable:
-        new_only = True  # Never overwrite a competing file while creating the first copy.
     member = NULLABLE_MEMBER if nullable else PROJECT_JSON
     payload = {
         "format_version": NULLABLE_PROFILE if nullable else PROJECT_FORMAT_VERSION,
@@ -99,21 +155,27 @@ def save_project(path: Path, state: ProjectState, *, new_only: bool = False) -> 
                 archive.writestr(member, serialized)
             stream.flush()
             os.fsync(stream.fileno())
-        if not new_only:
-            os.replace(temporary, path)
-        elif os.name == "nt":
-            os.rename(temporary, path)  # Windows fails atomically if the destination already exists.
-        else:
-            os.link(temporary, path)  # POSIX rename would replace an existing file.
+            written = _revision(stream)
+        with _publish_guard(path):
+            if not new_only:
+                if _disk_revision(path) != previous:
+                    raise ProjectChanged()
+                os.replace(temporary, path)
+            elif os.name == "nt":
+                os.rename(temporary, path)  # Windows fails atomically if the destination already exists.
+            else:
+                os.link(temporary, path)  # POSIX rename would replace an existing file.
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
+    return written
 
 
 def load_project(path: Path) -> ProjectState:
-    with zipfile.ZipFile(path) as archive:
+    with Path(path).open("rb") as stream, zipfile.ZipFile(stream) as archive:
         member = _data_member(archive)
         payload = json.loads(archive.read(member).decode("utf-8"))
+        revision = _revision(stream)
 
     raw_format_version = payload.get("format_version", 1)
     nullable = member == NULLABLE_MEMBER
@@ -130,6 +192,7 @@ def load_project(path: Path) -> ProjectState:
         result=_result_from_json(payload.get("result"), nullable=nullable),
         researcher_name=str(payload.get("researcher_name", "")),
         audit_events=tuple(_audit_event_from_json(item) for item in payload.get("audit_events", []) if isinstance(item, dict)),
+        file_revision=revision,
     )
 
 

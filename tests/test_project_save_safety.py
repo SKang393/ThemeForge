@@ -4,10 +4,29 @@ import unittest
 from unittest.mock import patch
 
 from themeforge.analysis_types import AnalysisSettings
-from themeforge.project_io import ProjectState, save_project, load_project
+from themeforge.project_io import ProjectChanged, ProjectState, save_project, load_project
 
 
 class ProjectSaveSafetyTests(unittest.TestCase):
+    def test_changed_or_removed_destination_is_not_replaced(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "trays.tfproj"
+            first = ProjectState((), None, (), AnalysisSettings(), researcher_name="Reed")
+            second = ProjectState((), None, (), AnalysisSettings(), researcher_name="Quill")
+            revision = save_project(path, first)
+            other = Path(folder) / "other.tfproj"
+            save_project(other, second)
+            winning_bytes = other.read_bytes()
+            # A complete competing save lands after the initial check, before installation.
+            with patch("themeforge.project_io.os.fsync", side_effect=lambda fd: other.replace(path)):
+                with self.assertRaises(ProjectChanged):
+                    save_project(path, first, expected_revision=revision)
+            self.assertEqual(path.read_bytes(), winning_bytes)
+            path.unlink()
+            with self.assertRaises(ProjectChanged):
+                save_project(path, first, expected_revision=revision)
+            self.assertEqual(list(Path(folder).iterdir()), [])
+
     def test_previous_copy_cannot_replace_a_file_created_during_serialization(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "prior.tfproj"

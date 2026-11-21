@@ -100,6 +100,48 @@ class ProjectRecoveryTests(unittest.TestCase):
         dialog.destroy()
         return rows
 
+    def test_stale_review_cannot_replace_another_sessions_autosave(self):
+        # Both windows start from the same saved pass.
+        first = self.app
+        self.app = ThemeForgeApp()
+        self.addCleanup(self.app.destroy)
+        self.open(self.original)
+        second = self.app
+        self.app = first
+        self.review(1, "Revisit later", "Check the sequence of the initial count.")
+        first_bytes = self.original.read_bytes()
+        first_review = load_project(self.original).audit_events[-1]
+        self.assertEqual(json.loads(first_review.details)["reason"], "Check the sequence of the initial count.")
+
+        self.app = second
+        second.researcher_name.set("Lark")
+        self.review(2, "Not this match", "The return card gives no total.")
+        self.assertIn("Save as…", second.status_text.get())
+        self.assertTrue(second._has_unsaved_work())
+        pending = second._project_state()
+        self.assertEqual(pending.audit_events[:-1], self.good.audit_events)
+        self.assertEqual(pending.audit_events[-1].actor, "Lark")
+        self.assertEqual(json.loads(pending.audit_events[-1].details)["reason"], "The return card gives no total.")
+        self.assertEqual(self.original.read_bytes(), first_bytes)
+        with patch("themeforge.app.messagebox.showerror") as error:
+            press(second, "Save project")
+            self.assertIn("changed", error.call_args.args[1])
+        with patch("themeforge.app.filedialog.asksaveasfilename", return_value=""):
+            press(second, "Save as…")
+        self.assertTrue(second._has_unsaved_work())
+        self.assertEqual(second.project_path, self.original)
+        copy = self.root / "lark.tfproj"
+        with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(copy)):
+            press(second, "Save as…")
+        self.assertEqual(second.project_path, copy)
+        press(second, "Save project")
+        self.open(copy)
+        self.assertEqual(second._project_state(), pending)
+        self.assertFalse(second._has_unsaved_work())
+        self.assertEqual(self.original.read_bytes(), first_bytes)
+        self.open(self.original)
+        self.assertEqual(second.audit_events, [*self.good.audit_events, first_review])
+
     def test_failed_save_recovers_pending_decision_and_keeps_source_revision(self):
         original_bytes = self.original.read_bytes()
         row, = self.supported()
