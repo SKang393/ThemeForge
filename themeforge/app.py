@@ -732,7 +732,7 @@ class ThemeForgeApp(tk.Tk):
         count = len(entries)
         status = f"Loaded {count} codebook " + ("entry." if count == 1 else "entries.")
         if self.codebook_path.suffix.lower() == ".csv":
-            status += " Put Include: and Exclude: in definitions. Separate criteria and hierarchy columns are ignored."
+            status += " Use Include: and Exclude: in definitions or examples. Separate criteria and hierarchy columns are ignored."
         self.status_text.set(status)
 
     def remove_codebook(self) -> None:

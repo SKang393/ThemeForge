@@ -14,7 +14,7 @@ CSV_GUIDANCE = (
     "Use a theme, code, name, or category column with a nonblank code name. "
     "Optional definition columns are description, definition, or memo. "
     "Optional example columns are example, quote, or evidence. "
-    "Write Include: and Exclude: in the definition. Separate criteria and hierarchy columns are ignored."
+    "Use Include: and Exclude: in definitions or examples. Separate criteria and hierarchy columns are ignored."
 )
 
 

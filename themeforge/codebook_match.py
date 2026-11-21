@@ -25,19 +25,24 @@ from .analysis import (
 )
 
 
-# The labels can appear on separate lines or inline in an imported definition.
+# Section labels can appear inline or on separate lines within a field.
 _SECTION_LABEL = re.compile(r"(?:^|(?<=[\s.;!?]))(include|exclude)[ \t]*:", re.IGNORECASE)
 
 
-def _search_entry(entry: CodebookEntry) -> CodebookEntry:
-    sections = _SECTION_LABEL.split(entry.description)
+def _positive_text(text: str) -> str:
+    sections = _SECTION_LABEL.split(text)
     if len(sections) == 1:
-        return entry
+        return text
     positive = [sections[0]]
     for label, body in zip(sections[1::2], sections[2::2], strict=True):
         if label.lower() == "include":
             positive.append(body)
-    return replace(entry, description=" ".join(part.strip() for part in positive if part.strip()))
+    return " ".join(part.strip() for part in positive if part.strip())
+
+
+def _search_entry(entry: CodebookEntry) -> CodebookEntry:
+    examples = tuple(text for example in entry.examples if (text := _positive_text(example)))
+    return replace(entry, description=_positive_text(entry.description), examples=examples)
 
 
 def build_codebook_themes(

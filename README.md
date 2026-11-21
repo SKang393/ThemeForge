@@ -596,14 +596,14 @@ CSV codebooks need at least one named row under `theme`, `code`, `name`, or
 Both are optional. Headers ignore case and surrounding spaces. For each field,
 the first nonblank value in the listed alias order is used. If a file has no
 named entries, the import fails and the current codebook stays active.
-Put inclusion and exclusion criteria inside the description. Separate criterion
-and parent columns are ignored by the CSV importer.
-In a definition, `Exclude:` starts guidance for the reader. `Include:` resumes
-the text used for ranking. For example, “Test after a repair. Exclude: price
-estimates.” uses the repair test for retrieval. A passage mentioning an
-estimate can still be suggested if it also matches the test. The original
-definition stays available for review, and the example field supplies positive
-search terms.
+Use the definition or example field for inclusion and exclusion guidance.
+The CSV importer ignores separate criterion and parent columns.
+Within each field, `Exclude:` starts guidance for the reader and `Include:`
+resumes the text used for ranking. For example, “Test after a repair. Exclude:
+price estimates.” uses the repair test for retrieval. A passage mentioning an
+estimate can still be suggested if it also matches the test. Each new example
+starts with positive search terms unless marked otherwise. The reviewer sees
+the complete original definition and examples when judging the passage.
 TXT, MD, DOCX, RTF, and text-based PDF codebooks can also use labeled lines such as
 `Theme:`, `Description:`, and `Example:`.
 

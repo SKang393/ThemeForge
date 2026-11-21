@@ -101,17 +101,23 @@ class FocusAndCodebookTests(unittest.TestCase):
     def test_exclusion_guidance_is_preserved_but_does_not_supply_search_terms(self):
         entry = CodebookEntry(
             "Trial", "Exercise the mechanism. Exclude: paint swatches and catalog prices. "
-            "Include: repeat measurements.", ("Inspect the pressure dial.",))
+            "Include: repeat measurements.",
+            ("Exclude: warranty paperwork. Include: inspect the pressure dial.", "Exclude: stock numbers.",
+             "Use the plumb line."),
+        )
         transcript = "\n".join([
             "Bench: We ordered paint swatches and catalog prices.",
             "Bench: Beside the paint swatches I did repeat measurements.",
             "Bench: I had to inspect the pressure dial.",
             "Bench: I did not exercise the mechanism during the evening shift.",
+            "Bench: Filing the warranty paperwork took most of the morning.",
+            "Bench: We copied the stock numbers from the cover.",
+            "Bench: Under the stock numbers I hung the plumb line.",
         ])
         theme, = analyze_transcript(transcript, AnalysisSettings(codebook_entries=(entry,))).themes
-        self.assertEqual({q.source_line for q in theme.quotes}, {2, 3, 4})
+        self.assertEqual({q.source_line for q in theme.quotes}, {2, 3, 4, 7})
         self.assertTrue(all("swatches" not in term and "prices" not in term for term in theme.keywords))
-        self.assertIn(entry.description, theme.validation["generated_from_codebook_entry"])
+        self.assertEqual(entry.snapshot(), theme.validation["generated_from_codebook_entry"])
         self.assertIn("requires researcher review", theme.validation["review_status"])
 
 

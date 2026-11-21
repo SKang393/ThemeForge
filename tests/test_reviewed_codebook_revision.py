@@ -25,6 +25,7 @@ from themeforge.rigor_dialog import RigorDialog
 TRAY = ("Clay: I checked the tray after cooling by looking at its color.\n"
         "Glaze: I checked the tray after cooling by weighing it.")
 PACK = "Fold: I wrapped the finished tile in a packing sleeve."
+EXAMPLE = "Inspect a cooled tray. Exclude: packing sleeve."
 OLD = "Tray check after cooling. Exclude: weight-only checks."
 NEW = ("Tray check after cooling. Exclude: color-only checks.\n"
        "These observations alone do not establish a physical check:\n"
@@ -58,7 +59,7 @@ class ReviewedCodebookRevisionTests(unittest.TestCase):
         book = self.root / "codes.csv"  # Same name and row position on both imports.
         with book.open("w", encoding="utf-8", newline="") as stream:
             writer = csv.writer(stream)
-            writer.writerows([("code", "description", "example"), ("Tray check", description, "Inspect a cooled tray."),
+            writer.writerows([("code", "description", "example"), ("Tray check", description, EXAMPLE),
                               ("Packing", "packing sleeve", "")])
         with patch("themeforge.app.filedialog.askopenfilename", return_value=str(book)):
             press(self.app, "Choose codebook")
@@ -110,7 +111,7 @@ class ReviewedCodebookRevisionTests(unittest.TestCase):
                     area.yview_moveto(1)
                     dialog.update_idletasks()
                     self.assertIsNotNone(area.bbox("end-2c"))
-                    self.assertTrue(context.endswith("Example: Inspect a cooled tray."))
+                    self.assertTrue(context.endswith(f"Example: {EXAMPLE}"))
                 dialog.reason.insert(0, reason)
                 actions["OK"].invoke()
             except Exception as exc:
@@ -152,13 +153,15 @@ class ReviewedCodebookRevisionTests(unittest.TestCase):
     def test_repeated_match_under_a_revised_exclusion_needs_a_new_decision(self):
         app = self.app
         tray, packing = app.result.themes
+        self.assertEqual({q.source_name for q in tray.quotes}, {"kiln.txt"})
+        self.assertEqual(self.rows(), [])
         self.show(packing, "packing.txt", 1)
         self.decide("Supports this theme", "The tile was wrapped.")
         old_quote = self.show(tray, "kiln.txt", 1)
         reason = "The reader checked the color after cooling."
         context = self.decide("Supports this theme", reason)
         self.assertIn(OLD, context)
-        self.assertIn("Example: Inspect a cooled tray.", context)
+        self.assertIn(f"Example: {EXAMPLE}", context)
         self.assertIn(old_quote.text, context)
         self.save_reopen()
         initial = self.tray_row()
