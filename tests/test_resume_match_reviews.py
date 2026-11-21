@@ -8,8 +8,10 @@ from tkinter import ttk
 import unittest
 from unittest.mock import patch
 
+from test_evidence_handoff import export
 from themeforge.app import ThemeForgeApp
 from themeforge.match_reviews import REVIEW_LABELS
+from themeforge.rigor_dialog import RigorDialog
 
 COLD = "I logged the cooler temperature before opening."
 INTERVIEWS = {
@@ -93,6 +95,64 @@ class ResumeReviewTests(unittest.TestCase):
             prompt.return_value.result = reason
             self.press(REVIEW_LABELS[decision])
         prompt.assert_called_once()
+
+    def choose_review_source(self, name):
+        app = self.app
+        desktop = app.winfo_screenwidth(), app.winfo_screenheight()
+        window_system = app.tk.call("tk", "windowingsystem")
+        if window_system == "win32" and desktop == (1024, 768):
+            app.state("zoomed")
+        else:
+            app.minsize(1, 1)
+            app.geometry("1024x705+0+0")
+        app.update()
+        box = app.review_source_box
+        label, = box.master.grid_slaves(row=0, column=0)
+        self.assertEqual(label.cget("text"), "Next in")
+        controls = dict(buttons(app))
+        for widget in (label, box, controls["Next unreviewed"], controls["Next deferred"], controls["Next supported"]):
+            self.assertGreaterEqual(widget.winfo_width(), widget.winfo_reqwidth())
+            x, y = widget.winfo_rootx(), widget.winfo_rooty()
+            for px, py in ((x, y), (x + widget.winfo_width() - 1, y + widget.winfo_height() - 1)):
+                self.assertTrue(0 <= px < 1024 and 0 <= py < 768, (str(widget), px, py))
+                self.assertEqual(app.winfo_containing(px, py), widget)
+        if window_system == "aqua":  # Tk can use a native menu on macOS.
+            self.assertEqual(box["values"], ("All sources", *INTERVIEWS))
+            box.current(box["values"].index(name))
+            return
+        box.event_generate("<ButtonPress-1>", x=box.winfo_width() - 6, y=box.winfo_height() // 2)
+        app.update()
+        # The ttk popup creates its listbox in Tcl, outside tkinter's widget registry.
+        items = f'{app.tk.call("ttk::combobox::PopdownWindow", str(box))}.f.l'
+        call = app.tk.call
+        names = call(items, "get", 0, "end")
+        self.assertEqual(names, ("All sources", *INTERVIEWS))
+        self.assertTrue(call("winfo", "viewable", items))
+        left, top = call("winfo", "rootx", items), call("winfo", "rooty", items)
+        for i in range(len(names)):
+            x, y, width, height = call(items, "bbox", i)
+            self.assertLessEqual(x + width, call("winfo", "width", items))
+            self.assertLessEqual(y + height, call("winfo", "height", items))
+            self.assertTrue(0 <= left + x < left + x + width <= 1024, names[i])
+            self.assertTrue(0 <= top + y < top + y + height <= 768, names[i])
+        x, y, width, height = call(items, "bbox", names.index(name))
+        for event in ("<ButtonPress-1>", "<ButtonRelease-1>"):
+            call("event", "generate", items, event, "-x", x + width // 2, "-y", y + height // 2)
+        app.update()
+        self.assertEqual(box.get(), name)
+
+    def stall_evidence(self, path):
+        self.press("Rigor tools")
+        dialog, = [w for w in self.app.winfo_children() if isinstance(w, RigorDialog)]
+        dialog.audit_tree.master.master.select(dialog.audit_tree.master)
+        selector = dialog.supported_sources
+        self.assertEqual(selector.curselection(), ())
+        selector.selection_set(selector.get(0, "end").index("stall.txt"))
+        row, = export(dialog, "Export supported matches CSV", path)
+        self.assertEqual((row["source_file"], row["quote"], row["match_review_actor"], row["match_review_reason"]),
+                         ("stall.txt", COLD, "Elm", DECISIONS["Cold checks", "stall.txt", 1][1]))
+        dialog.destroy()
+        return path.read_bytes()
 
     def reopen_compact(self, path):
         self.app.request_close()
@@ -240,6 +300,27 @@ class ResumeReviewTests(unittest.TestCase):
         self.assertEqual(self.app.researcher_name.get(), "Elm")
         self.assertEqual(self.current(), ("Cold checks", "market.txt", 1))
         saved_events = list(self.app.audit_events)
+        saved_state = self.app._project_state()
+        original = study.read_bytes()
+        baseline_csv = self.stall_evidence(self.root / "before.csv")
+        self.assertEqual(self.app.review_source_box.get(), "All sources")
+        self.press("Next quote")
+        self.assertEqual(self.current(), ("Cold checks", "stall.txt", 1))
+        self.choose_review_source("market.txt")
+        self.press("Next unreviewed")
+        self.assertEqual(self.current(), ("Site access", "market.txt", 3))
+        self.assertIn("No current match review", self.app.match_review_text.get())
+        self.assertEqual(self.stall_evidence(self.root / "after.csv"), baseline_csv)
+        self.assertEqual(self.app._project_state(), saved_state)
+        self.assertEqual(self.app.review_source_box.get(), "market.txt")
+        with patch("themeforge.app.filedialog.askopenfilename", return_value=str(study)):
+            self.press("Open project")
+        self.assertEqual(self.app.review_source_box.get(), "All sources")
+        self.assertEqual(self.app._project_state(), saved_state)
+        self.assertEqual(study.read_bytes(), original)
+        start, end, _ = self.spans["market.txt", 3]
+        print(f"Review selector on {self.app.winfo_screenwidth()}x{self.app.winfo_screenheight()}: "
+              f"market.txt line 3 [{start},{end}); stall evidence and project bytes matched; reopened All sources.")
         unresolved = []
         for _ in UNREVIEWED:
             self.press("Next unreviewed")
