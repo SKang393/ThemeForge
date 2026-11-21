@@ -95,6 +95,18 @@ class CrossCaseReviewTests(unittest.TestCase):
         dialog.geometry("900x600+0+0")
         app.update()
         tree = dialog.source_matrix_tree
+        # All three interviews reuse "Keeper". The speaker matrix pools those six rows under one label.
+        speaker = dialog.speaker_matrix_tree
+        speaker.master.master.select(speaker.master)
+        app.update()
+        pooled, = speaker.get_children()
+        self.assertEqual((speaker.heading("speaker", "text"), speaker.set(pooled, "speaker"),
+                          speaker.set(pooled, "quotes")), ("Speaker label", "Keeper", "6"))
+        self.assertTrue(any(w.winfo_viewable() and "pooled across transcripts" in w.cget("text")
+                            for w in descendants(speaker.master) if isinstance(w, ttk.Label)))
+        self.assertEqual(tree.heading("source", "text"), "Transcript")
+        self.assertIn("case mapping in Document memo", dialog.source_review_hint.get())
+
         def export_tables(stage):
             tabs = tree.master.master
             tabs.select(tree.master)

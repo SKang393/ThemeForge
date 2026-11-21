@@ -228,7 +228,7 @@ class RigorDialog(tk.Toplevel):
             tree = ttk.Treeview(tab, columns=("source", "reviews", "quotes", "chars", "coverage", "match_link"),
                                 selectmode="browse")
             tree.column("#0", width=210)
-            self._configure_tree(tree, ("Source", "Match reviews", "Stored quotes", "Covered chars", "Coverage %",
+            self._configure_tree(tree, ("Transcript", "Match reviews", "Stored quotes", "Covered chars", "Coverage %",
                                         "Direct match link"))
             tree.column("reviews", width=230)
             for col in ("quotes", "chars", "coverage"):
@@ -237,7 +237,11 @@ class RigorDialog(tk.Toplevel):
             tree.bind("<Return>", self._open_source_review)
         else:
             tree = ttk.Treeview(tab, columns=("theme", axis_label, "quotes", "chars", "coverage"), show="headings")
-            self._configure_tree(tree, ("Theme", axis_label.title(), "Quote count", "Unique coded chars", "Coverage %"))
+            self._configure_tree(tree, ("Theme", "Speaker label", "Stored quotes", "Unique coded chars", "Coverage %"))
+            ttk.Label(tab, wraplength=800, text=(
+                "Matching speaker labels are pooled across transcripts. Different people can share a label. "
+                "Stored quotes include suggestions. Use By source to trace reviewed passages to the cases you defined."
+            )).grid(row=2, column=0, sticky="w")
         self._grid_tree(tab, tree, 1)
         notebook.add(tab, text=title)
         return tree
@@ -371,12 +375,13 @@ class RigorDialog(tk.Toplevel):
             return
         tree.configure(displaycolumns=("source", "reviews", "quotes", "chars", "coverage"))
         tree.heading("#0", text="Theme / reviewed passage")
-        hint = (f"Match reviews by {reviewer}. Historical rows show earlier decisions in this pass under a changed "
-                "or removed entry. They are excluded from current support. Expand a row and double-click a passage "
-                "or press Enter to read its quote and reason." if reviewer else
+        hint = (f"Match reviews by {reviewer}. Historical decisions in this pass under a changed or removed entry "
+                "are excluded from current support. Expand a row and double-click a passage or press Enter for its "
+                "quote and reason." if reviewer else
                 "Enter a coder name in the main window to see that reader’s match reviews.")
-        self.source_review_hint.set(f"{hint} Quote counts and coverage include suggestions. Read the reason for a decline "
-                                    "to distinguish a counterexample from an irrelevant match.")
+        self.source_review_hint.set(f"One summary row per theme and transcript. {hint} Counts of stored quotes and "
+                                    "coverage include suggestions. A decline can record a counterexample or an irrelevant "
+                                    "match. For repeat visits, check your case mapping in Document memo after opening the passage.")
         result = self.context.result
         if result is None:
             return

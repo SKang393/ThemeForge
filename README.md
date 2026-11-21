@@ -238,6 +238,17 @@ Open **Rigor tools** again to return to the same row. A declined match might
 document a counterexample or simply mention the topic. Read the reason before
 interpreting it. “No current reviews” leaves that source’s position open.
 
+**Comparing cases.** A source row pairs a theme with one transcript. A passage
+listed under two codes contributes to both rows. **By speaker** pools turns
+with the same parsed label, even when several interviews
+use “Worker” for different people. Define the case for your study first. For
+example, if a workshop is a case, record its study label in **Document memo**
+for each visit. Open a supported passage from **By source** and check that
+memo. For a transcript covering several cases, verify membership for the exact
+passage. Tally each identified case once per theme and keep the supported
+quote count alongside it. Leave unknown cases unmapped. ThemeForge saves the
+memos as text and leaves the case tally to the researcher.
+
 To return to passages where you applied a codebook entry yourself, select
 **Show only my manual codebook assignments** in **By source**. Open a row to see the exact span,
 including assignments you have yet to review for support. **Direct match
