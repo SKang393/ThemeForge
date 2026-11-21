@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from functools import partial
 from typing import Protocol
 
 from .analysis_vectors import normalize_vector
@@ -36,14 +37,12 @@ def local_embedding_vectors(texts: Sequence[str], language_mode: str) -> Embeddi
         )
 
     try:
-        return _encode_with_model(texts, model_name, SentenceTransformer)
+        load_cached = partial(SentenceTransformer, local_files_only=True, trust_remote_code=False)
+        return _encode_with_model(texts, model_name, load_cached)
     except (OSError, RuntimeError):
         return EmbeddingResult(
             vectors=[],
-            note=(
-                f"Local embeddings unavailable; {model_name} is not in the local model cache yet. "
-                "TF-IDF clustering was used instead."
-            ),
+            note=f"Could not use the cached model {model_name}. TF-IDF was used instead.",
         )
 
 

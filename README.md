@@ -46,7 +46,7 @@ Use the transcript text saved in the project when checking offsets. For Word or 
 
 ## Offline use
 
-The default TF-IDF workflow runs on a CPU without an account or model download. **Local embeddings** is optional. To use it offline, install `sentence-transformers` and cache the MiniLM model for the selected language in advance. The model loader can try to fetch missing files when connected. If embeddings are unavailable, ThemeForge can fall back to TF-IDF. [Sentence Transformers model-loading guide](https://www.sbert.net/docs/package_reference/sentence_transformer/model.html)
+The default TF-IDF workflow runs on a CPU without an account or model download. **Local embeddings** is optional. To use it, install `sentence-transformers` and cache the MiniLM model for the selected language in advance. ThemeForge looks only in the local model cache and falls back to TF-IDF if embeddings are unavailable. [Sentence Transformers model-loading guide](https://www.sbert.net/docs/package_reference/sentence_transformer/model.html)
 
 ## License
 

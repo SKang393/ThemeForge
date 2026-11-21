@@ -1,10 +1,13 @@
 import unittest
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from themeforge.local_embeddings import (
     ENGLISH_MODEL,
     MULTILINGUAL_MODEL,
     _encode_with_model,
     _model_name,
+    local_embedding_vectors,
 )
 
 
@@ -18,6 +21,17 @@ class FakeEmbeddingModel:
 
 
 class LocalEmbeddingTests(unittest.TestCase):
+    def test_missing_cached_model_falls_back_without_enabling_downloads(self):
+        loader = Mock(side_effect=FileNotFoundError)
+        package = SimpleNamespace(SentenceTransformer=loader)
+        with patch.dict("sys.modules", {"sentence_transformers": package}):
+            result = local_embedding_vectors(["The latch held."], "English")
+
+        loader.assert_called_once_with(ENGLISH_MODEL, local_files_only=True, trust_remote_code=False)
+        self.assertEqual(result.vectors, [])
+        self.assertEqual(result.model_name, "")
+        self.assertIn("TF-IDF", result.note)
+
     def test_language_mode_selects_english_or_multilingual_model(self):
         self.assertEqual(_model_name("English"), ENGLISH_MODEL)
         self.assertEqual(_model_name("Auto"), ENGLISH_MODEL)
