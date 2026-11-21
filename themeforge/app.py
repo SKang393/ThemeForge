@@ -60,7 +60,7 @@ from .quote_units import speaker_stopwords, suggestion_inputs
 from .rigor_dialog import RigorContext, RigorDialog
 from .semantic_suggestions import SimilarPassage, find_similar_passages
 from .source_location import TranscriptIndex
-from .source_selection import FindTextScope
+from .source_selection import FindTextScope, TranscriptFolders, choose_transcript_files
 from .speaker_review import review_speakers
 from .ui_model import (
     APP_THEMES,
@@ -307,6 +307,8 @@ class ThemeForgeApp(tk.Tk):
 
     def _build_controls(self, parent: ttk.Frame) -> None:
         ttk.Label(parent, text="Transcripts", style="Panel.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Button(parent, text="Across folders…", padding=(4, 1),
+                   command=lambda: self.open_transcript(across_folders=True)).grid(row=0, column=0, sticky="e")
         ttk.Label(parent, textvariable=self.file_summary, style="Muted.TLabel", wraplength=220).grid(row=1, column=0, sticky="ew", pady=(2, 5))
 
         file_buttons = ttk.Frame(parent, style="Surface.TFrame")
@@ -621,22 +623,11 @@ class ThemeForgeApp(tk.Tk):
             command=self.code_selected_similar_passage,
         ).grid(row=3, column=0, sticky="w")
 
-    def open_transcript(self) -> None:
-        paths = filedialog.askopenfilenames(
-            title="Open transcripts",
-            filetypes=[
-                ("Transcript files", "*.txt *.md *.csv *.docx *.rtf *.pdf"),
-                ("Text files", "*.txt *.md *.csv"),
-                ("Word documents", "*.docx *.rtf"),
-                ("PDF files", "*.pdf"),
-                ("All files", "*.*"),
-            ],
-        )
-        if not paths:
-            return
-
+    def open_transcript(self, *, across_folders: bool = False) -> None:
         try:
-            input_paths = [Path(path) for path in paths]
+            input_paths = TranscriptFolders(self).result if across_folders else choose_transcript_files(self)
+            if not input_paths:
+                return
             documents = self._load_documents(input_paths)
         except (OSError, ValueError, zipfile.BadZipFile) as exc:
             messagebox.showerror("Open transcripts failed", str(exc))

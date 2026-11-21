@@ -38,6 +38,8 @@ Wheel inspection,Checking the wheel rim before packing.
 4. Click **Save project** to write a `.tfproj` file. Next time, choose **Open project** to resume. Running **Analyze** again starts a new review pass.
 5. With **Wheel inspection** selected, click **Supported CSV…**, select `workshop.txt` and click **Export supported matches CSV**. A quotation appears here when its span matches the saved transcript and its latest reviewer marked it **Supports this theme**.
 
+For transcripts in different folders, choose **Across folders…**, add files from each folder, and check the paths before clicking **OK**. If two files are named `interview.txt`, the second appears as `interview.txt [2]` in the project and supported CSV.
+
 ## Check a quotation
 
 In the supported CSV, find `source_file` and `source_line`. The example quotation begins on line 1. Its character range, `[7, 55)`, starts at character 7 and ends just before character 55, counting from zero. That slice reads “I checked the wheel rim before packing the cart.” Repeated wording elsewhere has a different address.

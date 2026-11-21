@@ -11,6 +11,7 @@ from themeforge.analysis_types import TranscriptDocument
 from themeforge.app import ThemeForgeApp
 from themeforge.definition_review import CodebookReuseDialog, MatchReviewReason
 from themeforge.rigor_dialog import RigorDialog
+from themeforge.source_selection import TranscriptFolders
 from themeforge.ui_model import transcript_import_comparison
 
 
@@ -21,6 +22,47 @@ REASONS = ("The first fitting was completed.", "The later fitting was also compl
 
 
 class TranscriptAmendmentTests(unittest.TestCase):
+    def test_import_same_filename_from_two_folders(self):
+        folder = TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        root = Path(folder.name)
+        first, second = (root / room / "interview.txt" for room in ("loft", "booth"))
+        for path, material in ((first, "Copper"), (second, "Silver")):
+            path.parent.mkdir()
+            path.write_text(f"Maker: {material} tray.\nMaker: {QUOTE}", encoding="utf-8")
+        app = ThemeForgeApp()
+        self.addCleanup(app.destroy)
+
+        # A native multi-file picker can resolve both basenames in the final folder.
+        with patch("themeforge.app.filedialog.askopenfilenames", return_value=(str(second), str(second))), \
+                patch("themeforge.app.messagebox.showerror") as warning:
+            press(app, "Choose files")
+            self.assertIn("Across folders", warning.call_args.args[1])
+        self.assertFalse(app.documents)
+
+        def select_files(dialog, _window):
+            with patch("themeforge.app.filedialog.askopenfilenames",
+                       side_effect=[(str(first),), (), (str(first),), (str(second),)]):
+                for _ in range(4):
+                    press(dialog, "Add files from a folder…")
+            self.assertEqual(dialog.files.get(0, "end"), (str(first), str(second)))
+            dialog.ok()
+
+        with patch.object(TranscriptFolders, "wait_window", autospec=True, side_effect=select_files), \
+                patch.object(app, "report_callback_exception") as errors:
+            press(app, "Across folders…")
+            if errors.called:
+                raise errors.call_args.args[1]
+        expected = [(name, path.read_text(encoding="utf-8")) for name, path in
+                    (("interview.txt", first), ("interview.txt [2]", second))]
+        self.assertEqual([(d.name, d.text) for d in app.documents], expected)
+        project = root / "trays.tfproj"
+        with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(project)):
+            press(app, "Save project")
+        with patch("themeforge.app.filedialog.askopenfilename", return_value=str(project)):
+            press(app, "Open project")
+        self.assertEqual([(d.name, d.text) for d in app.documents], expected)
+
     def test_reopen_cancel_and_review_two_amendments_as_separate_studies(self):
         folder = TemporaryDirectory()
         self.addCleanup(folder.cleanup)
