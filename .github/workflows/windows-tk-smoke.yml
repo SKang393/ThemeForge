@@ -2,7 +2,7 @@ name: Windows Tk smoke
 
 on:
   push:
-    branches: [review/cloud-coding-windows-smoke]
+    branches: [master]
   pull_request:
     branches: [master]
 
