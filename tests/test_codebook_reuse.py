@@ -245,6 +245,9 @@ class CodebookReuseTests(unittest.TestCase):
                 ("empty.csv", "", "Missing code name column"),
                 ("header.csv", "code,memo\n", "No named codebook entries"),
                 ("blank.csv", "code,memo\n  ,sample\n", "No named codebook entries"),
+                ("extra-cell.csv", 'code,definition\nSeal log,"Read the tag\nand note its number."\n'
+                 "Wet test,Run the repaired pump, with water flowing through it.\n",
+                 "row ending on line 4 has more cells than the header"),
                 ("malformed.csv", 'name,description\nInventory,Tally\nRepair,"unfinished\n', "Could not read the codebook CSV"),
                 ("empty.txt", "Theme:\nDescription: no label\n", "No named codebook entries"),
                 ("report.json", '{"themes": []}', "Choose a CSV")):

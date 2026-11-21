@@ -43,6 +43,9 @@ def _load_csv_codebook(path: Path) -> tuple[CodebookEntry, ...]:
             raise ValueError("Missing code name column. Evidence and manual-assignment exports are study reports.\n\n"
                              + CSV_GUIDANCE)
         for row in rows:
+            if None in row:
+                raise ValueError(f"The codebook row ending on line {rows.line_num} has more cells than the header. "
+                                 "Put double quotes around fields containing commas, or remove extra separators.")
             name = _first_value(row, NAME_FIELDS)
             if name:
                 example = _first_value(row, EXAMPLE_FIELDS)
