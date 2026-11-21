@@ -41,8 +41,14 @@ class ReviewRevisionTests(unittest.TestCase):
         project = root / "cart.tfproj"
 
         def launch():
-            with patch.object(ThemeForgeApp, "maxsize", return_value=(1024, 705)):
-                return ThemeForgeApp()
+            window = ThemeForgeApp()
+            if window.tk.call("tk", "windowingsystem") == "win32" and (
+                    window.winfo_screenwidth(), window.winfo_screenheight()) == (1024, 768):
+                window.state("zoomed")
+            else:
+                window.minsize(1, 1)
+                window.geometry("1024x705+0+0")
+            return window
 
         app = launch()
         self.addCleanup(lambda: app.destroy())
@@ -117,8 +123,7 @@ class ReviewRevisionTests(unittest.TestCase):
                 self.assertEqual(row["source_sha256"], sha256(SHED.encode("utf-8")).hexdigest())
                 self.assertEqual((row["source_file"], row["quote"], row["source_location_status"],
                                   row["match_review_disposition"]), ("shed.txt", QUOTE, "exact_span", "supported"))
-            return [(int(r["source_start"]), int(r["source_end"]), r["match_review_actor"],
-                     r["match_review_reason"]) for r in rows]
+            return rows
 
         mark("Supports this theme", "I count this inventory list.")  # Withheld source.
         select_braking_theme()
@@ -128,22 +133,44 @@ class ReviewRevisionTests(unittest.TestCase):
         mark("Supports this theme", OTHER)
         app.researcher_name.set("Flint")
         self.assertIn("No current match review for this coder", app.match_review_text.get())
+        act("Next quote")
+        deferred_reason = "Check which vehicle the storekeeper meant."
+        mark("Revisit later", deferred_reason)
+        act("Previous quote")
         mark("Supports this theme", ORIGINAL)
         with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(project)):
             save_and_reopen()
         original_events = [e for e in app.audit_events if e.action == "match_review_note"]
         self.assertEqual(json.loads(original_events[0].details)["match"]["quote"]["source_name"], "stores.txt")
-        first_occurrence = (50, 94, "Ochre", other_reason)
-        self.assertEqual(export_shed(), [first_occurrence, (322, 366, "Flint", ORIGINAL)])
+        first_occurrence, repeated = export_shed()
+        self.assertEqual([(r["source_start"], r["source_end"], r["match_review_actor"], r["match_review_reason"])
+                          for r in (first_occurrence, repeated)],
+                         [("50", "94", "Ochre", other_reason), ("322", "366", "Flint", ORIGINAL)])
         self.assertEqual(app._current_theme().name, "Equipment inventory")
         prior = list(app.audit_events)
-        button, = [w for w in descendants(app) if isinstance(w, ttk.Button) and w.cget("text") == "Next supported"]
-        self.assertGreaterEqual(button.winfo_width(), button.winfo_reqwidth())
-        x, y = button.winfo_rootx() + button.winfo_width() - 1, button.winfo_rooty() + button.winfo_height() - 1
-        self.assertLess(x, app.winfo_rootx() + app.winfo_width())
-        self.assertLess(y, app.winfo_rooty() + app.winfo_height())
-        self.assertEqual(app.winfo_containing(x, y), button)
-        act("Next supported")
+
+        def click_navigation(label):
+            app.update()
+            button, = [w for w in descendants(app) if isinstance(w, ttk.Button) and w.cget("text") == label]
+            x, y = button.winfo_rootx(), button.winfo_rooty()
+            width, height = button.winfo_width(), button.winfo_height()
+            self.assertGreaterEqual(width, button.winfo_reqwidth(), label)
+            self.assertGreaterEqual(height, button.winfo_reqheight(), label)
+            for px in (x, x + width - 1):
+                for py in (y, y + height - 1):
+                    self.assertTrue(0 <= px < min(1024, app.winfo_screenwidth()), label)
+                    self.assertTrue(0 <= py < min(768, app.winfo_screenheight()), label)
+                    self.assertEqual(app.winfo_containing(px, py), button)
+            print(f"{label} at ({x},{y}), {width}x{height} on {app.winfo_screenwidth()}x{app.winfo_screenheight()}")
+            for event in ("<ButtonPress-1>", "<ButtonRelease-1>"):
+                button.event_generate(event, x=width // 2, y=height // 2)
+            app.update()
+
+        click_navigation("Next deferred")
+        deferred = app._current_quote_match().quote
+        self.assertEqual((deferred.source_name, deferred.source_line), ("stores.txt", 2))
+        self.assertIn(deferred_reason, app.match_review_text.get())
+        click_navigation("Next supported")
         self.assertEqual(app.audit_events, prior)
         self.assertIn(ORIGINAL, app.match_review_text.get())
         q = app._current_quote_match().quote
@@ -155,7 +182,7 @@ class ReviewRevisionTests(unittest.TestCase):
         self.assertEqual(export_shed(), [first_occurrence])
         events = [e for e in app.audit_events if e.action == "match_review_note"]
         self.assertEqual(events[:-1], original_events)
-        same_match = [e for e in events if e.target_id == original_events[-1].target_id]
+        same_match = [e for e in events if e.target_id == repeated["match_review_target_id"]]
         decisions = [(e.actor, json.loads(e.details)["disposition"], json.loads(e.details)["reason"]) for e in same_match]
         self.assertEqual(decisions, [("Ochre", "supported", OTHER), ("Flint", "supported", ORIGINAL),
                                      ("Flint", "declined", REVISION)])
