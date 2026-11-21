@@ -53,6 +53,7 @@ jobs:
           test_discovery_hierarchy.DiscoveryHierarchyTests.test_reused_then_absent_parent_id_preserves_the_chosen_group
           test_supported_matches.SupportedMatchTests.test_discover_review_assign_reopen_and_export
           test_paired_match_reviews.PairedMatchReviewTests.test_independent_reviews_survive_reopen_and_comparison
+          test_paired_match_reviews.PairedMatchReviewTests.test_appendix_counts_contain_only_fixed_labels_and_scoped_totals
           test_paired_match_reviews.PairedMatchReviewTests.test_empty_canceled_and_replaced_source_previews_cannot_write_a_file
           test_paired_match_reviews.PairedMatchReviewTests.test_changed_matches_are_excluded_instead_of_counted_as_missing_reviews
           test_resume_match_reviews.ResumeReviewTests.test_resume_across_codes_and_revisit_own_deferrals

@@ -221,14 +221,29 @@ class LocateDisagreementTests(unittest.TestCase):
             self.assertIn("5 of 6 paired rows from 1 of 2 sources", preview.cget("text"))
             warning, = [w for w in descendants(scope) if isinstance(w, ttk.Label) and "free-text" in w.cget("text")]
             self.assertIn("identify people or refer to other transcripts", warning.cget("text"))
+            counts_only, = [w for w in descendants(scope) if isinstance(w, ttk.Checkbutton)
+                            and w.cget("text") == "Export outcome counts only"]
             buttons = {w.cget("text"): w for w in descendants(scope) if isinstance(w, Button)}
-            for widget in (scope.sources, preview, warning, buttons["OK"], buttons["Cancel"]):
+            for widget in (scope.sources, counts_only, preview, warning, buttons["OK"], buttons["Cancel"]):
                 self.assertTrue(widget.winfo_viewable())
                 self.assertGreaterEqual(widget.winfo_height(), widget.winfo_reqheight())
                 self.assertGreaterEqual(widget.winfo_width(), widget.winfo_reqwidth())
                 x, y = widget.winfo_rootx(), widget.winfo_rooty()
                 self.assertTrue(0 <= x < x + widget.winfo_width() <= min(screen[0], 1024))
                 self.assertTrue(0 <= y < y + widget.winfo_height() <= min(screen[1], 768))
+            self.assertFalse(counts_only.instate(["selected"]))
+            for selected in (True, False):
+                x, y = counts_only.winfo_width() // 2, counts_only.winfo_height() // 2
+                self.assertEqual(scope.winfo_containing(counts_only.winfo_rootx() + x,
+                                                       counts_only.winfo_rooty() + y), counts_only)
+                for event in ("<ButtonPress-1>", "<ButtonRelease-1>"):
+                    counts_only.event_generate(event, x=x, y=y)
+                scope.update()
+                self.assertEqual(counts_only.instate(["selected"]), selected)
+                if selected:
+                    self.assertIn("5 of 6 shared matches", preview.cget("text"))
+                    self.assertIn("Small counts can still identify people in context", warning.cget("text"))
+            self.assertIn("5 of 6 paired rows", preview.cget("text"))
             buttons["OK"].invoke()
 
         scoped_path = root / "paired-packet.csv"
