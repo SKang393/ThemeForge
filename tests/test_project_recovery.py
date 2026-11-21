@@ -74,7 +74,7 @@ class ProjectRecoveryTests(unittest.TestCase):
         self.app._select_theme_by_id(theme.id)
         q, = [q for q in theme.quotes if q.source_name == "count.txt" and q.source_line == line]
         self.app._focus_quote_by_id(q.quote_id)
-        with patch("themeforge.app.CodebookMatchReason") as dialog:
+        with patch("themeforge.app.MatchReviewReason") as dialog:
             dialog.return_value.result = reason
             press(self.app, button)
         dialog.assert_called_once()

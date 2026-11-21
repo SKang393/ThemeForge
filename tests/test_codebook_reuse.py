@@ -62,7 +62,7 @@ class CodebookReuseTests(unittest.TestCase):
         self.app._select_theme_by_id(theme.id)
         quote, = [q for q in theme.quotes if q.source_line == 1]
         self.app._focus_quote_by_id(quote.quote_id)
-        with patch("themeforge.app.CodebookMatchReason") as dialog:
+        with patch("themeforge.app.MatchReviewReason") as dialog:
             dialog.return_value.result = reason
             press(self.app, button)
             dialog.assert_called_once()

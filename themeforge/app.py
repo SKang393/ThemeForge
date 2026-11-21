@@ -6,7 +6,6 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, replace
 import json
 from pathlib import Path
-from textwrap import fill
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 import zipfile
@@ -23,7 +22,7 @@ from .analysis import (
 from .analysis_types import QuoteUnit, SpeakerOverride
 from .audit import AuditEvent, create_audit_event
 from .codebook import load_codebook_entries
-from .definition_review import CodebookMatchReason, CodebookReuseDialog, entry_label, review_definition
+from .definition_review import CodebookReuseDialog, MatchReviewReason, entry_label, review_definition
 from .exports import export_json, export_markdown, export_quotes_csv
 from .io import load_transcript_text
 from .manual_editing import (
@@ -1246,16 +1245,11 @@ class ThemeForgeApp(tk.Tk):
             return
         before, sources = self.result, self._display_sources
         q = match.quote
-        self.transcript_widgets[match.source_name].see(match.location.start)
         citation = (f"{theme.name} ({theme.id}) | {actor}\n{q.source_name}, line {q.source_line}, "
                     f"characters [{q.source_start}, {q.source_end})\n\n")
         entry = self.match_reviews.codebook_entry(theme)
-        if entry is not None:
-            reason = CodebookMatchReason(self, REVIEW_LABELS[disposition], citation + q.text, entry).result
-        else:
-            excerpt = q.text if len(q.text) <= 200 else q.text[:200] + "…"
-            reason = simpledialog.askstring(REVIEW_LABELS[disposition], citation + fill(excerpt, width=68)
-                                            + "\n\nWhat in the passage led to this decision?", parent=self)
+        reason = MatchReviewReason(self, REVIEW_LABELS[disposition], citation, q.text,
+                                   sources.neighboring_turn_text(q), entry).result
         if not reason or not reason.strip():
             return
         if (self.result is not before or self._display_sources is not sources or self._visible_review_match() != match

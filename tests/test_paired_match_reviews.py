@@ -96,7 +96,8 @@ class PairedMatchReviewTests(unittest.TestCase):
                 self.app._focus_quote_by_id(quote.quote_id)
                 view = self.app.transcript_widgets[source]
                 self.assertEqual(view.get("selected_quote.first", "selected_quote.last"), self.spans[source, line][2])
-                with patch("themeforge.app.simpledialog.askstring", return_value=reason):
+                with patch("themeforge.app.MatchReviewReason") as prompt:
+                    prompt.return_value.result = reason
                     self.assertTrue(press(self.app, REVIEW_LABELS[disposition]))
             self.assertTrue(self.app.save_project())
             self.open(path)
@@ -174,7 +175,8 @@ class PairedMatchReviewTests(unittest.TestCase):
                                           ("Blue", "declined", "=An audible click alone is insufficient."),
                                           ("Amber", "supported", "A later note by a different reader.")):
             self.app.researcher_name.set(actor)
-            with patch("themeforge.app.simpledialog.askstring", return_value=reason):
+            with patch("themeforge.app.MatchReviewReason") as prompt:
+                prompt.return_value.result = reason
                 self.app.review_current_match(disposition)
         self.app.researcher_name.set("Coordinator")
         self.assertTrue(self.app.save_project())

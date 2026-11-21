@@ -53,7 +53,7 @@ class SuggestionCoverageTests(unittest.TestCase):
         for px, py in ((x, y), (right, bottom)):
             self.assertTrue(0 <= px < min(screen[0], 1024) and 0 <= py < min(screen[1], 768))
             self.assertEqual(app.winfo_containing(px, py), button)
-        with patch("themeforge.app.CodebookMatchReason") as reason:
+        with patch("themeforge.app.MatchReviewReason") as reason:
             reason.return_value.result = "The cause was unknown."
             press(app, "Not this match")
 

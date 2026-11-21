@@ -81,7 +81,8 @@ def study(app, root):
             press(app, "Next quote")
         else:
             raise AssertionError((source, line))
-        with patch("themeforge.app.simpledialog.askstring", return_value=reason) as prompt:
+        with patch("themeforge.app.MatchReviewReason") as prompt:
+            prompt.return_value.result = reason
             press(app, REVIEW_LABELS[status])
         prompt.assert_called_once()
     app.researcher_name.set("Wren")

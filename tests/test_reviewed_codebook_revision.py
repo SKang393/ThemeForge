@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 from test_evidence_handoff import descendants, export, press
 from themeforge.app import ThemeForgeApp
-from themeforge.definition_review import CodebookMatchReason
+from themeforge.definition_review import MatchReviewReason
 from themeforge.match_reviews import match_id
 from themeforge.paired_reviews import compare_match_reviews
 from themeforge.project_io import load_project
@@ -90,7 +90,7 @@ class ReviewedCodebookRevisionTests(unittest.TestCase):
                     self.assertLess(monotonic(), deadline, "Review dialog did not take its modal grab")
                     self.app.after(10, answer)
                     return
-                self.assertIsInstance(dialog, CodebookMatchReason)
+                self.assertIsInstance(dialog, MatchReviewReason)
                 dialog.geometry("600x360+20+20")
                 dialog.update_idletasks()
                 self.assertEqual((dialog.winfo_width(), dialog.winfo_height()), (600, 360))
@@ -221,7 +221,7 @@ class ReviewedCodebookRevisionTests(unittest.TestCase):
         self.assert_visible_inside(warning, app)
         self.assertGreaterEqual(warning.winfo_width(), warning.winfo_reqwidth())
         self.assertGreaterEqual(warning.winfo_height(), warning.winfo_reqheight())
-        with patch("themeforge.app.CodebookMatchReason") as prompt:
+        with patch("themeforge.app.MatchReviewReason") as prompt:
             press(app, "Supports this theme")
             prompt.assert_not_called()
         self.assertIn("Historical codebook match", app.status_text.get())

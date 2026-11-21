@@ -1,4 +1,4 @@
-"""Review codebook text before applying a definition or carrying it into another study."""
+"""Review passages in context, apply codebook definitions, and preview codebook reuse."""
 from __future__ import annotations
 
 import tkinter as tk
@@ -45,18 +45,30 @@ class CodebookReuseDialog(simpledialog.Dialog):
         self.result = self.options[self.choice.get()]
 
 
-class CodebookMatchReason(simpledialog.Dialog):
-    """Keep long definitions, examples and the cited passage readable before recording a review."""
+class MatchReviewReason(simpledialog.Dialog):
+    """Read the verified match in its transcript context while recording a decision."""
 
-    def __init__(self, parent: tk.Misc, title: str, citation: str, entry: CodebookEntry):
-        self.context = citation + "\n\nSaved codebook entry\n" + definition_text(entry)
+    def __init__(self, parent: tk.Misc, title: str, citation: str, excerpt: str,
+                 neighbors: tuple[str, str], entry: CodebookEntry | None):
+        self.citation = citation
+        self.excerpt = excerpt
+        self.neighbors = neighbors
+        self.entry = entry
         super().__init__(parent, title)
 
     def body(self, master):
         context = ScrolledText(master, width=64, height=12, wrap="word")
-        context.insert("1.0", self.context)
+        before, after = self.neighbors
+        context.insert("end", self.citation + "Review the highlighted passage. Surrounding text is context.\n\n")
+        context.insert("end", before)
+        context.insert("end", self.excerpt, "evidence")
+        context.insert("end", after)
+        context.tag_configure("evidence", background="#f5dea2", foreground="#1c2023", underline=True)
+        if self.entry is not None:
+            context.insert("end", "\n\nSaved codebook entry\n" + definition_text(self.entry))
         context.configure(state="disabled")
         context.pack(fill="both", expand=True)
+        context.bind("<Map>", lambda event: context.see("evidence.first"))
         ttk.Label(master, text="What in the passage led to this decision?").pack(anchor="w", pady=(8, 2))
         self.reason = ttk.Entry(master)
         self.reason.pack(fill="x")

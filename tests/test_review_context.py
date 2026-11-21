@@ -1,0 +1,152 @@
+"""Read a fictional correction and distinguish two identical proposed excerpts."""
+from dataclasses import replace
+import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from tkinter import Button
+from tkinter.scrolledtext import ScrolledText
+import unittest
+from unittest.mock import patch
+
+from test_evidence_handoff import descendants, export, open_audit, press
+from themeforge.analysis_types import ThemeQuote, TranscriptDocument
+from themeforge.app import ThemeForgeApp
+from themeforge.definition_review import MatchReviewReason
+from themeforge.source_location import TranscriptIndex
+
+
+REPEAT = "We paused the loom because the bell rang."
+CORRECTION = "I was repeating the rehearsal script there; the wheel actually kept spinning the whole time."
+CONFIRMATION = "I watched the shuttle stand still until the signal cleared."
+HEARSAY = "They said a bell had interrupted the loom, though I never saw it happen."
+TRANSCRIPT = "\n".join((
+    "Interviewer: Start with the rehearsal in the felt room.",
+    "Weaver: I put the yellow spool 🧶 on the rail for the practice run.",
+    "Weaver: " + REPEAT,
+    "Weaver: " + CORRECTION,
+    "Interviewer: What about Tuesday's demonstration in the indigo room?",
+    "Weaver: " + REPEAT,
+    "Weaver: " + CONFIRMATION,
+    "Interviewer: And what did the evening crew tell you?",
+    "Weaver: " + HEARSAY,
+    "Weaver: The evening ledger was still sealed in its green envelope.",
+))
+LINES = TRANSCRIPT.splitlines()
+
+
+class ReviewContextTests(unittest.TestCase):
+    def test_context_follows_multiline_turns_only_at_the_verified_location(self):
+        turns = ("A: Far introduction.", "B: A previous turn\nwith a continuation.",
+                 "C: First part. Repeated phrase. Extra words.", "D: A following turn\ncontinuing here.",
+                 "E: Repeated phrase.")
+        source = TranscriptDocument("room.txt", "\n\n".join(turns))
+        index = TranscriptIndex([source])
+        phrase = "Repeated phrase."
+        start = source.text.index(phrase)
+        quote = ThemeQuote("Q1", "C", phrase, None, 1 + source.text.count("\n", 0, start), source.name,
+                           source_start=start, source_end=start + len(phrase))
+        self.assertEqual(index.neighboring_turn_text(quote),
+                         (turns[1] + "\n\nC: First part. ", " Extra words.\n\n" + turns[3]))
+        self.assertEqual(index.neighboring_turn_text(replace(quote, source_start=start + 1)), ("", ""))
+        self.assertEqual(TranscriptIndex([source, source]).neighboring_turn_text(quote), ("", ""))
+
+    def test_neighboring_turns_in_decision_dialog_keep_exact_occurrence_and_export_scope(self):
+        directory = TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = Path(directory.name)
+        source, other, codes = root / "loom.txt", root / "inventory.txt", root / "codes.csv"
+        source.write_text(TRANSCRIPT, encoding="utf-8")
+        other.write_text("Clerk: The apricot stencil is hanging by the fountain.", encoding="utf-8")
+        codes.write_text("code,definition\nSignal pause,The bell caused the loom to pause.\n", encoding="utf-8")
+        with patch.object(ThemeForgeApp, "maxsize", return_value=(1024, 705)):
+            app = ThemeForgeApp()
+        self.addCleanup(app.destroy)
+        with patch("themeforge.app.filedialog.askopenfilenames", return_value=(str(source), str(other))):
+            press(app, "Choose files")
+        with patch("themeforge.app.filedialog.askopenfilename", return_value=str(codes)):
+            press(app, "Choose codebook")
+        app.researcher_name.set("Linen")
+        press(app, "Analyze")
+        app.update()
+        self.assertEqual(app._analysis_settings().semantic_backend, "tfidf")
+        widget = app.transcript_widgets[source.name]
+
+        def decide(line, button, reason):
+            match = app._current_quote_match()
+            self.assertEqual(match.quote.source_line, line)
+            excerpt = LINES[line - 1].split(": ", 1)[1]
+            self.assertEqual(widget.get("selected_quote.first", "selected_quote.last"), excerpt)
+            position = app.current_quote_index
+            self.assertEqual(TRANSCRIPT[match.quote.source_start:match.quote.source_end], excerpt)
+
+            def answer(dialog, _window):
+                self.assertEqual(app.grab_current(), dialog)
+                dialog.update()
+                area, = [w for w in descendants(dialog) if isinstance(w, ScrolledText)]
+                self.assertEqual(area.get("evidence.first", "evidence.last"), excerpt)
+                self.assertIn(LINES[line - 2], area.get("1.0", "evidence.first"))
+                self.assertIn(LINES[line], area.get("evidence.last", "end-1c"))
+                self.assertIn("The bell caused the loom to pause.", area.get("evidence.last", "end-1c"))
+                self.assertEqual(area.cget("state"), "disabled")
+                self.assertIsNotNone(area.bbox("evidence.first"))
+                following = area.search(LINES[line], "evidence.last", stopindex="end")
+                area.see(following)
+                dialog.update_idletasks()
+                self.assertIsNotNone(area.bbox(following))
+                if reason is not None:
+                    dialog.reason.insert(0, reason)
+                action = "Cancel" if reason is None else "OK"
+                button, = [w for w in descendants(dialog) if isinstance(w, Button) and w.cget("text") == action]
+                button.invoke()
+
+            with patch.object(MatchReviewReason, "wait_window", autospec=True, side_effect=answer) as modal, \
+                    patch.object(app, "report_callback_exception") as errors:
+                press(app, button)
+                if errors.called:
+                    raise errors.call_args.args[1]
+                modal.assert_called_once()
+            self.assertEqual((app.current_quote_index, app._current_quote_match()), (position, match))
+            self.assertEqual(widget.get("selected_quote.first", "selected_quote.last"), excerpt)
+
+        initial_events = list(app.audit_events)
+        decide(3, "Supports this theme", None)
+        self.assertEqual(app.audit_events, initial_events)
+        decide(3, "Not this match", "The speaker corrects this account.")
+        press(app, "Next unreviewed")
+        decide(6, "Supports this theme", "The stoppage was observed.")
+        # Walk the displayed matches to the evening report without judging other passages.
+        for _ in app.current_quote_matches:
+            press(app, "Next quote")
+            if app._current_quote_match().quote.source_line == 9:
+                break
+        decide(9, "Revisit later", "Check the sequence with the evening crew.")
+        project = root / "weaving.tfproj"
+        with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(project)):
+            press(app, "Save project")
+
+        fresh = ThemeForgeApp()
+        self.addCleanup(fresh.destroy)
+        audit = open_audit(fresh, project)
+        reviews = [e for e in fresh.audit_events if e.action == "match_review_note"]
+        saved = [json.loads(e.details) for e in reviews]
+        self.assertEqual({e.actor for e in reviews}, {"Linen"})
+        self.assertEqual([(n["match"]["quote"]["source_line"], n["disposition"]) for n in saved],
+                         [(3, "declined"), (6, "supported"), (9, "deferred")])
+        selector = audit.supported_sources
+        self.assertEqual(selector.curselection(), ())
+        selector.selection_set(selector.get(0, "end").index(source.name))
+        table = root / "handoff.csv"
+        row, = export(audit, "Export supported matches CSV", table)
+        start = TRANSCRIPT.rindex(REPEAT)
+        self.assertEqual((row["quote"], row["source_file"], row["source_line"], row["source_start"], row["source_end"],
+                          row["match_review_actor"], row["match_review_target_id"], row["match_review_reason"]),
+                         (REPEAT, source.name, "6", str(start), str(start + len(REPEAT)), "Linen", reviews[1].target_id,
+                          "The stoppage was observed."))
+        contents = table.read_text(encoding="utf-8")
+        for surrounding in (CORRECTION, CONFIRMATION, "yellow spool", "indigo room", HEARSAY, "green envelope",
+                            "apricot stencil", other.name):
+            self.assertNotIn(surrounding, contents)
+        audit.destroy()
+        press(fresh, "Next deferred")
+        self.assertEqual(fresh._current_quote_match().quote.text, HEARSAY)
+        self.assertIn("deferred", fresh.match_review_text.get().lower())

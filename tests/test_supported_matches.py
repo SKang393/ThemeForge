@@ -7,7 +7,7 @@ from pathlib import Path
 import tempfile
 from tkinter import ttk
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from themeforge.app import ThemeForgeApp
 from themeforge.definition_review import DefinitionReview
@@ -75,7 +75,8 @@ class SupportedMatchTests(unittest.TestCase):
         self.fail(f"Missing candidate at {source} line {line}")
 
     def review(self, button, reason):
-        with patch("themeforge.app.simpledialog.askstring", return_value=reason) as prompt:
+        with patch("themeforge.app.MatchReviewReason") as prompt:
+            prompt.return_value.result = reason
             press(self.app, button)
         return prompt
 
@@ -98,8 +99,8 @@ class SupportedMatchTests(unittest.TestCase):
         target = self.show("west.txt", 1)
         reason = "The keeper received the tag in this account."
         prompt = self.review("Supports this theme", reason)
-        self.assertIn("west.txt, line 1, characters [3, 49)", prompt.call_args.args[1])
-        self.assertIn(DONE, prompt.call_args.args[1])
+        self.assertIn("west.txt, line 1, characters [3, 49)", prompt.call_args.args[2])
+        self.assertEqual(DONE, prompt.call_args.args[3])
         self.assertEqual(app.result.themes, [self.theme])
         self.assertIn("supported by Fixture reviewer", app.match_review_text.get())
 
@@ -191,8 +192,8 @@ class SupportedMatchTests(unittest.TestCase):
         app.researcher_name.set("Fixture reviewer")
         def change_tab(*args, **kwargs):
             app.transcript_notebook.select(app.transcript_frames["east.txt"])
-            return "The visible passage changed."
-        with patch("themeforge.app.simpledialog.askstring", side_effect=change_tab):
+            return Mock(result="The visible passage changed.")
+        with patch("themeforge.app.MatchReviewReason", side_effect=change_tab):
             press(app, "Not this match")
         self.assertEqual(app.audit_events, baseline)
 

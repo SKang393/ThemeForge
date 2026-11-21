@@ -89,7 +89,7 @@ class ResumeReviewTests(unittest.TestCase):
         return self.app._current_theme().name, q.source_name, q.source_line
 
     def mark(self, decision, reason):
-        with patch("themeforge.app.CodebookMatchReason") as prompt:
+        with patch("themeforge.app.MatchReviewReason") as prompt:
             prompt.return_value.result = reason
             self.press(REVIEW_LABELS[decision])
         prompt.assert_called_once()

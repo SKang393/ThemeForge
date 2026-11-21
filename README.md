@@ -189,7 +189,10 @@ are unchanged; reopen the project and export again to see these checks.
 
 **Recording a match review:** Enter a reviewer name, select a source-verified
 quote in its transcript, then choose **Supports this theme**, **Not this match**
-or **Revisit later**. Check the excerpt and record your reason. Each review
+or **Revisit later**. The reason dialog highlights the exact proposed span and
+shows the neighboring turns from the saved transcript. Read them before
+recording your reason. The supported-evidence CSV includes the approved span
+and your reason. Any context you type into the reason is also shared. Each review
 records one reader's judgment about that passage under that theme. With a
 coder name entered, **Quote review** shows that reader's latest note for the
 exact pairing. Markdown, CSV and JSON reports show the latest note across
