@@ -497,7 +497,10 @@ that were still only in memory need to be entered again.
 If a source file has changed on disk, the supported CSV still cites the saved
 text and its `source_sha256`. To review the revised text, save the current
 study and use **Choose files** to start a separate project with the revised
-sources. Its suggestions need their own reviews.
+sources. Before you leave, the prompt compares the imported text for filenames
+that occur once in each collection. A difference can be anywhere in the
+transcript, even when a coded passage reads the same. The revised project
+needs its own coding and reviews.
 
 Run the command-line analyzer with one transcript:
 

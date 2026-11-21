@@ -68,6 +68,7 @@ from .ui_model import (
     file_selection_summary,
     format_validation_summary,
     theme_list_label,
+    transcript_import_comparison,
     transcript_tab_label,
 )
 
@@ -647,8 +648,12 @@ class ThemeForgeApp(tk.Tk):
             self._start_replacement_project([], [])
 
     def _start_replacement_project(self, paths: list[Path], documents: list[TranscriptDocument]) -> None:
-        action = "replace the transcripts" if paths else "remove all transcripts"
-        save = self._ask_save_before_leaving(f"To {action}, start a separate, unsaved project.")
+        if paths:
+            comparison = transcript_import_comparison(self.input_paths, self.documents, paths, documents)
+            action = f"{comparison}\n\nContinuing starts a separate, unsaved project. Coding and reviews start over."
+        else:
+            action = "To remove all transcripts, start a separate, unsaved project."
+        save = self._ask_save_before_leaving(action)
         if save is None:
             return
         entries = ()
