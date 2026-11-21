@@ -32,8 +32,8 @@ class TranscriptAmendmentTests(unittest.TestCase):
         app = ThemeForgeApp()
         self.addCleanup(app.destroy)
 
-        def choose():
-            with patch("themeforge.app.filedialog.askopenfilenames", return_value=[str(source)]):
+        def choose(paths=(source,)):
+            with patch("themeforge.app.filedialog.askopenfilenames", return_value=[str(p) for p in paths]):
                 press(app, "Choose files")
 
         def reopen(path):
@@ -95,16 +95,22 @@ class TranscriptAmendmentTests(unittest.TestCase):
                                (91, 126, QUOTE, "Bench reader", REASONS[1], digest)])
         evidence_bytes = table.read_bytes()
 
-        def cancel_and_check(comparison):
+        def cancel_and_check(comparison, paths=(source,)):
             with patch("themeforge.app.messagebox.askyesnocancel", return_value=None) as confirm:
-                choose()
-            self.assertIn(comparison, confirm.call_args.args[1])
+                choose(paths)
+            prompt = confirm.call_args.args[1]
+            self.assertIn(comparison, prompt)
+            self.assertIn("separate, unsaved project. Coding and reviews start over.", prompt)
             self.assertEqual((app.project_path, app._project_state()), (project, saved_state))
             self.assertEqual(project.read_bytes(), project_bytes)
 
         # Encoding and line endings can differ even when the imported text is identical.
         source.write_bytes(ORIGINAL.replace("\n", "\r\n").encode("utf-8-sig"))
         cancel_and_check("1 identical, 0 different")
+        duplicate = root / "another-folder" / source.name
+        duplicate.parent.mkdir()
+        duplicate.write_text(ORIGINAL[:91] + CORRECTION, encoding="utf-8")
+        cancel_and_check("No selected transcript could be compared by unique filename", (source, duplicate))
         for variant, revised, last in (
             ("elsewhere", ORIGINAL.replace("bench.", "lathe."), QUOTE),
             ("second-fitting", ORIGINAL[:91] + CORRECTION, CORRECTION),

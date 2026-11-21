@@ -103,10 +103,10 @@ jobs:
           PYTHONHASHSEED: '0'
           HF_HUB_OFFLINE: '1'
         run: python -m unittest -v test_project_recovery
-      - name: Check report rejection and codebook reuse between two studies
+      - name: Check report rejection, codebook reuse and transcript amendments between studies
         if: ${{ !cancelled() }}
         env:
           PYTHONPATH: tests
           PYTHONHASHSEED: '0'
           HF_HUB_OFFLINE: '1'
-        run: python -m unittest -v test_codebook_reuse
+        run: python -m unittest -v test_codebook_reuse test_transcript_amendment
