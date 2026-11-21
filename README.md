@@ -139,9 +139,13 @@ definition actually used. Entries with the same label but different definitions
 stay separate. Unselected text is not a rejection. Save or export immediately;
 running Analyze later adds separate suggestions, not endorsements.
 
-After **Analyze** with a codebook, the footer counts eligible passages with at
-least one displayed codebook suggestion. Choose **Next without suggestion** to
-select each remaining passage in transcript order, wrapping back to the first.
+After **Analyze** with a codebook, the footer counts eligible passages across
+all sources with at least one displayed codebook suggestion. To browse one
+interview, choose its filename under **Quote review → Next in**, then choose
+**Next without suggestion** in the footer. It selects each eligible passage
+without a suggestion in that file, wrapping back to the first. Choose **All
+sources** to browse omissions across interviews. Changing scope uses the
+existing coverage result. Review completion is tracked separately.
 Read the surrounding text and, if a definition fits, use **Apply codebook
 entry…**. Browsing records no decision. A passage with one suggested code may
 still need another. A declined or deferred suggestion still counts as displayed.

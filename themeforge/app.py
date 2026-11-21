@@ -116,7 +116,8 @@ class ThemeForgeApp(tk.Tk):
         self.current_quote_matches: list[QuoteMatch] = []
         self.current_quote_index = -1
         self.similar_passages: list[SimilarPassage] = []
-        self.unsuggested_passages: list[QuoteUnit] = []
+        # An empty coverage result has zero omissions. None means coverage is unavailable.
+        self.unsuggested_passages: list[QuoteUnit] | None = None
         self.unsuggested_index = -1
         self.coverage_is_preview = False
 
@@ -479,6 +480,7 @@ class ThemeForgeApp(tk.Tk):
         ttk.Label(scope, text="Next in", style="Muted.TLabel").grid(row=0, column=0, padx=(0, 3))
         self.review_source_box = ttk.Combobox(scope, state="readonly", width=22)
         self.review_source_box.grid(row=0, column=1, sticky="ew")
+        self.review_source_box.bind("<<ComboboxSelected>>", self._change_omission_scope)
         ttk.Button(review_row, text="Next unreviewed", command=lambda: self.next_review_match(None)).grid(row=3, column=0, sticky="ew")
         ttk.Button(review_row, text="Next deferred", command=lambda: self.next_review_match("deferred")).grid(row=3, column=1, sticky="ew")
         ttk.Button(review_row, text="Next supported", command=lambda: self.next_review_match("supported")).grid(row=4, column=0, sticky="ew")
@@ -1862,15 +1864,18 @@ class ThemeForgeApp(tk.Tk):
         self.current_quote_index = (self.current_quote_index + 1) % len(self.current_quote_matches)
         self._focus_current_quote()
 
-    def _clear_suggestion_coverage(self) -> None:
+    def _reset_omission_position(self) -> None:
         if self.unsuggested_index >= 0 and self.current_quote_index < 0:
             self._focus_current_quote()
             self.detail_title.set("Transcript evidence")
             self.quote_status.set("")
             self.quote_meta.set("")
-            self.quote_reason.set("Choose Preview coverage to check the project text with the current codebook.")
-        self.unsuggested_passages = []
+            self.quote_reason.set("Select a passage to read its context.")
         self.unsuggested_index = -1
+
+    def _clear_suggestion_coverage(self) -> None:
+        self._reset_omission_position()
+        self.unsuggested_passages = None
         self.coverage_is_preview = False
         self.unsuggested_button.grid_remove()
 
@@ -1886,11 +1891,13 @@ class ThemeForgeApp(tk.Tk):
         self.coverage_is_preview = preview
         if self.unsuggested_passages:
             self.unsuggested_button.grid()
+        if self.review_source_box.current() > 0:
+            return self._omission_count_text(len(self._scoped_omissions()))
         count = f"{len(suggested)}/{len(eligible)} eligible passages"
         if preview:
-            return f"Preview on project text with current settings — {count} have suggestions."
+            return f"All sources · Preview on project text with current settings — {count} have suggestions."
         fallback = " Showing automatic themes." if not suggested and themes else ""
-        return f"Codebook suggestions shown for {count}.{fallback} Suggested passages may need other codes."
+        return f"All sources · Suggestions on {count}.{fallback} Passages may need other codes."
 
     def preview_coverage(self) -> None:
         self._clear_suggestion_coverage()
@@ -1928,15 +1935,44 @@ class ThemeForgeApp(tk.Tk):
                 if not isinstance(name, str) or not digest or self._display_sources.digest(name) != digest:
                     raise ValueError("Project transcript text differs from a saved review.")
 
+    def _navigation_sources(self) -> set[str]:
+        choice = self.review_source_box.current()
+        if choice == 0:
+            return {doc.name for doc in self.documents}
+        if 0 < choice <= len(self.documents):
+            return {self.documents[choice - 1].name}
+        return set()
+
+    def _scoped_omissions(self) -> list[QuoteUnit]:
+        passages = self.unsuggested_passages or []
+        if self.review_source_box.current() == 0:
+            return passages
+        sources = self._navigation_sources()
+        return [unit for unit in passages if unit.source_name in sources]
+
+    def _omission_count_text(self, count: int) -> str:
+        origin = "Preview (current settings)" if self.coverage_is_preview else "Last Analyze"
+        noun = "passage" if count == 1 else "passages"
+        return f"{origin} · {self.review_source_box.get()} · {count} eligible {noun} without a suggestion."
+
+    def _change_omission_scope(self, _event: tk.Event) -> None:
+        if self.unsuggested_passages is not None:
+            self._reset_omission_position()
+            self.status_text.set(self._omission_count_text(len(self._scoped_omissions())))
+
     def next_unsuggested_passage(self) -> None:
         if not self.unsuggested_passages:
             return
         if self._has_pending_source_edits() or (self._current_theme() is None and self.theme_name.get().strip()):
             self.status_text.set("Apply unfinished theme or memo edits before browsing another passage.")
             return
-        count = len(self.unsuggested_passages)
+        passages = self._scoped_omissions()
+        count = len(passages)
+        if not count:
+            self.status_text.set(self._omission_count_text(0))
+            return
         self.unsuggested_index = (self.unsuggested_index + 1) % count
-        unit = self.unsuggested_passages[self.unsuggested_index]
+        unit = passages[self.unsuggested_index]
         location = self._locate_quote(unit)
         if location is None or not self._display_sources.matches_documents(self.documents):
             self._clear_suggestion_coverage()
@@ -1950,10 +1986,11 @@ class ThemeForgeApp(tk.Tk):
         self.quote_memo_text.configure(state="disabled")
         self.quote_meta.set(f"{unit.source_name}, line {unit.source_line} | {unit.speaker}")
         self.detail_title.set("No suggestion in preview" if self.coverage_is_preview else "No displayed codebook suggestion")
-        self.quote_status.set(f"Passage {self.unsuggested_index + 1} of {count}")
+        self.quote_status.set(f"Passage {self.unsuggested_index + 1} of {count} · {self.review_source_box.get()}")
         scope = ("No codebook suggestion for this project text under current settings." if self.coverage_is_preview
                  else "No code was suggested for this passage in the last Analyze.")
-        self.quote_reason.set(f"{scope} A passage shown under one code may still need another.")
+        self.quote_reason.set(f"{scope} Coverage counts suggestions. Review decisions are separate. "
+                              "A passage shown under one code may still need another.")
         self.transcript_notebook.select(self.transcript_frames[unit.source_name])
         widget.tag_remove(tk.SEL, "1.0", tk.END)
         widget.tag_add(tk.SEL, start, end)
@@ -1974,11 +2011,10 @@ class ThemeForgeApp(tk.Tk):
         if self._has_pending_source_edits():
             self.status_text.set("Apply unfinished theme or memo edits before navigating to another review.")
             return
-        choice = self.review_source_box.current()
-        if not 0 <= choice <= len(self.documents):
+        sources = self._navigation_sources()
+        if not sources:
             self.status_text.set("Choose a transcript or All sources before continuing.")
             return
-        source = self.documents[choice - 1].name if choice else None
         themes = self.result.themes
         start_theme = self.current_theme_index or 0
         after_quote = self.current_quote_index + 1
@@ -1992,7 +2028,7 @@ class ThemeForgeApp(tk.Tk):
             stop = after_quote if offset == len(themes) else len(theme.quotes)
             for quote_index in range(start, stop):
                 quote = theme.quotes[quote_index]
-                if source is not None and quote.source_name != source:
+                if quote.source_name not in sources:
                     continue
                 if disposition is None and quote.reported_relevance is None:
                     continue  # A manual unscored assignment is already a coding decision.
@@ -2008,7 +2044,7 @@ class ThemeForgeApp(tk.Tk):
                 self.status_text.set(f"{reviewer} · {disposition or 'unreviewed'} · {theme.name} · "
                                      f"{quote.source_name}, line {quote.source_line}")
                 return
-        scope = f" in {source}" if source is not None else ""
+        scope = f" in {self.review_source_box.get()}" if self.review_source_box.current() > 0 else ""
         if disposition is not None:
             self.status_text.set(f"No verified {disposition} matches for {reviewer}{scope}.")
         else:

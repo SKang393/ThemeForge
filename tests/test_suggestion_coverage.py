@@ -51,6 +51,9 @@ class SuggestionCoverageTests(unittest.TestCase):
         rain = root / "rain-room.txt"
         observed = "We saw water enter through the roof leak and collect inside the crate."
         rain.write_text(f"Keeper: {observed}", encoding="utf-8")
+        packing = root / "packing-room.txt"
+        wrapping = "I wound a length of brown twine around the handle."
+        packing.write_text(f"Packer: {wrapping}", encoding="utf-8")
         book = root / "supplies.csv"
         book.write_text("code,definition\nMaterial loss,Previously available supplies became unavailable.\n"
                         "Roof leak,Water entered through the roof.\n", encoding="utf-8")
@@ -58,14 +61,14 @@ class SuggestionCoverageTests(unittest.TestCase):
         self.app = app = ThemeForgeApp()
         self.addCleanup(lambda: self.app.destroy())
         self.compact_layout(app)
-        with patch("themeforge.app.filedialog.askopenfilenames", return_value=(str(source), str(rain))):
+        with patch("themeforge.app.filedialog.askopenfilenames", return_value=(str(source), str(rain), str(packing))):
             press(app, "Choose files")
         with patch("themeforge.app.filedialog.askopenfilename", return_value=str(book)):
             press(app, "Choose codebook")
         app.researcher_name.set("Supply reader")
         press(app, "Analyze")
         app.update()
-        self.assertIn("2/3 eligible passages", app.status_text.get())
+        self.assertIn("2/4 eligible passages", app.status_text.get())
         self.assertIn("may need other codes", app.status_text.get())
         # Both lines describe loss, but only the possible cause on line one has a suggestion.
         theme, = app.result.themes
@@ -78,13 +81,21 @@ class SuggestionCoverageTests(unittest.TestCase):
             reason.return_value.result = "The cause was unknown."
             press(app, "Not this match")
 
+        def choose_scope(app, name):
+            box = app.review_source_box
+            box.current(box["values"].index(name))
+            box.event_generate("<<ComboboxSelected>>")
+            app.update()
+
         before = app._project_state()
+        choose_scope(app, source.name)
+        self.assertIn(f"Last Analyze · {source.name} · 1 eligible passage without a suggestion", app.status_text.get())
         press(app, "Next without suggestion")
         selection = app._selected_transcript_text()
         start, end = text.index(omitted), len(text)
         self.assertEqual((selection.source_name, selection.source_line, selection.source_start,
                           selection.source_end, selection.text), (source.name, 2, start, end, omitted))
-        self.assertEqual(app.quote_status.get(), "Passage 1 of 1")
+        self.assertEqual(app.quote_status.get(), f"Passage 1 of 1 · {source.name}")
         self.assertIsNone(app._visible_review_match())
         self.assertEqual(app._project_state(), before)
 
@@ -128,16 +139,41 @@ class SuggestionCoverageTests(unittest.TestCase):
             press(fresh, "Preview coverage")
             summary = fresh.status_text.get()
             self.assertIn("Preview on project text with current settings", summary)
-            self.assertIn("1/3 eligible passages", summary)
+            self.assertIn("1/4 eligible passages", summary)
             self.assert_footer_fits(fresh)
-            for passage in (unknown, omitted, unknown):
+
+            def check_next(name, passage, offset, position):
                 press(fresh, "Next without suggestion")
                 selected = fresh._selected_transcript_text()
-                offset = text.index(passage)
                 self.assertEqual((selected.source_name, selected.source_start, selected.source_end, selected.text),
-                                 (source.name, offset, offset + len(passage), passage))
+                                 (name, offset, offset + len(passage), passage))
+                self.assertEqual(fresh.quote_status.get(), position)
                 self.assertIn("current settings", fresh.quote_reason.get())
+                self.assertIn("Review decisions are separate", fresh.quote_reason.get())
+                self.assertIn("may still need another", fresh.quote_reason.get())
                 self.assertIsNone(fresh._visible_review_match())
+
+            with patch("themeforge.app.suggestion_inputs") as inputs, patch("themeforge.app.build_codebook_themes") as rank:
+                choose_scope(fresh, source.name)
+                self.assertIn(f"Preview (current settings) · {source.name} · 2 eligible passages", fresh.status_text.get())
+                for i, passage in enumerate((unknown, omitted, unknown)):
+                    check_next(source.name, passage, text.index(passage), f"Passage {1 + i % 2} of 2 · {source.name}")
+                choose_scope(fresh, rain.name)
+                self.assertIsNone(fresh._selected_transcript_text())
+                press(fresh, "Next without suggestion")
+                self.assertIn(f"{rain.name} · 0 eligible passages without a suggestion", fresh.status_text.get())
+                self.assertIsNone(fresh._selected_transcript_text())
+                choose_scope(fresh, "All sources")
+                self.assertIn("All sources · 3 eligible passages", fresh.status_text.get())
+                for i, (name, passage, offset) in enumerate((
+                    (source.name, unknown, text.index(unknown)), (source.name, omitted, text.index(omitted)),
+                    (packing.name, wrapping, len("Packer: ")), (source.name, unknown, text.index(unknown)),
+                )):
+                    check_next(name, passage, offset, f"Passage {1 + i % 3} of 3 · All sources")
+                choose_scope(fresh, source.name)
+                check_next(source.name, unknown, text.index(unknown), f"Passage 1 of 2 · {source.name}")
+                inputs.assert_not_called()
+                rank.assert_not_called()
             analyze.assert_not_called()
             save.assert_not_called()
         self.assertEqual(fresh._project_state(), saved)
@@ -148,18 +184,24 @@ class SuggestionCoverageTests(unittest.TestCase):
         audit, = [w for w in fresh.winfo_children() if isinstance(w, RigorDialog)]
         self.assertEqual(self.scoped_evidence(audit, rain, root / "after.csv"), [row])
         self.assertEqual((root / "before.csv").read_bytes(), (root / "after.csv").read_bytes())
+        self.assertEqual(export(audit, "Export this project's manual codebook assignments", root / "manual-after.csv"),
+                         [manual])
         audit.destroy()
         self.assertEqual(path.read_bytes(), original)
 
         fresh.quotes_per_theme.set(0)
         self.assertFalse(fresh.unsuggested_button.grid_info())
         self.assertIsNone(fresh._selected_transcript_text())
+        choose_scope(fresh, source.name)
         press(fresh, "Preview coverage")
-        self.assertIn("2/3 eligible passages", fresh.status_text.get())
+        self.assertIn(f"Preview (current settings) · {source.name} · 1 eligible passage without a suggestion",
+                      fresh.status_text.get())
+        choose_scope(fresh, "All sources")
+        self.assertIn("All sources · 2 eligible passages without a suggestion", fresh.status_text.get())
         fresh.quotes_per_theme.set(1)
         # Same reviewed quote and offsets, changed text elsewhere in the embedded source.
         damaged = replace(saved.documents[0], text=text + " An additional line.")
-        for name, docs, warning in (("changed", (damaged, saved.documents[1]), "differs from a saved review"),
+        for name, docs, warning in (("changed", (damaged, *saved.documents[1:]), "differs from a saved review"),
                                     ("missing", saved.documents[1:], "transcript text is missing")):
             copy = root / f"{name}.tfproj"
             save_project(copy, replace(saved, documents=docs))
