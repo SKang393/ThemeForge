@@ -275,8 +275,11 @@ the exact occurrence and both saved reasons. Close **Rigor tools** to read the
 highlighted occurrence in the full transcript. Deferrals and missing reviews
 are counted separately. Browsing leaves both projects' decisions intact.
 
-The paired CSV includes every theme/passage match with the same recorded snapshot
-and verified source span in both projects, including pairs with no reviews.
+The paired CSV covers all shared sources. It includes every theme/passage
+match with the same recorded snapshot and verified source span in both
+projects, including pairs with no reviews. Source selections in **Audit log**
+apply only to the supported evidence export. Before sharing a paired CSV,
+check its excerpts, source names, reviewer names and free-text reasons.
 Each recorded decision includes the reader's reason, time, and audit CSV target.
 If the readers reviewed labels with different spacing, use
 `current_review_target_id` and `comparison_review_target_id` to look up each

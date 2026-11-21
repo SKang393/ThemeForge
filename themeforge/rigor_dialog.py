@@ -131,9 +131,12 @@ class RigorDialog(tk.Toplevel):
             ttk.Button(actions, text="Next review disagreement", command=self._next_review_disagreement).grid(row=0, column=2)
         for box in (self.current_reviewer, self.comparison_reviewer):
             box.bind("<<ComboboxSelected>>", self._clear_review_location)
-        ttk.Label(actions, text="Quote coverage by meaning unit").grid(row=2, column=0, sticky="w")
-        ttk.Button(actions, text="Export coverage statistics", command=self._export_reliability).grid(row=2, column=1)
-        ttk.Button(actions, text="Export coverage differences", command=self._export_disagreements).grid(row=2, column=2)
+        ttk.Label(actions, wraplength=800, text="The paired CSV includes matching excerpts across all shared sources. "
+                  "Audit log source selections apply only to supported evidence. Check excerpts, names and both "
+                  "readers’ reasons before sharing.").grid(row=2, column=0, columnspan=3, sticky="w", pady=(0, 6))
+        ttk.Label(actions, text="Quote coverage by meaning unit").grid(row=3, column=0, sticky="w")
+        ttk.Button(actions, text="Export coverage statistics", command=self._export_reliability).grid(row=3, column=1)
+        ttk.Button(actions, text="Export coverage differences", command=self._export_disagreements).grid(row=3, column=2)
         summary = ttk.Frame(tab)
         summary.grid(row=1, column=0, sticky="ew", pady=(0, 8))
         ttk.Label(summary, textvariable=self.status, wraplength=825).pack(anchor="w")

@@ -44,8 +44,13 @@ class LocateDisagreementTests(unittest.TestCase):
         paths = [root / "packet.txt", root / "reserve.txt"]
         paths[0].write_text(TEXT, encoding="utf-8")
         paths[1].write_text("Keeper: " + WITHHELD, encoding="utf-8")
-        with patch.object(ThemeForgeApp, "maxsize", return_value=(1024, 705)):
-            app = ThemeForgeApp()
+        app = ThemeForgeApp()
+        screen = app.winfo_screenwidth(), app.winfo_screenheight()
+        if app.tk.call("tk", "windowingsystem") == "win32" and screen == (1024, 768):
+            app.state("zoomed")
+        else:
+            app.minsize(1, 1)
+            app.geometry("1024x705+0+0")
         self.addCleanup(app.destroy)
         with patch("themeforge.app.filedialog.askopenfilenames", return_value=list(map(str, paths))):
             press(app, "Choose files")
@@ -117,15 +122,24 @@ class LocateDisagreementTests(unittest.TestCase):
             press(dialog, "Choose comparison project")
         app.update()
         self.assertEqual(dialog.disagreement_tree.get_children(), ())
-        button, = [w for w in descendants(tab) if isinstance(w, ttk.Button) and w.cget("text") == "Next review disagreement"]
-        self.assertTrue(button.winfo_viewable())
-        self.assertGreaterEqual(button.winfo_width(), button.winfo_reqwidth())
-        x, y = button.winfo_rootx(), button.winfo_rooty()
-        for px, py in ((x, y), (x + button.winfo_width() - 1, y + button.winfo_height() - 1)):
-            self.assertTrue(0 <= px < 900 and 0 <= py < 600)
-            self.assertEqual(dialog.winfo_containing(px, py), button)
+        controls = {w.cget("text"): w for w in descendants(tab) if isinstance(w, ttk.Button)}
+        notice, = [w for w in descendants(tab) if isinstance(w, ttk.Label) and "all shared sources" in w.cget("text")]
+        self.assertIn("only to supported evidence", notice.cget("text"))
+        self.assertIn("before sharing", notice.cget("text"))
+        for control in (controls["Next review disagreement"], controls["Export paired match reviews"], notice):
+            self.assertTrue(control.winfo_viewable())
+            self.assertGreaterEqual(control.winfo_width(), control.winfo_reqwidth())
+            self.assertGreaterEqual(control.winfo_height(), control.winfo_reqheight())
+            x, y = control.winfo_rootx(), control.winfo_rooty()
+            for px, py in ((x, y), (x + control.winfo_width() - 1, y + control.winfo_height() - 1)):
+                self.assertTrue(0 <= px < min(screen[0], 1024) and 0 <= py < min(screen[1], 768))
+                self.assertEqual(dialog.winfo_containing(px, py), control)
         self.assertEqual((dialog.current_reviewer.get(), dialog.comparison_reviewer.get()), ("Jute", "Slate"))
         paired = export(dialog, "Export paired match reviews", root / "paired.csv")
+        self.assertEqual(len(paired), 6)
+        reserve, = [r for r in paired if r["source_file"] == "reserve.txt"]
+        self.assertEqual((reserve["quote"], reserve["current_reason"], reserve["comparison_reason"]),
+                         (WITHHELD, NOTES["Jute"][0][1], NOTES["Slate"][0][1]))
         self.assertEqual({int(r["source_line"]): r["review_comparison"] for r in paired if r["source_file"] == "packet.txt"},
                          {1: "both_supported", 2: "deferred", 3: "disagreement", 4: "missing_current_review",
                           5: "disagreement"})
@@ -157,9 +171,15 @@ class LocateDisagreementTests(unittest.TestCase):
                 verdict, why = notes[expected]
                 self.assertIn(f"{actor} ({verdict})\n{why}", details)
                 pos = dialog.dispute_text.search(why, "1.0")
-                dialog.dispute_text.see(pos)
+                last = f"{pos} + {len(why) - 1} chars"
+                dialog.dispute_text.see(last)
                 app.update_idletasks()
-                self.assertIsNotNone(dialog.dispute_text.bbox(pos))
+                for char in (pos, last):
+                    box = dialog.dispute_text.bbox(char)
+                    self.assertIsNotNone(box)
+                    x = dialog.dispute_text.winfo_rootx() + box[0] + box[2] // 2
+                    y = dialog.dispute_text.winfo_rooty() + box[1] + box[3] // 2
+                    self.assertEqual(dialog.winfo_containing(x, y), dialog.dispute_text)
             self.assertTrue(dialog.dispute_text.winfo_viewable())
             self.assertEqual(dialog.dispute_text.cget("state"), "disabled")
             self.assertEqual(app._project_state(), before)
@@ -181,6 +201,9 @@ class LocateDisagreementTests(unittest.TestCase):
 
         check_scoped(dialog, "Jute")
         tab.master.select(tab)
+        app.update()
+        export(dialog, "Export paired match reviews", root / "paired-after.csv")
+        self.assertEqual((root / "paired-after.csv").read_bytes(), (root / "paired.csv").read_bytes())
         with patch("themeforge.rigor_dialog.filedialog.askopenfilename", return_value=str(seed)):
             press(dialog, "Choose comparison project")
         press(dialog, "Next review disagreement")
@@ -194,3 +217,5 @@ class LocateDisagreementTests(unittest.TestCase):
         self.assertEqual(app._project_state(), before)
         check_scoped(open_audit(app, root / "Slate.tfproj"), "Slate")
         self.assertEqual({p: p.read_bytes() for p in copies}, copies)
+        print(f"Desktop {screen[0]}x{screen[1]}. Read both reasons at each disputed span. "
+              "Paired CSV retained all six matches after a source-scoped export. Both saved copies retained their bytes.")
