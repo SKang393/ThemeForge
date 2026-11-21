@@ -218,17 +218,40 @@ class LocateDisagreementTests(unittest.TestCase):
             scope.update()
             preview, = [w for w in descendants(scope) if isinstance(w, ttk.Label)
                         and str(w.cget("textvariable")) == str(scope.preview)]
-            self.assertTrue(preview.winfo_viewable())
             self.assertIn("5 of 6 paired rows from 1 of 2 sources", preview.cget("text"))
-            self.assertLessEqual(preview.winfo_rooty() + preview.winfo_height(), screen[1])
-            scope.ok()
+            warning, = [w for w in descendants(scope) if isinstance(w, ttk.Label) and "free-text" in w.cget("text")]
+            self.assertIn("identify people or refer to other transcripts", warning.cget("text"))
+            buttons = {w.cget("text"): w for w in descendants(scope) if isinstance(w, Button)}
+            for widget in (scope.sources, preview, warning, buttons["OK"], buttons["Cancel"]):
+                self.assertTrue(widget.winfo_viewable())
+                self.assertGreaterEqual(widget.winfo_height(), widget.winfo_reqheight())
+                self.assertGreaterEqual(widget.winfo_width(), widget.winfo_reqwidth())
+                x, y = widget.winfo_rootx(), widget.winfo_rooty()
+                self.assertTrue(0 <= x < x + widget.winfo_width() <= min(screen[0], 1024))
+                self.assertTrue(0 <= y < y + widget.winfo_height() <= min(screen[1], 768))
+            buttons["OK"].invoke()
 
         scoped_path = root / "paired-packet.csv"
         with answer_paired_scope(choose_packet):
             scoped = export(dialog, "Export paired match reviews", scoped_path)
         self.assertEqual(scoped, [r for r in paired if r["source_file"] == "packet.txt"])
+        disputes = [row for row in scoped if row["review_comparison"] == "disagreement"]
+        self.assertEqual([row["source_line"] for row in disputes], ["3", "5"])
+        for row in disputes:
+            line = int(row["source_line"])
+            quote = LINES[line - 1]
+            start = TEXT.rindex(quote)
+            self.assertEqual((int(row["source_start"]), int(row["source_end"]), row["quote"]),
+                             (start, start + len(quote), quote))
+            for role, actor in (("current", "Jute"), ("comparison", "Slate")):
+                verdict, reason = NOTES[actor][line]
+                expected_reason = "'" + reason if reason.startswith("=") else reason
+                self.assertEqual((row[f"{role}_reviewer"], row[f"{role}_disposition"], row[f"{role}_reason"]),
+                                 (actor, verdict, expected_reason))
         contents = scoped_path.read_text(encoding="utf-8")
-        for outside in ("reserve.txt", WITHHELD, NOTES["Jute"][0][1], NOTES["Slate"][0][1]):
+        for outside in ("reserve.txt", WITHHELD, NOTES["Jute"][0][1], NOTES["Slate"][0][1], reserve["quote_id"],
+                        reserve["match_review_target_id"], reserve["current_review_target_id"],
+                        reserve["comparison_review_target_id"]):
             self.assertNotIn(outside, contents)
         self.assertEqual(dialog._paired_reviews(), all_pairs)
         self.assertEqual(dialog.report, coverage)
