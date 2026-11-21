@@ -255,7 +255,11 @@ decisions. In a multi-transcript study, choose a filename under **Next in**,
 then choose **Next unreviewed**, **Next deferred** or **Next supported**.
 Each button starts after the displayed match and wraps within the chosen
 source. **All sources** searches the whole study and is the default when
-you open a project. Evidence exports have their own source chooser.
+you open a project. **Similar passages → Find from quote** and **Find from
+theme** use the same **Next in** choice. It limits which transcripts supply
+results, even when the starting quote is in another file. Read a result in
+its transcript, then use **Code selected suggestion** to record an unscored
+manual assignment. Evidence exports have their own source chooser.
 **Previous quote** and **Next quote** browse every recorded passage in the
 selected theme.
 

@@ -132,7 +132,7 @@ class ThemeForgeApp(tk.Tk):
         self.quote_reason = tk.StringVar(
             value="Select a theme, then use Previous quote or Next quote to review why each highlighted quote was selected."
         )
-        self.similar_note = tk.StringVar(value="Find related uncoded passages from the selected theme or quote.")
+        self.similar_note = tk.StringVar()
         self.theme_count = tk.IntVar(value=8)
         self.quotes_per_theme = tk.IntVar(value=0)
         self.central_theme = tk.StringVar(value="")
@@ -480,7 +480,7 @@ class ThemeForgeApp(tk.Tk):
         ttk.Label(scope, text="Next in", style="Muted.TLabel").grid(row=0, column=0, padx=(0, 3))
         self.review_source_box = ttk.Combobox(scope, state="readonly", width=22)
         self.review_source_box.grid(row=0, column=1, sticky="ew")
-        self.review_source_box.bind("<<ComboboxSelected>>", self._change_omission_scope)
+        self.review_source_box.bind("<<ComboboxSelected>>", self._change_navigation_scope)
         ttk.Button(review_row, text="Next unreviewed", command=lambda: self.next_review_match(None)).grid(row=3, column=0, sticky="ew")
         ttk.Button(review_row, text="Next deferred", command=lambda: self.next_review_match("deferred")).grid(row=3, column=1, sticky="ew")
         ttk.Button(review_row, text="Next supported", command=lambda: self.next_review_match("supported")).grid(row=4, column=0, sticky="ew")
@@ -1157,13 +1157,16 @@ class ThemeForgeApp(tk.Tk):
             self.status_text.set("Enter valid theme and quote counts first")
             return
         try:
-            suggestion_result = find_similar_passages(self.documents, self.result, theme.id, settings, quote_id=quote_id)
+            suggestion_result = find_similar_passages(
+                self.documents, self.result, theme.id, settings, quote_id=quote_id,
+                source_names=None if self.review_source_box.current() == 0 else self._navigation_sources(),
+            )
         except ValueError as exc:
             self._clear_similar_passages()
             self.status_text.set(str(exc))
             return
         self.similar_passages = list(suggestion_result.passages)
-        self.similar_note.set(suggestion_result.note)
+        self.similar_note.set(f"Find in {self.review_source_box.get()} · {suggestion_result.note}")
         self.similar_list.delete(0, tk.END)
         for passage in self.similar_passages:
             preview = " ".join(passage.text.split())
@@ -1688,7 +1691,8 @@ class ThemeForgeApp(tk.Tk):
         self.similar_passages = []
         if hasattr(self, "similar_list"):
             self.similar_list.delete(0, tk.END)
-        self.similar_note.set("Find related uncoded passages from the selected theme or quote.")
+        self.similar_note.set(f"Find in {self.review_source_box.get()} · Choose the scope under Quote review → Next in."
+                              if len(self.documents) > 1 else "Find related uncoded passages from the selected theme or quote.")
         for widget in self.transcript_widgets.values():
             widget.configure(state="normal")
             widget.tag_remove("similar_suggestion", "1.0", tk.END)
@@ -1758,6 +1762,7 @@ class ThemeForgeApp(tk.Tk):
         labels = [f'“{name}”' for name in names] if "All sources" in names else names
         self.review_source_box.configure(values=("All sources", *labels))
         self.review_source_box.current(0)
+        self._clear_similar_passages()
         if len(names) > 1:
             self.review_source_box.master.grid()
         else:
@@ -1955,7 +1960,8 @@ class ThemeForgeApp(tk.Tk):
         noun = "passage" if count == 1 else "passages"
         return f"{origin} · {self.review_source_box.get()} · {count} eligible {noun} without a suggestion."
 
-    def _change_omission_scope(self, _event: tk.Event) -> None:
+    def _change_navigation_scope(self, _event: tk.Event) -> None:
+        self._clear_similar_passages()
         if self.unsuggested_passages is not None:
             self._reset_omission_position()
             self.status_text.set(self._omission_count_text(len(self._scoped_omissions())))

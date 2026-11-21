@@ -42,6 +42,8 @@ def find_similar_passages(
     settings: AnalysisSettings,
     quote_id: str = "",
     limit: int = 8,
+    *,
+    source_names: set[str] | None = None,
 ) -> SimilarPassageResult:
     theme = next((item for item in result.themes if item.id == theme_id), None)
     if theme is None:
@@ -61,7 +63,9 @@ def find_similar_passages(
         return SimilarPassageResult((), "Similarity vectors could not be created for the open transcripts.")
 
     query_vector = vectors[0]
-    query = SimilarityQuery(theme.id, quote_id, query_text, note)
+    method_note = note if source_names is None else f"{note} Results limited to {', '.join(sorted(source_names))}."
+    query = SimilarityQuery(theme.id, quote_id, query_text, method_note)
+    # Keep similarity on the same corpus; apply the reviewer's source scope before the display limit.
     ranked = sorted(
         (
             SimilarPassage(
@@ -75,6 +79,7 @@ def find_similar_passages(
                 query=query,
             )
             for candidate, vector in zip(candidates, vectors[1:], strict=True)
+            if source_names is None or candidate.source_name in source_names
         ),
         key=lambda item: (-item.similarity, item.source_name.casefold(), item.source_start),
     )
