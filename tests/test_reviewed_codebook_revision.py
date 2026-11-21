@@ -228,6 +228,27 @@ class ReviewedCodebookRevisionTests(unittest.TestCase):
             press(app, "Supports this theme")
             prompt.assert_not_called()
         self.assertIn("Historical codebook match", app.status_text.get())
+
+        def inspect_entries(dialog):
+            self.assertIn("Historical match", dialog.location.cget("text"))
+            self.assertEqual(dialog.passage.get("evidence.first", "evidence.last"), old_quote.text)
+            self.assertEqual(dialog.choice.current(), -1)
+            self.assertTrue(dialog.apply_button.instate(["disabled"]))
+            self.assertIn(OLD, dialog.definitions.get("1.0", "end"))
+            dialog.choice.current(0)
+            dialog.show_choice()
+            loaded, recorded = dialog.definitions.get("1.0", "end").split("Earlier entry recorded with this passage")
+            self.assertIn(NEW, loaded)
+            self.assertIn(OLD, recorded)
+            self.assertIn(EXAMPLE, recorded)
+            press(dialog, "Cancel")
+
+        with patch.object(app, "wait_window", side_effect=inspect_entries) as opened, \
+                patch.object(app, "report_callback_exception") as errors:
+            press(app, "Apply definition to this quote…")
+            if errors.called:
+                raise errors.call_args.args[1]
+            opened.assert_called_once()
         self.assertEqual([r["source_file"] for r in self.rows()], ["packing.txt"])
         self.assertEqual([r for r in self.rows(audit=True) if r["action"] == "match_review_note"], old_events)
         for suffix in ("md", "csv", "json"):

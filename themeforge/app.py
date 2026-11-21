@@ -34,6 +34,7 @@ from .manual_editing import (
     apply_codebook_definition,
     assignment_creation,
     code_selected_text,
+    entry_from_snapshot,
     manual_assignment_details,
     merge_theme,
     preserve_manual_themes,
@@ -1107,10 +1108,20 @@ class ThemeForgeApp(tk.Tk):
             origin = match_snapshot(theme, match.quote, self._display_sources)
             score = match.quote.reported_relevance
             score_text = f"{score:.3f}" if score is not None else "not scored"
-            source_note = (f"Current match: {theme.name} ({theme.id}), quote {match.quote.quote_id}. "
+            previous_entry = None
+            label = "Current match"
+            if not self.match_reviews.definition_is_current(theme):
+                label = "Historical match"
+                try:
+                    snapshot = origin.get("generated_from_codebook_entry", origin["definition"])
+                    previous_entry = entry_from_snapshot(snapshot)
+                except ValueError:
+                    label = "Historical match (recorded entry unavailable)"
+            source_note = (f"{label}: {theme.name} ({theme.id}), quote {match.quote.quote_id}. "
                            f"Recorded relevance: {score_text}.\n"
-                           "Applying creates a separate, unscored assignment. The current match stays unchanged.")
-            chosen = review_definition(self, entries, None, document, selection, actor, source_note=source_note)
+                           "Applying creates a separate, unscored assignment and keeps the recorded match.")
+            chosen = review_definition(self, entries, None, document, selection, actor, source_note=source_note,
+                                       previous_entry=previous_entry)
         else:
             chosen = review_definition(self, entries, index, document, selection, actor)
         if chosen is None:

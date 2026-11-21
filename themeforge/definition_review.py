@@ -102,13 +102,14 @@ def entry_label(index: int, entry: CodebookEntry) -> str:
 class DefinitionReview(tk.Toplevel):
     def __init__(self, parent: tk.Misc, entries: Sequence[CodebookEntry], index: int | None,
                  document: TranscriptDocument, selection: ManualSelection, actor: str, *, source_note: str = "",
-                 apply_label: str = "Apply selected definition"):
+                 apply_label: str = "Apply selected definition", previous_entry: CodebookEntry | None = None):
         super().__init__(parent)
         self.withdraw()
         self.transient(parent)
         self.title("Review codebook assignment")
         self.result: int | None = None
         self.entries = entries
+        self.previous_entry = previous_entry
         label = entries[index].name.strip().casefold() if index is not None else None
         self.indices = [i for i, entry in enumerate(entries) if label is None or entry.name.strip().casefold() == label]
         body = ttk.Frame(self, padding=12)
@@ -134,7 +135,9 @@ class DefinitionReview(tk.Toplevel):
         self.passage.configure(state="disabled")
         self.passage.see("evidence.first")
 
-        ttk.Label(body, text="Compare the full definitions and examples for this label:").grid(row=2, column=0, sticky="w")
+        heading = ("Compare the recorded entry with the loaded definitions and examples:" if previous_entry
+                   else "Compare the full definitions and examples for this label:")
+        ttk.Label(body, text=heading).grid(row=2, column=0, sticky="w")
         self.definitions = self._text(body, 3, 8)
         ttk.Label(body, text="Definition to apply (no matching or scoring):").grid(row=4, column=0, sticky="w")
         self.choice = ttk.Combobox(body, state="readonly", exportselection=False,
@@ -170,13 +173,17 @@ class DefinitionReview(tk.Toplevel):
         if active >= 0:
             chosen = self.indices[active]
             label = self.entries[chosen].name.strip().casefold()
+            heading = "Loaded entry" if self.previous_entry else "Entry"
             for i in self.indices:
                 if self.entries[i].name.strip().casefold() == label:
-                    self.definitions.insert("end", f"Entry {i + 1}\n" + definition_text(self.entries[i]) + "\n\n", f"entry{i}")
+                    entry_text = f"{heading} {i + 1}\n" + definition_text(self.entries[i])
+                    self.definitions.insert("end", entry_text + "\n\n", f"entry{i}")
                     self.definitions.tag_configure(f"entry{i}", underline=i == chosen)
             self.definitions.see(f"entry{chosen}.first")
         else:
             self.definitions.insert("end", "Choose a current codebook entry below. No definition is inferred from the match.")
+        if self.previous_entry:
+            self.definitions.insert("end", "\nEarlier entry recorded with this passage\n" + definition_text(self.previous_entry))
         self.definitions.configure(state="disabled")
         self.apply_button.state(["!disabled"] if active >= 0 else ["disabled"])
 
@@ -189,9 +196,10 @@ class DefinitionReview(tk.Toplevel):
 
 def review_definition(parent: tk.Misc, entries: Sequence[CodebookEntry], index: int | None, document: TranscriptDocument,
                       selection: ManualSelection, actor: str, *, source_note: str = "",
-                      apply_label: str = "Apply selected definition") -> int | None:
+                      apply_label: str = "Apply selected definition",
+                      previous_entry: CodebookEntry | None = None) -> int | None:
     dialog = DefinitionReview(parent, entries, index, document, selection, actor, source_note=source_note,
-                              apply_label=apply_label)
+                              apply_label=apply_label, previous_entry=previous_entry)
     if parent.winfo_viewable():
         dialog.deiconify()
         dialog.wait_visibility()

@@ -289,16 +289,22 @@ def manual_assignment_rationale(entry: CodebookEntry, source: str, start: int, e
             f"[{start}:{end}]. Not scored.\n{definition_text(entry)}")
 
 
-def recorded_definition(theme: Theme) -> CodebookEntry:
-    snapshot = theme.validation.get("manual_codebook_definition")
+def entry_from_snapshot(snapshot: ValidationValue | None) -> CodebookEntry:
     if not isinstance(snapshot, str):
-        raise ValueError("A manual assignment has no original definition snapshot in its current group.")
+        raise ValueError("No recorded codebook entry is available.")
     raw = json.loads(snapshot)
     if not (isinstance(raw, dict) and set(raw) == {"name", "description", "examples"}
             and isinstance(raw["name"], str) and raw["name"].strip() and isinstance(raw["description"], str)
             and isinstance(raw["examples"], list) and all(isinstance(v, str) for v in raw["examples"])):
         raise ValueError("The recorded definition is incomplete or unsupported.")
-    entry = CodebookEntry(raw["name"], raw["description"], tuple(raw["examples"]))
+    return CodebookEntry(raw["name"], raw["description"], tuple(raw["examples"]))
+
+
+def recorded_definition(theme: Theme) -> CodebookEntry:
+    snapshot = theme.validation.get("manual_codebook_definition")
+    if not isinstance(snapshot, str):
+        raise ValueError("A manual assignment has no original definition snapshot in its current group.")
+    entry = entry_from_snapshot(snapshot)
     if entry.name != theme.name:
         raise ValueError("A manual assignment's current group differs from its recorded definition.")
     return entry
