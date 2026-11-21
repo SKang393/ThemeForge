@@ -55,6 +55,38 @@ class MatchReviewTests(unittest.TestCase):
             self.app.save_report()
         return path.read_text(encoding="utf-8")
 
+    def test_returning_to_by_source_refreshes_reviews_recorded_while_it_was_hidden(self):
+        app = self.app
+        app.deiconify()
+        app.update()
+        self.mark("deferred", "Check who sent the log.")
+        app.open_rigor_tools()
+        dialog, = [child for child in app.winfo_children() if isinstance(child, RigorDialog)]
+        tree = dialog.source_matrix_tree
+        parent, = [row for row in tree.get_children() if tree.set(row, "reviews") == "1 deferred"]
+        item, = tree.get_children(parent)
+        tree.focus_force()
+        tree.see(item)
+        tree.focus(item)
+        tree.selection_set(item)
+        app.update()
+        tree.event_generate("<Return>")
+        app.update()
+        self.assertEqual(dialog.state(), "withdrawn")
+
+        with patch.object(dialog, "_render_current_state", wraps=dialog._render_current_state) as render:
+            self.mark("declined", "Jo says the log was never submitted.")
+            self.select(0, "Ren")
+            self.mark("supported", "Ren describes submitting it.")
+            render.assert_not_called()
+            app.open_rigor_tools()
+            render.assert_called_once()
+        app.update()
+        self.assertTrue(tree.winfo_viewable())
+        reviewed, = [row for row in tree.get_children() if tree.set(row, "reviews") == "1 supported, 1 declined"]
+        self.assertEqual([tree.set(row, "reviews") for row in tree.get_children(reviewed)], ["declined", "supported"])
+        self.assertEqual(len(dialog.audit_tree.get_children()), len(app.audit_events))
+
     def test_reviews_survive_reopen_and_export_but_never_change_coding_or_transfer_to_new_run(self):
         app = self.app
         q = app._current_quote_match().quote

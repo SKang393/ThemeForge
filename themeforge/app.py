@@ -1559,7 +1559,8 @@ class ThemeForgeApp(tk.Tk):
         )
         self.match_reviews.observe(self.audit_events[-1])
         for child in self.winfo_children():
-            if isinstance(child, RigorDialog):
+            # Returning from a passage refreshes the withdrawn dialog in open_rigor_tools.
+            if isinstance(child, RigorDialog) and child.state() != "withdrawn":
                 child.refresh_current_state()
 
     def _autosave_project(self) -> str | None:
