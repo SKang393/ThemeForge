@@ -239,10 +239,12 @@ examples keep their current decisions. A removed or revised entry immediately
 becomes historical, even before **Analyze**. Before starting a new pass,
 enter your coder name and open **Rigor tools → By source**. Expand a
 **historical review** row and press Enter on a passage to see its exact
-occurrence and your earlier reason. Unchanged entries still show current
-decisions. The audit keeps the original decisions across passes.
-Run **Analyze**, select a fresh suggestion, and review it against
-the revised wording. If an older codebook suggestion lacks its original entry,
+occurrence and your earlier reason. Historical rows belong to the saved pass
+and are excluded from current supported evidence. Unchanged entries still
+show current decisions. **Analyze** starts a fresh pass for all coders.
+Afterward, use **Rigor tools → Audit log** for the earlier decisions and
+select a fresh suggestion to review it against the revised wording.
+If an older codebook suggestion lacks its original entry,
 rerun discovery to review it against a verifiable definition.
 
 Changing only the spacing between words in a suggested code's **Theme name**

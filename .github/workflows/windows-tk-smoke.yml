@@ -84,7 +84,7 @@ jobs:
           python -m unittest -v
           test_evidence_handoff.EvidenceHandoffTests.test_selected_sources_trace_to_text_and_decision_without_the_project_audit
           test_scoped_decision_history
-      - name: Review a revised codebook in a 600x360 dialog
+      - name: Revisit historical passages by source and review a revised definition
         if: ${{ !cancelled() }}
         env:
           PYTHONPATH: tests
@@ -92,6 +92,7 @@ jobs:
           HF_HUB_OFFLINE: '1'
         run: >-
           python -m unittest -v
+          test_codebook_reconsideration.CodebookReconsiderationTests.test_revisit_only_this_readers_earlier_judgments_and_keep_unchanged_support
           test_reviewed_codebook_revision.ReviewedCodebookRevisionTests.test_repeated_match_under_a_revised_exclusion_needs_a_new_decision
       - name: Recover a locked project and reopen after an interrupted save
         if: ${{ !cancelled() }}

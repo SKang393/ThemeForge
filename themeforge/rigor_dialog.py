@@ -359,7 +359,8 @@ class RigorDialog(tk.Toplevel):
         self._clear_tree(tree)
         self._source_review_matches.clear()
         reviewer = self.context.coder_name.strip()
-        hint = (f"Match reviews by {reviewer}. Historical rows used an earlier codebook entry. Expand a row and double-click a passage "
+        hint = (f"Match reviews by {reviewer}. Historical rows show earlier decisions in this pass under a changed "
+                "or removed entry. They are excluded from current support. Expand a row and double-click a passage "
                 "or press Enter to read its quote and reason." if reviewer else
                 "Enter a coder name in the main window to see that reader’s match reviews.")
         self.source_review_hint.set(f"{hint} Quote counts and coverage include suggestions. Read the reason for a decline "
