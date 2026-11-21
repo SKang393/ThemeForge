@@ -97,8 +97,9 @@ class PairedDefinitionTests(unittest.TestCase):
         targets = {}
         for actor, decisions in NOTES.items():
             path = root / (actor + ".tfproj")
-            copyfile(seed, path)
-            reopen(path)
+            working = root / f"working-{actor}.tfproj"
+            copyfile(seed, working)
+            reopen(working)
             app.researcher_name.set(actor)
             if actor == "Ochre":
                 book(REVISED)
@@ -114,7 +115,17 @@ class PairedDefinitionTests(unittest.TestCase):
                         prompt.return_value.result = reason
                         app.review_current_match(verdict)
                         prompt.assert_called_once()
-            self.assertTrue(app.save_project())
+            # Independently select different boundaries under one revised and one shared definition.
+            widget = app.transcript_widgets[source.name]
+            for entry, line in ((0, 1), (2, 4)):
+                widget.tag_remove("sel", "1.0", "end")
+                widget.tag_add("sel", f"{line}.7", f"{line}.end" if actor == "Flint" else f"{line}.17")
+                app.definition_box.current(entry)
+                with patch.object(app, "wait_window", side_effect=lambda d: press(d, "Apply selected definition")):
+                    press(app, "Apply codebook entry…")
+            with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(path)):
+                press(app, "Save as…")
+            self.assertEqual(app.project_path, path)
             saved[path] = path.read_bytes()
             events = [e for e in load_project(path).audit_events if e.action == "match_review_note"]
             self.assertEqual(len(events), 4)
@@ -156,9 +167,45 @@ class PairedDefinitionTests(unittest.TestCase):
             if line <= 3:
                 self.assertNotEqual(targets["Flint", line][0], targets["Ochre", line][0])
                 self.assertEqual(row["match_review_target_id"], "")
-        self.assertEqual([int(count) for _, count in totals], [1, 0, 1, 0, 0, 0, 2, 2, 4, 0, 0])
+        self.assertEqual([int(count) for _, count in totals], [1, 0, 1, 0, 0, 0, 2, 2, 4, 2, 2])
+        manual = export(dialog, "Export recorded manual assignments", root / "boundaries.csv")
+        bell = TEXT.index("I soldered")
+        self.assertCountEqual([(r["recorded_by"], r["passage"], r["other_project_overlapping_spans"])
+                               for r in manual], [
+            ("current only", TEXT[bell:], f"[{bell}, {bell + 10})"),
+            ("comparison only", TEXT[bell:bell + 10], f"[{bell}, {len(TEXT)})"),
+            ("current only", TEXT.splitlines()[0][7:], ""),
+            ("comparison only", TEXT[7:17], ""),
+        ])
         press(dialog, "Next review disagreement")
+        self.assertIn("Unpaired quote rows (2 current, 2 comparison)", dialog.status.get())
         self.assertIn("Review disagreement 1 of 1", dialog.status.get())
         self.assertIn("Comparable pairs (2 of 4)", dialog.status.get())
         self.assertEqual(app._current_quote_match().quote.source_line, 3)
+        self.assertEqual({p: p.read_bytes() for p in saved}, saved)
+
+        dialog.destroy()
+        for actor, reason in (("Flint", "After discussion, the unit counted is unclear."),
+                              ("Ochre", "I still cannot identify the tally unit.")):
+            original = root / f"{actor}.tfproj"
+            reopen(original)
+            first_pass = tuple(app.audit_events)
+            discussion = root / f"{actor}-discussion.tfproj"
+            with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(discussion)):
+                press(app, "Save as…")
+            self.assertEqual(app.project_path, discussion)
+            theme, = [t for t in app.result.themes if t.name == "Parcel tally"]
+            quote, = theme.quotes
+            app._select_theme_by_id(theme.id)
+            app._focus_quote_by_id(quote.quote_id)
+            with patch("themeforge.app.MatchReviewReason") as prompt:
+                prompt.return_value.result = reason
+                press(app, "Not this match")
+            press(app, "Save project")
+            reopen(discussion)
+            self.assertEqual(tuple(app.audit_events[:-1]), first_pass)
+            note = app.audit_events[-1]
+            self.assertEqual((note.actor, note.target_id), (actor, targets[actor, 3][0]))
+            detail = json.loads(note.details)
+            self.assertEqual((detail["disposition"], detail["reason"]), ("declined", reason))
         self.assertEqual({p: p.read_bytes() for p in saved}, saved)
