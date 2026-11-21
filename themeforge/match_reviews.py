@@ -68,6 +68,24 @@ def review_key(snapshot: dict, target_id: str = "") -> str:
     return target_id or match_id(snapshot)
 
 
+def recorded_review(event: AuditEvent) -> tuple[dict, ReviewNote] | None:
+    """Read a match decision only when its recorded snapshot matches the audit target."""
+    if event.action != REVIEW_ACTION or event.target_type != "theme_quote_match":
+        return None
+    try:
+        details = json.loads(event.details)
+        snapshot = details["match"]
+        status, reason = details["disposition"], details["reason"]
+        if (isinstance(snapshot, dict) and isinstance(snapshot.get("theme_name"), str)
+                and status in DISPOSITIONS and isinstance(reason, str) and reason.strip()
+                and (status != "supported" or event.actor.strip()) and event.target_id == match_id(snapshot)):
+            return snapshot, ReviewNote(status, event.actor, reason, event.timestamp_utc,
+                                        event.target_id, snapshot["theme_name"])
+    except (TypeError, ValueError, KeyError):
+        pass  # Unrecognized audit data remains in the full project history.
+    return None
+
+
 class MatchReviews:
     """Only the latest note on the same saved match after the latest Analyze is current."""
 
@@ -103,25 +121,14 @@ class MatchReviews:
         if event.action == "analysis_run":
             self._notes.clear()
             self._current_targets.clear()
-        elif event.action == REVIEW_ACTION and event.target_type == "theme_quote_match":
-            if self._reviewer is not None and event.actor != self._reviewer:
-                return
-            try:
-                details = json.loads(event.details)
-                status, reason = details["disposition"], details["reason"]
-                if status == "supported" and not event.actor.strip():
-                    return
-                snapshot = details["match"]
-                if (isinstance(snapshot, dict) and isinstance(snapshot.get("theme_name"), str)
-                        and status in DISPOSITIONS and isinstance(reason, str) and reason.strip()
-                        and event.target_id == match_id(snapshot)):
-                    key = review_key(snapshot, event.target_id)
-                    note = ReviewNote(status, event.actor, reason, event.timestamp_utc, event.target_id, snapshot["theme_name"])
-                    for reader in (event.actor, None):  # None is the latest note across readers.
-                        self._notes[event.target_id, reader] = note
-                        self._current_targets[key, reader] = event.target_id
-            except (TypeError, ValueError, KeyError):
-                pass  # Unrecognized audit data remains historical; do not attach it to a row.
+        elif self._reviewer is None or event.actor == self._reviewer:
+            recorded = recorded_review(event)
+            if recorded is not None:
+                snapshot, note = recorded
+                key = review_key(snapshot, event.target_id)
+                for reader in (event.actor, None):  # None is the latest note across readers.
+                    self._notes[event.target_id, reader] = note
+                    self._current_targets[key, reader] = event.target_id
 
     def latest(self, theme: Theme, quote: ThemeQuote, sources: TranscriptIndex,
                *, reviewer: str | None = None) -> ReviewNote | None:

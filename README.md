@@ -275,6 +275,20 @@ The project custodian can trace the decision in the retained audit by matching
 `match_review_target_id` to `target_id`, then checking the actor, time,
 disposition and reason. The same pairing can have several review events.
 
+**Sharing why a finding changed.** Set **Coder name** to the reader whose
+decisions you intend to share. In **Rigor tools → Audit log**, highlight one
+transcript and click **Choose review history…**. Start with the earlier support,
+then select its withdrawal and the decision for the revised finding. Use the
+line and character offsets to distinguish repeated wording. The preview starts
+empty and shows the CSV that will be written to a new file.
+
+Each selected row carries the recorded theme label, line, character offsets,
+exact reviewed excerpt, decision and reason. Rows follow audit order and can
+include superseded judgments from earlier analyses if the recorded source
+still verifies. The selection can be partial, and a label's definition may
+have changed. Read the labels, excerpts and reasons for identifying details
+or references to other transcripts before sharing.
+
 Theme keywords and suggestion rationales can draw on other sources. The
 supported table omits those fields, theme color and group review status.
 The regular quote report includes these fields and all dispositions. Its `match_review_disposition`
@@ -283,7 +297,7 @@ the whole theme and can read “Researcher edited” after a rename. The support
 export has only its header when no current match qualifies. **Export audit CSV**
 contains the whole project's recorded history for every source, including
 earlier decisions, declined and deferred excerpts and reasons. The transcript
-selection applies only to the supported table. Older readers can display a previous
+selection applies to the scoped exports. Older readers can display a previous
 decline or deferral as current if they skip a later `supported` audit event.
 
 **Comparing two readers' match reviews.** Save a study after discovery and give

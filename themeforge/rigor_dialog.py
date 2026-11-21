@@ -11,6 +11,7 @@ import zipfile
 
 from .analysis_types import AnalysisResult, CodebookEntry, Theme, ThemeQuote, TranscriptDocument
 from .audit import AuditEvent, export_audit_events_csv
+from .decision_history import DecisionRow, decision_history_csv, decision_rows
 from .exports import export_quotes_csv
 from .manual_record_comparison import compare_recorded_assignments, current_assignment_csv
 from .match_reviews import REVIEW_ACTION
@@ -38,6 +39,54 @@ class RigorContext:
     audit_events: Sequence[AuditEvent]
     coder_name: str
     codebook_entries: Sequence[CodebookEntry] = ()
+
+
+class ReviewHistoryScope(simpledialog.Dialog):
+    def __init__(self, parent: tk.Misc, source: str, reviewer: str, rows: Sequence[DecisionRow]):
+        self.rows = rows
+        self.source = source
+        self.reviewer = reviewer
+        self.output = ""
+        super().__init__(parent, "Choose decisions for a history CSV")
+
+    def body(self, master):
+        master.columnconfigure(0, weight=1)
+        master.rowconfigure(3, weight=1)
+        ttk.Label(master, wraplength=520, text=f"Decisions by {self.reviewer} in {self.source}, in recorded order. "
+                  "Select each decision to share, including any earlier support and subsequent withdrawal.").grid(
+            row=0, column=0, columnspan=2, sticky="w")
+        self.choices = tk.Listbox(master, selectmode=tk.MULTIPLE, exportselection=False, height=6)
+        self.choices.grid(row=1, column=0, sticky="ew")
+        for row in self.rows:
+            self.choices.insert(tk.END, f"Line {row.source_line} [{row.source_start}, {row.source_end}) · "
+                                       f"{row.recorded_decision} · {row.recorded_theme}")
+        scroll = ttk.Scrollbar(master, command=self.choices.yview)
+        scroll.grid(row=1, column=1, sticky="ns")
+        self.choices.configure(yscrollcommand=scroll.set)
+        self.choices.bind("<<ListboxSelect>>", self.show_preview)
+        ttk.Label(master, text="CSV preview · Selected judgments may be superseded. "
+                  "Check labels, excerpts and reasons for identifying information.",
+                  wraplength=520).grid(row=2, column=0, columnspan=2, sticky="w", pady=(8, 2))
+        self.preview = ScrolledText(master, height=8, width=64, wrap="word", state="disabled")
+        self.preview.grid(row=3, column=0, columnspan=2, sticky="nsew")
+        self.show_preview()
+        return self.choices
+
+    def show_preview(self, _event=None):
+        indices = self.choices.curselection()
+        self.output = decision_history_csv(self.rows[i] for i in indices) if indices else ""
+        self.preview.configure(state="normal")
+        self.preview.delete("1.0", tk.END)
+        self.preview.insert("1.0", self.output or "Choose at least one decision to preview.")
+        self.preview.configure(state="disabled")
+
+    def validate(self):
+        previous = self.output
+        self.show_preview()
+        return bool(self.output) and self.output == previous
+
+    def apply(self):
+        self.result = self.output
 
 
 class PairedExportScope(simpledialog.Dialog):
@@ -236,10 +285,11 @@ class RigorDialog(tk.Toplevel):
         tab = ttk.Frame(notebook, padding=10)
         tab.columnconfigure(0, weight=1)
         tab.rowconfigure(2, weight=1)
-        handoff = ttk.LabelFrame(tab, text="Supported evidence", padding=6)
+        handoff = ttk.LabelFrame(tab, text="Scoped exports", padding=6)
         handoff.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
         handoff.columnconfigure(0, weight=1)
-        ttk.Label(handoff, text="Choose transcripts for the evidence table. Click a name to include or remove it.").grid(
+        ttk.Label(handoff, wraplength=780, text="Choose transcripts for supported evidence, or one transcript for review history. "
+                  "Click a name to include or remove it.").grid(
             row=0, column=0, columnspan=3, sticky="w")
         self.supported_sources = tk.Listbox(handoff, height=3, selectmode=tk.MULTIPLE, exportselection=False)
         self.supported_sources.grid(row=1, column=0, sticky="ew")
@@ -248,11 +298,13 @@ class RigorDialog(tk.Toplevel):
         self.supported_sources.configure(yscrollcommand=scrollbar.set)
         ttk.Button(handoff, text="Select all sources", command=lambda: self.supported_sources.selection_set(0, tk.END)).grid(
             row=1, column=2, padx=6)
-        ttk.Label(handoff, wraplength=780, text="Includes exact matches whose latest review across coders is supported. "
+        ttk.Label(handoff, wraplength=780, text="The supported table includes exact matches whose latest review across coders is supported. "
                   "Excerpts, source and speaker names, theme labels, reviewer names and free-text reasons can identify "
                   "people. Check these fields before sharing.").grid(row=2, column=0, columnspan=3, sticky="w", pady=4)
         ttk.Button(handoff, text="Export supported matches CSV", command=self._export_supported_matches).grid(
             row=3, column=0, sticky="w")
+        ttk.Button(handoff, text="Choose review history…", command=self._export_review_history).grid(
+            row=3, column=1, columnspan=2, sticky="e")
         actions = ttk.Frame(tab)
         actions.grid(row=1, column=0, sticky="w", pady=(0, 8))
         ttk.Button(actions, text="Export audit CSV", command=self._export_audit).pack(side="left")
@@ -521,6 +573,29 @@ class RigorDialog(tk.Toplevel):
     def _export_audit(self) -> None:
         self.refresh_current_state()
         self._export_text(export_audit_events_csv(self.context.audit_events), "audit-log.csv", status=self.audit_status)
+
+    def _export_review_history(self) -> None:
+        context = self._context_source() if self._context_source else self.context
+        self._refresh_supported_sources(context.documents)
+        indices = self.supported_sources.curselection()
+        if len(indices) != 1 or not context.coder_name.strip():
+            self.audit_status.set("Choose one transcript and enter a coder name for review history.")
+            return
+        source = self.supported_sources.get(indices[0])
+        reviewer = context.coder_name.strip()
+        rows = decision_rows(context.documents, context.audit_events, source, reviewer)
+        if not rows:
+            self.audit_status.set("No verified review decisions for this coder and transcript.")
+            return
+        output = ReviewHistoryScope(self, source, reviewer, rows).result
+        if not output:
+            self.audit_status.set("Export canceled.")
+            return
+        current = self._context_source() if self._context_source else self.context
+        if context != current or self.supported_sources.curselection() != indices:
+            self.audit_status.set("The study or source selection changed. Preview the decisions again.")
+            return
+        self._export_text(output, "selected-review-history.csv", new_file=True, status=self.audit_status)
 
     def _export_supported_matches(self) -> None:
         context = self._context_source() if self._context_source else self.context
