@@ -25,12 +25,15 @@ from .analysis import (
 )
 
 
-# Section labels can appear inline or on separate lines within a field.
-_SECTION_LABEL = re.compile(r"(?:^|(?<=[\s.;!?]))(include|exclude)[ \t]*:", re.IGNORECASE)
+_LABEL = r"(include|exclude)[ \t]*:"
+# Text codebook imports can join definition lines with spaces.
+_DEFINITION_LABEL = re.compile(r"(?:^|(?<=[\s.;!?]))" + _LABEL, re.IGNORECASE)
+# Examples can quote ordinary speech such as "we listed what to exclude: ...".
+_EXAMPLE_LABEL = re.compile(r"(?:^|(?<=[\r\n.;!?]))[^\S\r\n]*" + _LABEL, re.IGNORECASE)
 
 
-def _positive_text(text: str) -> str:
-    sections = _SECTION_LABEL.split(text)
+def _positive_text(text: str, label_pattern: re.Pattern[str]) -> str:
+    sections = label_pattern.split(text)
     if len(sections) == 1:
         return text
     positive = [sections[0]]
@@ -41,8 +44,8 @@ def _positive_text(text: str) -> str:
 
 
 def _search_entry(entry: CodebookEntry) -> CodebookEntry:
-    examples = tuple(text for example in entry.examples if (text := _positive_text(example)))
-    return replace(entry, description=_positive_text(entry.description), examples=examples)
+    examples = tuple(text for example in entry.examples if (text := _positive_text(example, _EXAMPLE_LABEL)))
+    return replace(entry, description=_positive_text(entry.description, _DEFINITION_LABEL), examples=examples)
 
 
 def build_codebook_themes(

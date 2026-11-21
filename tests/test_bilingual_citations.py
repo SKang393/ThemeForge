@@ -1,4 +1,5 @@
 """Citations in an original fictional shift interview and an English control."""
+import csv
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -270,3 +271,64 @@ class BilingualCitationTests(unittest.TestCase):
         self.assertEqual(counts["Comparable pairs (denominator for the six review outcomes)"], 1)
         self.assertEqual(counts["Agreement (both supported)"], 1)
         self.assertEqual(counts["Total pairs across selected sources"], 1)
+
+    def test_plain_example_and_edited_guidance_preserve_exact_suggestion_boundaries(self):
+        directory = TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = Path(directory.name)
+        app = ThemeForgeApp()
+        self.addCleanup(app.destroy)
+        app.minsize(1, 1)
+        app.geometry("1024x705+0+0")
+        retained = ("wardrobe.txt", 1, 6, 76, "Dyer",
+                    "The buckled clasps caught on my glove so I laid them on the side tray.")
+        removed = ("wardrobe.txt", 2, 83, 134, "Dyer", "We returned the frayed braid to the mending basket.")
+        added = ("종이방.txt", 1, 4, 31, "다래", "번짐 자국 때문에 종이 한 장을 따로 빼 뒀어요.")
+        for name, rows in ((retained[0], (retained, removed)), (added[0], (added,))):
+            (root / name).write_text("\n".join(f"{speaker}: {text}" for _, _, _, _, speaker, text in rows),
+                                     encoding="utf-8")
+        paths = [str(root / n) for n in (retained[0], added[0])]
+        with patch("themeforge.app.filedialog.askopenfilenames", return_value=paths):
+            press(app, "Choose files")
+
+        def book(example):
+            path = root / "codes.csv"
+            with path.open("w", encoding="utf-8", newline="") as stream:
+                csv.writer(stream).writerows([("code", "example"), ("Screening", example)])
+            with patch("themeforge.app.filedialog.askopenfilename", return_value=str(path)):
+                press(app, "Choose codebook")
+
+        def citations():
+            theme, = app.result.themes
+            return {(q.source_name, q.source_line, q.source_start, q.source_end, q.speaker, q.text) for q in theme.quotes}
+
+        book("I listed what to exclude: buckled clasps and frayed braid.")
+        app.researcher_name.set("Copper")
+        press(app, "Analyze")
+        self.assertEqual(citations(), {retained, removed})
+        self.review(app, retained, "Supports this theme", "The clasp snagged and the garment was set aside.")
+        project = root / "original.tfproj"
+        with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(project)):
+            press(app, "Save project")
+        saved = project.read_bytes()
+        with patch("themeforge.app.filedialog.askopenfilename", return_value=str(project)):
+            press(app, "Open project")
+        self.assertEqual(citations(), {retained, removed})
+        with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(root / "revised.tfproj")):
+            press(app, "Save as…")
+        book("I listed what to exclude: buckled clasps.\n  Exclude: frayed braid.\nInclude: 번짐 자국.")
+        before = tuple(app.audit_events)
+        press(app, "Preview coverage")
+        press(app, "Next without suggestion")
+        selection = app._selected_transcript_text()
+        self.assertEqual((selection.source_name, selection.source_start, selection.source_end, selection.text),
+                         (removed[0], removed[2], removed[3], removed[5]))
+        self.assertIn("Review decisions are separate", app.quote_reason.get())
+        self.assertEqual(tuple(app.audit_events), before)
+        with patch("themeforge.app.messagebox.askokcancel", return_value=True):
+            press(app, "Analyze")
+        self.assertEqual(citations(), {retained, added})
+        self.review(app, added, "Supports this theme", "번짐 자국을 보고 종이를 따로 빼 두었다.")
+        self.assertEqual([e for e in app.audit_events if e.action == "match_review_note"][:-1],
+                         [e for e in before if e.action == "match_review_note"])
+        self.assertEqual(project.read_bytes(), saved)

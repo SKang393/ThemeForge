@@ -165,6 +165,13 @@ needs fresh support decisions. To keep the reviewed pass, save the project,
 use **Save as…** for a working copy, then analyze that copy. If prompted to
 start a new pass, **Cancel** keeps the current one open.
 
+To see which passages changed for a code, use **Export report** to save a CSV
+before editing the guidance and another after analyzing the copy. Keep the
+speaker selection and quote limit fixed. Compare the code’s generated rows
+by transcript and character range, even when the coverage totals agree.
+Open added candidates in **Quote review** on the copy. For a dropped candidate,
+return to its exact passage in the saved original. A drop records no decision.
+
 After **Choose files**, open **Speakers for suggestions** before your first
 **Analyze**. It shows the parsed labels in each imported transcript,
 the automatic decision and the number of turns. Select one row to read a
@@ -602,8 +609,12 @@ Within each field, `Exclude:` starts guidance for the reader and `Include:`
 resumes the text used for ranking. For example, “Test after a repair. Exclude:
 price estimates.” uses the repair test for retrieval. A passage mentioning an
 estimate can still be suggested if it also matches the test. Each new example
-starts with positive search terms unless marked otherwise. The reviewer sees
-the complete original definition and examples when judging the passage.
+starts with positive search terms unless marked otherwise. In an example,
+put a label at the start of the field or line, or after a period, semicolon,
+question mark, or exclamation point. Ordinary wording such as “we listed
+what to exclude: buckled clasps” stays searchable. Use quotation marks around
+a literal “Exclude:” at the start of an example. The reviewer sees the
+complete original definition and examples when judging the passage.
 TXT, MD, DOCX, RTF, and text-based PDF codebooks can also use labeled lines such as
 `Theme:`, `Description:`, and `Example:`.
 

@@ -102,7 +102,8 @@ class FocusAndCodebookTests(unittest.TestCase):
         entry = CodebookEntry(
             "Trial", "Exercise the mechanism. Exclude: paint swatches and catalog prices. "
             "Include: repeat measurements.",
-            ("Exclude: warranty paperwork. Include: inspect the pressure dial.", "Exclude: stock numbers.",
+            ("Exclude: warranty paperwork lists what to include: copper washers. Include: inspect the pressure dial.",
+             "Exclude: stock numbers.",
              "Use the plumb line."),
         )
         transcript = "\n".join([
@@ -113,6 +114,7 @@ class FocusAndCodebookTests(unittest.TestCase):
             "Bench: Filing the warranty paperwork took most of the morning.",
             "Bench: We copied the stock numbers from the cover.",
             "Bench: Under the stock numbers I hung the plumb line.",
+            "Bench: We put the copper washers back in the drawer.",
         ])
         theme, = analyze_transcript(transcript, AnalysisSettings(codebook_entries=(entry,))).themes
         self.assertEqual({q.source_line for q in theme.quotes}, {2, 3, 4, 7})
