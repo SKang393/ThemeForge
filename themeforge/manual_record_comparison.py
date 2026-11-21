@@ -8,7 +8,7 @@ import json
 
 from .analysis_types import CodebookEntry, ThemeQuote
 from .audit import AuditEvent, neutralize_csv_cell
-from .manual_editing import manual_assignment_details, manual_assignment_rationale
+from .manual_editing import assignment_creation, recorded_definition
 from .rigor import CodedProject
 
 SCOPE = ("Exact recorded manual definition and source span only. An absent record is not a negative decision. "
@@ -39,18 +39,6 @@ def _sources(project: CodedProject) -> dict[str, str]:
     return sources
 
 
-def _definition(snapshot: object) -> tuple[CodebookEntry, str]:
-    if not isinstance(snapshot, str):
-        raise ValueError("A manual assignment has no original definition snapshot in its current group.")
-    raw = json.loads(snapshot)
-    if not (isinstance(raw, dict) and set(raw) == {"name", "description", "examples"}
-            and isinstance(raw["name"], str) and raw["name"].strip() and isinstance(raw["description"], str)
-            and isinstance(raw["examples"], list) and all(isinstance(v, str) for v in raw["examples"])):
-        raise ValueError("The recorded definition is incomplete or unsupported.")
-    entry = CodebookEntry(raw["name"], raw["description"], tuple(raw["examples"]))
-    return entry, json.dumps(raw, ensure_ascii=False, sort_keys=True)
-
-
 def _verified_assignments(project: CodedProject, sources: dict[str, str]) -> tuple[dict[RecordKey, _Assignment], set[str], int]:
     events = defaultdict(list)
     for event in project.audit_events:
@@ -64,22 +52,15 @@ def _verified_assignments(project: CodedProject, sources: dict[str, str]) -> tup
         skipped += len(theme.quotes) - len(assigned)
         if not assigned:
             continue
-        entry, snapshot = _definition(theme.validation.get("manual_codebook_definition"))
-        if entry.name != theme.name:
-            raise ValueError("A manual assignment's current group differs from its recorded definition.")
+        entry = recorded_definition(theme)
+        snapshot = entry.snapshot()
         for q in assigned:
             source, start, end = q.source_name, q.source_start, q.source_end
             text = sources.get(source)
             if (text is None or not 0 <= start < end <= len(text) or text[start:end] != q.text
                     or text.count("\n", 0, start) + 1 != q.source_line):
                 raise ValueError("A manual source anchor does not match the saved transcript.")
-            matches = events.get(q.quote_id, ())
-            if len(matches) != 1 or not matches[0].actor.strip():
-                raise ValueError("A manual assignment lacks one unambiguous, attributed creation audit event.")
-            event = matches[0]
-            if (event.details != manual_assignment_details(entry, source, start, end, theme.id)
-                    or q.rationale != manual_assignment_rationale(entry, source, start, end, event.actor)):
-                raise ValueError("An assignment changed or no longer matches its original attributed record.")
+            event = assignment_creation(theme, q, entry, events.get(q.quote_id, []))
             key = source, start, end, snapshot
             if key in records or q.quote_id in current_ids:
                 raise ValueError("Duplicate manual records make the assignment identities ambiguous.")

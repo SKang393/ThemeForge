@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, replace
 import json
 from pathlib import Path
+from textwrap import shorten
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 import zipfile
@@ -19,7 +20,7 @@ from .analysis import (
     TranscriptDocument,
     analyze_documents_with_units,
 )
-from .analysis_types import QuoteUnit, SpeakerOverride
+from .analysis_types import CodebookEntry, QuoteUnit, SpeakerOverride
 from .audit import AuditEvent, create_audit_event
 from .codebook import load_codebook_entries
 from .codebook_match import build_codebook_themes
@@ -31,6 +32,7 @@ from .manual_editing import (
     MANUAL_ONLY_NOTE,
     ManualSelection,
     apply_codebook_definition,
+    assignment_creation,
     code_selected_text,
     manual_assignment_details,
     merge_theme,
@@ -38,6 +40,7 @@ from .manual_editing import (
     quote_move_conflict,
     reassign_quote,
     reassignment_details,
+    recorded_definition,
     rename_theme,
     set_theme_parent,
     split_quote_to_theme,
@@ -1072,9 +1075,15 @@ class ThemeForgeApp(tk.Tk):
             return
         entry = entries[chosen]
         self.definition_box.current(chosen)
+        self._commit_codebook_assignment(entry, document, selection, actor, origin=origin)
+
+    def _commit_codebook_assignment(self, entry: CodebookEntry, document: TranscriptDocument,
+                                    selection: ManualSelection, actor: str, *, origin: dict | None = None,
+                                    replacing: tuple[Theme, ThemeQuote] | None = None) -> None:
         prior = self._result_for_manual_coding()
         try:
-            updated, theme_id, quote_id = apply_codebook_definition(prior, entry, document, selection, actor)
+            updated, theme_id, quote_id = apply_codebook_definition(
+                prior, entry, document, selection, actor, replacing=replacing)
         except ValueError as exc:
             self.status_text.set(str(exc))
             return
@@ -1092,7 +1101,14 @@ class ThemeForgeApp(tk.Tk):
             self._record_audit_event("assignment_source_match", "quote", quote_id, json.dumps({
                 "match": origin, "applied_theme_id": theme_id, "applied_definition": asdict(entry),
                 "assignment_score": None}, ensure_ascii=False))
-        self._set_manual_status("Codebook definition applied manually")
+        if replacing:
+            _, old = replacing
+            self._record_audit_event("quote_boundary_updated", "quote", old.quote_id, json.dumps({
+                "replacement_id": quote_id, "theme_id": theme_id, "source": document.name,
+                "previous_span": [old.source_start, old.source_end],
+                "replacement_span": [selection.source_start, selection.source_end],
+            }, ensure_ascii=False))
+        self._set_manual_status("Manual assignment boundary updated" if replacing else "Codebook definition applied manually")
 
     def code_selection_to_theme(self) -> None:
         if self.result is None:
@@ -1341,6 +1357,9 @@ class ThemeForgeApp(tk.Tk):
         if match is None or selection is None:
             self.status_text.set("Select a quote and transcript text first")
             return
+        if match.quote.manual_definition_assignment:
+            self._revise_codebook_boundary(match, selection)
+            return
         theme_id = self.result.themes[self.current_theme_index].id
         updated = update_quote_boundary(self.result, theme_id, match.quote.quote_id, selection)
         if updated == self.result:
@@ -1356,6 +1375,46 @@ class ThemeForgeApp(tk.Tk):
             f"theme_id={theme_id}; source={selection.source_name}; chars={selection.source_start}-{selection.source_end}",
         )
         self._set_manual_status("Quote boundary updated")
+
+    def _revise_codebook_boundary(self, match: QuoteMatch, selection: ManualSelection) -> None:
+        before = self.result
+        quote = match.quote
+        if before is None or self._visible_review_match() != match or selection.source_name != quote.source_name:
+            self.status_text.set("Select replacement text in the transcript showing this assignment.")
+            return
+        if (selection.source_start, selection.source_end) == (quote.source_start, quote.source_end):
+            self.status_text.set("The selected text already has these boundaries.")
+            return
+        actor = self.researcher_name.get().strip()
+        if not actor or self._has_pending_source_edits():
+            self.status_text.set("Enter a researcher name and apply unfinished editor changes before revising a boundary.")
+            return
+        theme = before.themes[match.theme_index]
+        try:
+            entry = recorded_definition(theme)
+            events = [e for e in self.audit_events if e.target_id == quote.quote_id
+                      and e.target_type == "quote" and e.action == "codebook_passage_assigned"]
+            assignment_creation(theme, quote, entry, events)
+        except ValueError as exc:
+            self.status_text.set(str(exc))
+            return
+        documents = [d for d in self.documents if d.name == quote.source_name]
+        if len(documents) != 1:
+            self.status_text.set("A unique source transcript is required to revise this assignment.")
+            return
+        document = documents[0]
+        excerpt = shorten(quote.text, width=80, placeholder="…")
+        note = (f"Original {theme.name} ({theme.id}), characters [{quote.source_start}:{quote.source_end}] “{excerpt}”\n"
+                "Earlier reviews stay with the original span.")
+        if review_definition(self, (entry,), 0, document, selection, actor, source_note=note,
+                             apply_label="Replace assignment") is None:
+            return
+        if (self.result is not before or self._visible_review_match() != match
+                or self._selected_transcript_text() != selection or self.researcher_name.get().strip() != actor
+                or [d for d in self.documents if d.name == quote.source_name] != documents):
+            self.status_text.set("The assignment, selection, source or coder changed. Review the boundary again.")
+            return
+        self._commit_codebook_assignment(entry, document, selection, actor, replacing=(theme, quote))
 
     def undo_manual_edit(self) -> None:
         if self.result is None:

@@ -87,7 +87,8 @@ def entry_label(index: int, entry: CodebookEntry) -> str:
 
 class DefinitionReview(tk.Toplevel):
     def __init__(self, parent: tk.Misc, entries: Sequence[CodebookEntry], index: int | None,
-                 document: TranscriptDocument, selection: ManualSelection, actor: str, *, source_note: str = ""):
+                 document: TranscriptDocument, selection: ManualSelection, actor: str, *, source_note: str = "",
+                 apply_label: str = "Apply selected definition"):
         super().__init__(parent)
         self.withdraw()
         self.transient(parent)
@@ -131,7 +132,7 @@ class DefinitionReview(tk.Toplevel):
         actions = ttk.Frame(body)
         actions.grid(row=6, column=0, sticky="e")
         ttk.Button(actions, text="Cancel", command=self.destroy).pack(side="left", padx=4)
-        self.apply_button = ttk.Button(actions, text="Apply selected definition", command=self.apply)
+        self.apply_button = ttk.Button(actions, text=apply_label, command=self.apply)
         self.apply_button.pack(side="left")
         self.show_choice()
         self.bind("<Escape>", lambda _e: self.destroy())
@@ -173,8 +174,10 @@ class DefinitionReview(tk.Toplevel):
 
 
 def review_definition(parent: tk.Misc, entries: Sequence[CodebookEntry], index: int | None, document: TranscriptDocument,
-                      selection: ManualSelection, actor: str, *, source_note: str = "") -> int | None:
-    dialog = DefinitionReview(parent, entries, index, document, selection, actor, source_note=source_note)
+                      selection: ManualSelection, actor: str, *, source_note: str = "",
+                      apply_label: str = "Apply selected definition") -> int | None:
+    dialog = DefinitionReview(parent, entries, index, document, selection, actor, source_note=source_note,
+                              apply_label=apply_label)
     if parent.winfo_viewable():
         dialog.deiconify()
         dialog.wait_visibility()

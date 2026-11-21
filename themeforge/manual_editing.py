@@ -10,6 +10,7 @@ from math import isfinite
 from uuid import uuid4
 
 from .analysis_types import AnalysisResult, CodebookEntry, Theme, ThemeQuote, TranscriptDocument, ValidationValue
+from .audit import AuditEvent
 
 MANUAL_ONLY_NOTE = "No automated analysis has been run. Unselected passages have not been assessed."
 
@@ -288,9 +289,37 @@ def manual_assignment_rationale(entry: CodebookEntry, source: str, start: int, e
             f"[{start}:{end}]. Not scored.\n{definition_text(entry)}")
 
 
+def recorded_definition(theme: Theme) -> CodebookEntry:
+    snapshot = theme.validation.get("manual_codebook_definition")
+    if not isinstance(snapshot, str):
+        raise ValueError("A manual assignment has no original definition snapshot in its current group.")
+    raw = json.loads(snapshot)
+    if not (isinstance(raw, dict) and set(raw) == {"name", "description", "examples"}
+            and isinstance(raw["name"], str) and raw["name"].strip() and isinstance(raw["description"], str)
+            and isinstance(raw["examples"], list) and all(isinstance(v, str) for v in raw["examples"])):
+        raise ValueError("The recorded definition is incomplete or unsupported.")
+    entry = CodebookEntry(raw["name"], raw["description"], tuple(raw["examples"]))
+    if entry.name != theme.name:
+        raise ValueError("A manual assignment's current group differs from its recorded definition.")
+    return entry
+
+
+def assignment_creation(theme: Theme, quote: ThemeQuote, entry: CodebookEntry,
+                        matches: list[AuditEvent]) -> AuditEvent:
+    """Check the current assignment against the creation events indexed by its ID."""
+    if len(matches) != 1 or not matches[0].actor.strip():
+        raise ValueError("A manual assignment lacks one unambiguous, attributed creation audit event.")
+    event = matches[0]
+    anchor = quote.source_name, quote.source_start, quote.source_end
+    if (event.details != manual_assignment_details(entry, *anchor, theme.id)
+            or quote.rationale != manual_assignment_rationale(entry, *anchor, event.actor)):
+        raise ValueError("An assignment changed or no longer matches its original attributed record.")
+    return event
+
+
 def apply_codebook_definition(
     result: AnalysisResult, entry: CodebookEntry, document: TranscriptDocument,
-    selection: ManualSelection, actor: str,
+    selection: ManualSelection, actor: str, *, replacing: tuple[Theme, ThemeQuote] | None = None,
 ) -> tuple[AnalysisResult, str, str]:
     """Group by the exact loaded definition, never by its label or row number."""
     start, end = selection.source_start, selection.source_end
@@ -300,7 +329,16 @@ def apply_codebook_definition(
     ):
         raise ValueError("A named coder and an exact selection in the active transcript are required.")
     snapshot = entry.snapshot()
-    target = next((t for t in result.themes if t.validation.get("manual_codebook_definition") == snapshot), None)
+    original = None
+    if replacing:
+        target, original = replacing
+        if (not any(t is target for t in result.themes) or original not in target.quotes
+                or not original.manual_definition_assignment or original.source_name != document.name
+                or recorded_definition(target) != entry
+                or sum(q.quote_id == original.quote_id for t in result.themes for q in t.quotes) != 1):
+            raise ValueError("The original assignment, source or definition could not be identified.")
+    else:
+        target = next((t for t in result.themes if t.validation.get("manual_codebook_definition") == snapshot), None)
     if target and any(q.manual_definition_assignment and
                       (q.source_name, q.source_start, q.source_end) == (document.name, start, end)
                       for q in target.quotes):
@@ -316,8 +354,12 @@ def apply_codebook_definition(
         target = updated.themes[-1]
         bound = _refresh_theme(replace(target, validation={"manual_codebook_definition": snapshot}))
         return replace(updated, themes=[*updated.themes[:-1], bound]), bound.id, quote.quote_id
-    bound = _refresh_theme(replace(target, quotes=[*target.quotes, quote]))
-    return replace(result, themes=[bound if t.id == target.id else t for t in result.themes]), bound.id, quote.quote_id
+    if original is not None:
+        quotes = [replace(quote, memo=q.memo) if q.quote_id == original.quote_id else q for q in target.quotes]
+        bound = replace(target, quotes=quotes)
+    else:
+        bound = _refresh_theme(replace(target, quotes=[*target.quotes, quote]))
+    return replace(result, themes=[bound if t is target else t for t in result.themes]), bound.id, quote.quote_id
 
 
 def uncode_quote(result: AnalysisResult, theme_id: str, quote_id: str) -> AnalysisResult:
@@ -339,8 +381,11 @@ def update_quote_boundary(
     selection: ManualSelection,
 ) -> AnalysisResult:
     text = selection.text.strip()
-    if not text or _find_quote(result, theme_id, quote_id) is None:
+    original = _find_quote(result, theme_id, quote_id)
+    if not text or original is None:
         return result
+    if original.manual_definition_assignment:
+        raise ValueError("Review the recorded definition to replace a manual codebook assignment.")
     themes = [
         _refresh_theme(
             replace(

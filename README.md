@@ -374,6 +374,14 @@ span again creates neither a duplicate nor an endorsement by another coder.
 The Audit log links the original match to the new assignment. For a different
 span, select its text and use **Apply codebook entry…** instead.
 
+To revise one of two overlapping manual codebook assignments, select its theme
+and quote, highlight the revised passage in the same transcript, and choose
+**Update boundary**. Check the code definition, the original character range
+and the highlighted replacement before choosing **Replace assignment**. The
+replacement keeps the code and quote memo and records who made the change.
+The Audit log links the two assignments. An earlier support decision stays
+with the original span. Review the revised passage to record support for it.
+
 These manual assignments have no relevance score. Markdown labels them
 unscored, CSV leaves relevance blank, and JSON reports use `null`.
 The name-based intercoder comparison does not support these assignments and
