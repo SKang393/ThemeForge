@@ -549,7 +549,9 @@ assignment CSVs are study reports with cited passages and reviewer information.
 
 Opening another saved project or closing the main window also prompts if the
 current study has unsaved changes. To keep text still in a theme or memo
-editor, apply it first. Choosing **No** discards those edits. An unreadable
+editor, apply it first. You can switch transcripts while drafting a document
+memo. Return to its transcript tab and choose **Save document memo** to include
+the draft in the project. Choosing **No** discards unapplied edits. An unreadable
 project or a failed or canceled save leaves the current study open.
 
 **Recovering after a save failure.** Keep the study open to retain changes

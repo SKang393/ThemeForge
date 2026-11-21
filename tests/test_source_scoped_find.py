@@ -280,3 +280,121 @@ class ScopedFindTests(unittest.TestCase):
         self.assertEqual(rows, list(csv.DictReader(StringIO(original))))
         self.assertEqual([e for e in app.audit_events if e.action == "match_review_note"],
                          [e for e in state.audit_events if e.action == "match_review_note"])
+
+    def test_switch_sources_while_drafting_memos_and_coding_repeated_text(self):
+        folder = TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        root = Path(folder.name)
+        phrase = "I slipped the folded tab beneath the foot."
+        sources = {"loft.txt": "Finch: I used a shim to steady the frame.\nFinch: " + phrase,
+                   "bay.txt": "Reed: The shim was drawn on the box for the spare parts.\nReed: " + phrase}
+        offsets = {"loft.txt": (49, 91), "bay.txt": (63, 105)}
+        memos = {"loft.txt": "Check the folded tab against the earlier wobble.",
+                 "bay.txt": "The drawing and the folded tab describe different actions."}
+        for name, text in sources.items():
+            start, end = offsets[name]
+            self.assertEqual(text[start:end], phrase)
+            (root / name).write_text(text, encoding="utf-8")
+        book = root / "codes.csv"
+        book.write_text("code,definition\nLeveling,Using a shim to steady a frame.\n", encoding="utf-8")
+        with patch.object(ThemeForgeApp, "maxsize", return_value=(1024, 705)):
+            app = ThemeForgeApp()
+        self.addCleanup(app.destroy)
+        with patch("themeforge.app.filedialog.askopenfilenames", return_value=[str(root / n) for n in sources]):
+            press(app, "Choose files")
+        with patch("themeforge.app.filedialog.askopenfilename", return_value=str(book)):
+            press(app, "Choose codebook")
+        app.researcher_name.set("Lark")
+        press(app, "Analyze")
+        theme, = app.result.themes
+        self.assertEqual({(q.source_name, q.source_line) for q in theme.quotes}, {(n, 1) for n in sources})
+        memo = app.document_memo_text
+
+        def switch(name):
+            app.transcript_notebook.select(app.transcript_frames[name])
+            app.update()
+            self.assertEqual(app._current_document_name(), name)
+
+        def review(name, button, reason):
+            app.quote_review_page.master.select(app.quote_review_page)
+            app._select_theme_by_id(theme.id)
+            if app._current_quote_match().source_name != name:
+                press(app, "Next quote")
+            app.update()
+            self.assertEqual(app._visible_review_match().source_name, name)
+            with patch("themeforge.app.MatchReviewReason") as prompt:
+                prompt.return_value.result = reason
+                press(app, button)
+                prompt.assert_called_once()
+
+        def assign(name):
+            with patch("themeforge.app.simpledialog.askstring", return_value=phrase):
+                press(app, "Find text…")
+            selection = app._selected_transcript_text()
+            self.assertEqual((selection.source_name, selection.source_start, selection.source_end, selection.text),
+                             (name, *offsets[name], phrase))
+            app.definition_box.current(0)
+            with patch.object(app, "wait_window", side_effect=lambda d: press(d, "Apply selected definition")):
+                press(app, "Apply codebook entry…")
+
+        def save_draft(name):
+            switch(name)
+            memo.master.master.select(memo.master)
+            self.assertEqual(memo.get("1.0", "end-1c"), memos[name])
+            press(app, "Save document memo")
+
+        reason = "The shim steadied the frame here."
+        decline = "A drawing does not level the frame."
+        review("loft.txt", "Supports this theme", reason)
+        memo.master.master.select(memo.master)
+        memo.insert("1.0", memos["loft.txt"])
+        switch("bay.txt")
+        self.assertEqual(memo.get("1.0", "end-1c"), "")
+        assign("bay.txt")
+        review("bay.txt", "Not this match", decline)
+        memo.master.master.select(memo.master)
+        memo.insert("1.0", memos["bay.txt"])
+        save_draft("loft.txt")
+        assign("loft.txt")
+        save_draft("bay.txt")
+
+        path = root / "mounts.tfproj"
+        with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(path)):
+            press(app, "Save project")
+        saved = path.read_bytes()
+        events = tuple(app.audit_events)
+        self.assertEqual([e.target_id for e in events if e.action == "document_memo_updated"], list(sources))
+
+        # Cancel keeps an unfinished deletion. Explicit discard clears that draft even
+        # when the incoming project has the same transcript names and tab order.
+        memo.delete("1.0", "end")
+        switch("loft.txt")
+        with patch("themeforge.app.messagebox.askyesnocancel", return_value=True) as prompt:
+            app.request_close()
+            prompt.assert_called_once()
+        self.assertIn("bay.txt", app.status_text.get())
+        with patch("themeforge.app.filedialog.askopenfilename", return_value=str(path)), \
+                patch("themeforge.app.messagebox.askyesnocancel", return_value=None):
+            press(app, "Open project")
+        switch("bay.txt")
+        self.assertEqual(memo.get("1.0", "end-1c"), "")
+        switch("loft.txt")
+        with patch("themeforge.app.messagebox.askyesnocancel", return_value=False) as discard:
+            dialog = open_audit(app, path)
+            discard.assert_called_once()
+        switch("bay.txt")
+        self.assertEqual(memo.get("1.0", "end-1c"), memos["bay.txt"])
+        self.assertEqual({d.name: d.memo for d in app.documents}, memos)
+        self.assertEqual(tuple(app.audit_events), events)
+        reviews = [json.loads(e.details) for e in events if e.action == "match_review_note"]
+        self.assertEqual([(r["disposition"], r["reason"]) for r in reviews],
+                         [("supported", reason), ("declined", decline)])
+        assignments = export(dialog, "Export this project's manual codebook assignments", root / "manual.csv")
+        anchors = [(r["source"], int(r["source_start"]), int(r["source_end"]), r["passage"], r["assigned_by"])
+                   for r in assignments]
+        self.assertCountEqual(anchors, [(name, *offsets[name], phrase, "Lark") for name in sources])
+        dialog.supported_sources.selection_set(dialog.supported_sources.get(0, "end").index("loft.txt"))
+        row, = export(dialog, "Export supported matches CSV", root / "supported.csv")
+        self.assertEqual((row["source_file"], row["source_start"], row["source_end"], row["quote"],
+                          row["match_review_reason"]), ("loft.txt", "7", "41", sources["loft.txt"][7:41], reason))
+        self.assertEqual(path.read_bytes(), saved)

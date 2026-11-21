@@ -108,6 +108,9 @@ class ThemeForgeApp(tk.Tk):
         self.codebook_path: Path | None = None
         self.codebook_entries = ()
         self.documents: list[TranscriptDocument] = []
+        # The shared memo editor follows the transcript tabs in saved document order.
+        self._memo_tab: int | None = None
+        self._other_memo_drafts: dict[int, str] = {}
         self.speaker_overrides: tuple[SpeakerOverride, ...] = ()
         self.result: AnalysisResult | None = None
         self.audit_events: list[AuditEvent] = []
@@ -677,14 +680,15 @@ class ThemeForgeApp(tk.Tk):
             "Cancel: keep working in the current study.",
             parent=self, default=messagebox.CANCEL,
         )
-        if answer and self._has_pending_source_edits():
-            self.status_text.set("Apply or undo the unfinished theme, quote or document edits before saving and leaving.")
+        if answer and self._has_pending_source_edits(all_documents=True):
+            self.status_text.set(self._other_memo_notice() or
+                                 "Apply or undo the unfinished theme, quote or document edits before saving and leaving.")
             return None
         return answer
 
     def _has_unsaved_work(self) -> bool:
         try:
-            return self._has_pending_source_edits() or self._project_state() != self._saved_state
+            return self._has_pending_source_edits(all_documents=True) or self._project_state() != self._saved_state
         except (ValueError, tk.TclError):
             return True  # A typed setting that cannot yet be saved still belongs to this study.
 
@@ -695,15 +699,17 @@ class ThemeForgeApp(tk.Tk):
                 return
         self.destroy()
 
-    def _has_pending_source_edits(self) -> bool:
+    def _has_pending_source_edits(self, *, all_documents: bool = False) -> bool:
+        self._refresh_document_memo()
         theme = self._current_theme()
         match = self._current_quote_match()
-        document = next((d for d in self.documents if d.name == self._current_document_name()), None)
+        document = self.documents[self._memo_tab] if self._memo_tab is not None else None
         return bool((theme and (self.theme_name.get() != theme.name or
                      self.theme_keywords.get() != ", ".join(theme.keywords) or
                      self.theme_memo_text.get("1.0", "end-1c") != theme.memo)) or
                     (match and self.quote_memo_text.get("1.0", "end-1c") != match.quote.memo) or
-                    (document and self.document_memo_text.get("1.0", "end-1c") != document.memo))
+                    (document and self.document_memo_text.get("1.0", "end-1c") != document.memo) or
+                    (all_documents and self._other_memo_drafts))
 
     def open_codebook(self) -> None:
         path = filedialog.askopenfilename(
@@ -885,21 +891,19 @@ class ThemeForgeApp(tk.Tk):
         self._set_manual_status("Quote memo saved")
 
     def save_document_memo(self) -> None:
-        source_name = self._current_document_name()
-        if source_name is None or not self.documents:
+        self._refresh_document_memo()
+        if self._memo_tab is None:
             self.status_text.set("No transcript selected for memo")
             return
-        updated = update_document_memo(
-            tuple(self.documents),
-            source_name,
-            self.document_memo_text.get("1.0", tk.END),
-        )
-        if updated == tuple(self.documents):
+        document = self.documents[self._memo_tab]
+        text = self.document_memo_text.get("1.0", "end-1c")
+        updated, = update_document_memo((document,), document.name, text)
+        if updated.memo != text:
+            self._set_editable_text_content(self.document_memo_text, updated.memo)
+        if updated == document:
             return
-        self.documents = list(updated)
-        document = next((item for item in self.documents if item.name == source_name), None)
-        memo_length = len(document.memo) if document is not None else 0
-        self._record_audit_event("document_memo_updated", "document", source_name, f"memo_chars={memo_length}")
+        self.documents[self._memo_tab] = updated
+        self._record_audit_event("document_memo_updated", "document", document.name, f"memo_chars={len(updated.memo)}")
         self._set_manual_status("Document memo saved")
 
     def move_current_quote(self) -> None:
@@ -1546,8 +1550,8 @@ class ThemeForgeApp(tk.Tk):
         self.project_path = path
         self._saved_state = state
         summary = f"Saved project {path.name}"
-        if self._has_pending_source_edits():
-            summary += ". Apply the unfinished editor changes to include them."
+        if self._has_pending_source_edits(all_documents=True):
+            summary += ". " + (self._other_memo_notice() or "Apply the unfinished editor changes to include them.")
         self.status_text.set(summary)
         return True
 
@@ -1601,6 +1605,9 @@ class ThemeForgeApp(tk.Tk):
         )
 
     def _restore_project(self, state: ProjectState, path: Path | None) -> None:
+        self._other_memo_drafts.clear()
+        self._memo_tab = None
+        self._set_editable_text_content(self.document_memo_text, "")
         self.project_path = path
         self.input_paths = list(state.transcript_paths)
         self.codebook_path = state.codebook_path
@@ -1933,11 +1940,23 @@ class ThemeForgeApp(tk.Tk):
         return self.transcript_frame_sources.get(selected)
 
     def _refresh_document_memo(self) -> None:
-        if not hasattr(self, "document_memo_text"):
+        selected = self.transcript_notebook.select()
+        tab = self.transcript_notebook.index(selected) if self.documents and selected else None
+        if tab == self._memo_tab:
             return
-        source_name = self._current_document_name()
-        document = next((item for item in self.documents if item.name == source_name), None)
-        self._set_editable_text_content(self.document_memo_text, document.memo if document else "")
+        if self._memo_tab is not None:
+            draft = self.document_memo_text.get("1.0", "end-1c")
+            if draft != self.documents[self._memo_tab].memo:
+                self._other_memo_drafts[self._memo_tab] = draft
+        self._memo_tab = tab
+        text = self._other_memo_drafts.pop(tab, self.documents[tab].memo) if tab is not None else ""
+        self._set_editable_text_content(self.document_memo_text, text)
+
+    def _other_memo_notice(self) -> str:
+        if self._other_memo_drafts:
+            tab = next(iter(self._other_memo_drafts))
+            return f"{self.documents[tab].name} has an unfinished memo. Open its tab and choose Save document memo."
+        return ""
 
     def show_selected_theme(self, _event: tk.Event | None = None) -> None:
         selection = self.theme_list.curselection()
