@@ -789,6 +789,18 @@ class ThemeForgeApp(tk.Tk):
         ):
             return
 
+        previous_status = self.status_text.get()
+        busy_status = "Analyzing transcripts… Controls respond when this pass finishes."
+        self.status_text.set(busy_status)
+        try:
+            # Paint the footer without dispatching queued input or a window close.
+            self.update_idletasks()
+            self._run_analysis_pass()
+        finally:
+            if self.status_text.get() == busy_status:
+                self.status_text.set(previous_status)
+
+    def _run_analysis_pass(self) -> None:
         try:
             settings = self._analysis_settings()
             previous_result = self.result

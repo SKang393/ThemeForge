@@ -333,6 +333,34 @@ class ResumeReviewTests(unittest.TestCase):
         self.assertEqual(self.app._project_state(), saved)
         self.assertEqual(project.read_bytes(), original)
 
+    def test_analyze_paints_feedback_without_dispatching_pending_input(self):
+        app = self.app
+        previous_status = app.status_text.get()
+        previous_events = tuple(app.audit_events)
+        previous_result = app.result
+        observed = []
+        app.after_idle(lambda: observed.append(("idle", app.status_text.get())))
+        app.bind("<<QueuedCommand>>", lambda _: observed.append(("input", app.status_text.get())))
+        app.event_generate("<<QueuedCommand>>", when="tail")
+
+        def fail_analysis(*args):
+            observed.append(("compute", app.status_text.get()))
+            raise ValueError("Synthetic analysis failure")
+
+        with (
+            patch("themeforge.app.analyze_documents_with_units", side_effect=fail_analysis),
+            patch("themeforge.app.messagebox.showerror") as error,
+        ):
+            self.press("Analyze")
+
+        self.assertEqual([kind for kind, _ in observed], ["idle", "compute", "input"])
+        self.assertIn("Analyzing", observed[0][1])
+        self.assertEqual(observed[0][1], observed[1][1])
+        self.assertEqual(app.status_text.get(), previous_status)
+        error.assert_called_once()
+        self.assertIs(app.result, previous_result)
+        self.assertEqual(tuple(app.audit_events), previous_events)
+
     def test_resume_across_codes_and_revisit_own_deferrals(self):
         suggested = self.app.result
         seen = set()
