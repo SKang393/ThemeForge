@@ -1394,9 +1394,15 @@ class ThemeForgeApp(tk.Tk):
     def uncode_current_quote(self) -> None:
         if self.result is None or self.current_theme_index is None:
             return
-        match = self._current_quote_match()
+        match = self._visible_review_match()
         if match is None:
-            self.status_text.set("Select a source-verified quote to uncode; no record was changed.")
+            self.status_text.set("Use Previous quote or Next quote to show the passage you intend to uncode.")
+            return
+        widget = self.transcript_widgets[match.source_name]
+        selection = widget.tag_ranges(tk.SEL)
+        if selection and (widget.compare(selection[0], "<", match.location.start)
+                          or widget.compare(selection[-1], ">", match.location.end)):
+            self.status_text.set("Selection extends outside the active quote. Clear it or navigate to the intended quote.")
             return
         theme_id = self.result.themes[self.current_theme_index].id
         updated = uncode_quote(self.result, theme_id, match.quote.quote_id)

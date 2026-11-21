@@ -72,6 +72,7 @@ jobs:
           test_suggestion_speakers.SpeakerSelectionTests.test_desktop_change_save_find_and_export
           test_suggestion_coverage
           test_source_scoped_find
+          test_quote_source_navigation.QuoteSourceNavigationTests.test_uncode_requires_the_visible_quote_even_when_wording_repeats
           test_cross_case_reviews.CrossCaseReviewTests.test_trace_supported_declined_and_deferred_passages_without_deciding_for_a_source
           test_phase4_desktop_integration.Phase4DesktopIntegrationTests.test_open_rigor_dialog_refreshes_visible_rows_and_loaded_comparison_when_project_changes
           test_match_reviews.MatchReviewTests.test_returning_to_by_source_refreshes_reviews_recorded_while_it_was_hidden

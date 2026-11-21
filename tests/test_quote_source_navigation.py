@@ -40,10 +40,11 @@ class QuoteSourceNavigationTests(unittest.TestCase):
         bad = self.monologue + "the bell stayed silent."
         self.prefix = replace(self.good, quote_id="Q3", speaker="Kim", text=bad, source_start=p, source_line=4, source_end=p+len(bad))
 
-    def open_rows(self, quotes):
+    def open_rows(self, quotes, *, other_documents=()):
         group = Theme("C01", "Self-submission", "#345678", [], len(quotes), .95, quotes)
-        state = ProjectState((), None, (self.doc,), AnalysisSettings(),
-                             AnalysisResult("example", 1, 4, [group], []), "Coder")
+        documents = (self.doc, *other_documents)
+        state = ProjectState((), None, documents, AnalysisSettings(),
+                             AnalysisResult("example", len(documents), 4, [group], []), "Coder")
         path = self.folder / "unchanged.tfproj"
         save_project(path, state, new_only=True)
         original = path.read_bytes()
@@ -55,6 +56,38 @@ class QuoteSourceNavigationTests(unittest.TestCase):
         widget = self.app.transcript_widgets[self.doc.name]
         anchors = widget.tag_ranges("selected_quote")
         return (widget.index(anchors[0]), widget.get(*anchors)) if anchors else None
+
+    def test_uncode_requires_the_visible_quote_even_when_wording_repeats(self):
+        first = replace(self.good, quote_id="First", speaker="Ren", source_line=1, source_start=5,
+                        source_end=5 + len(self.good.text))
+        annex = TranscriptDocument("Annex", f"Ren: {first.text}")
+        other = replace(first, quote_id="Annex1", source_name=annex.name)
+        state, path, saved = self.open_rows([first, self.good, other], other_documents=(annex,))
+        app = self.app
+        app.transcript_notebook.select(app.transcript_frames[annex.name])
+        app.update()
+        app.transcript_widgets[annex.name].tag_add("sel", "1.5", "1.end")
+        app.uncode_current_quote()  # Identical offsets and wording in another file.
+        self.assertEqual(app._project_state(), state)
+        self.assertEqual(path.read_bytes(), saved)
+
+        app.transcript_notebook.select(app.transcript_frames[self.doc.name])
+        app.update()
+        widget = app.transcript_widgets[self.doc.name]
+        start = f"1.0 + {self.good.source_start} chars"
+        widget.tag_add("sel", start, f"{start} + {len(first.text)} chars")
+        self.assertEqual(app._selected_transcript_text().text, first.text)
+        app.uncode_current_quote()  # Same file and wording, different occurrence.
+        self.assertEqual(app._project_state(), state)
+        self.assertEqual(path.read_bytes(), saved)
+
+        app.next_quote()  # The selected text now belongs to the active quote.
+        self.assertEqual(app._visible_review_match().quote, self.good)
+        app.uncode_current_quote()
+        reopened = load_project(path)
+        self.assertEqual(reopened.result.themes[0].quotes, [first, other])
+        self.assertEqual([(e.action, e.target_id) for e in reopened.audit_events],
+                         [("quote_uncoded", self.good.quote_id)])
 
     def test_stale_span_and_partial_prefix_do_not_highlight_another_speaker_or_omit_records(self):
         state, path, original = self.open_rows([self.stale, self.good, self.prefix])
