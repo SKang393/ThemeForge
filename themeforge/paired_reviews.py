@@ -11,11 +11,47 @@ from .source_location import TranscriptIndex
 
 
 @dataclass(frozen=True)
+class PairedMatch:
+    theme: Theme
+    quote: ThemeQuote
+    key: str
+    outcome: str
+    current: ReviewNote | None
+    comparison: ReviewNote | None
+    shared_id: str
+
+
+@dataclass(frozen=True)
 class PairedReviewReport:
-    csv_text: str
-    shared: int
+    matches: tuple[PairedMatch, ...]
+    reviewers: CoderLabels
     current_excluded: int
     comparison_excluded: int
+
+    @property
+    def shared(self) -> int:
+        return len(self.matches)
+
+    @property
+    def csv_text(self) -> str:
+        output = io.StringIO(newline="")
+        writer = csv.writer(output)
+        writer.writerow(("review_comparison", "theme_id", "theme_name", "quote_id", "source_file", "source_line",
+                         "source_start", "source_end", "quote", "match_review_target_id",
+                         "current_reviewer", "current_disposition", "current_reason", "current_time_utc",
+                         "comparison_reviewer", "comparison_disposition", "comparison_reason", "comparison_time_utc",
+                         "current_quote_rows_excluded", "comparison_quote_rows_excluded",
+                         "current_review_target_id", "comparison_review_target_id"))
+        for row in self.matches:
+            theme, quote = row.theme, row.quote
+            values = (row.outcome, theme.id, theme.name, quote.quote_id, quote.source_name, quote.source_line,
+                      quote.source_start, quote.source_end, quote.text, row.shared_id,
+                      self.reviewers.coder_a, *_fields(row.current), self.reviewers.coder_b, *_fields(row.comparison),
+                      self.current_excluded, self.comparison_excluded,
+                      row.current.audit_target_id if row.current else "",
+                      row.comparison.audit_target_id if row.comparison else "")
+            writer.writerow(neutralize_csv_cell(value) if isinstance(value, str) else value for value in values)
+        return output.getvalue()
 
 
 def _matches(project: CodedProject, reviews: MatchReviews) -> tuple[dict[str, tuple[Theme, ThemeQuote, str]], int]:
@@ -65,19 +101,12 @@ def compare_match_reviews(current: CodedProject, comparison: CodedProject, revie
         raise ValueError(f"No identical, source-verified matches across {left_total} current and "
                          f"{right_total} comparison quote rows. Check the source text, saved themes and codebook entries.")
     excluded = left_total - len(shared), right_total - len(shared)
-    output = io.StringIO(newline="")
-    writer = csv.writer(output)
-    writer.writerow(("review_comparison", "theme_id", "theme_name", "quote_id", "source_file", "source_line",
-                     "source_start", "source_end", "quote", "match_review_target_id",
-                     "current_reviewer", "current_disposition", "current_reason", "current_time_utc",
-                     "comparison_reviewer", "comparison_disposition", "comparison_reason", "comparison_time_utc",
-                     "current_quote_rows_excluded", "comparison_quote_rows_excluded",
-                     "current_review_target_id", "comparison_review_target_id"))
 
     def source_order(key: str) -> tuple:
         theme, quote, target_id = left[key]
         return quote.source_name, quote.source_start, quote.source_end, theme.name, target_id
 
+    matches = []
     for key in sorted(shared, key=source_order):
         theme, quote, target_id = left[key]
         current_note = current_notes.by_key(key)
@@ -89,8 +118,6 @@ def compare_match_reviews(current: CodedProject, comparison: CodedProject, revie
             shared_id = target_id
         if current_id and comparison_id and current_id != comparison_id:
             shared_id = ""
-        values = (_outcome(current_note, comparison_note), theme.id, theme.name, quote.quote_id, quote.source_name, quote.source_line,
-                  quote.source_start, quote.source_end, quote.text, shared_id,
-                  a, *_fields(current_note), b, *_fields(comparison_note), *excluded, current_id, comparison_id)
-        writer.writerow(neutralize_csv_cell(value) if isinstance(value, str) else value for value in values)
-    return PairedReviewReport(output.getvalue(), len(shared), *excluded)
+        matches.append(PairedMatch(theme, quote, key, _outcome(current_note, comparison_note),
+                                   current_note, comparison_note, shared_id))
+    return PairedReviewReport(tuple(matches), CoderLabels(a, b), *excluded)

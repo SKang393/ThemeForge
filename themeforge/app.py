@@ -1965,7 +1965,17 @@ class ThemeForgeApp(tk.Tk):
         if not self.documents or self.result is None:
             messagebox.showinfo("Rigor tools", "Open transcripts and run analysis before using rigor tools.")
             return
-        RigorDialog(self, self._rigor_context(), self._rigor_context)
+        RigorDialog(self, self._rigor_context(), self._rigor_context, self._locate_paired_match)
+
+    def _locate_paired_match(self, theme: Theme, quote: ThemeQuote) -> None:
+        if self._has_pending_source_edits() or (self._current_theme() is None and self.theme_name.get().strip()):
+            raise ValueError("Apply unfinished theme or memo edits before locating a disagreement.")
+        if (self.result is None or theme not in self.result.themes or quote not in theme.quotes
+                or not self._resolve_quote(quote).verified):
+            raise ValueError("The displayed study no longer verifies this match. Check the comparison again.")
+        index = self.result.themes.index(theme)
+        self._select_theme(index, quote_index=theme.quotes.index(quote))
+        self.theme_list.see(index)
 
     def show_about(self) -> None:
         messagebox.showinfo("About ThemeForge", about_text(__version__))

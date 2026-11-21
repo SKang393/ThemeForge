@@ -1,18 +1,20 @@
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, ttk
+from tkinter.scrolledtext import ScrolledText
 import zipfile
 
-from .analysis_types import AnalysisResult, CodebookEntry, TranscriptDocument
+from .analysis_types import AnalysisResult, CodebookEntry, Theme, ThemeQuote, TranscriptDocument
 from .audit import AuditEvent, export_audit_events_csv
 from .exports import export_quotes_csv
 from .manual_record_comparison import compare_recorded_assignments, current_assignment_csv
 from .match_reviews import REVIEW_ACTION
-from .paired_reviews import compare_match_reviews
+from .paired_reviews import PairedReviewReport, compare_match_reviews
 from .project_io import UnsupportedProjectFormatError, load_project
 from .rigor import (
     CodedProject,
@@ -44,10 +46,13 @@ class RigorDialog(tk.Toplevel):
         master: tk.Misc,
         context: RigorContext,
         context_source: Callable[[], RigorContext] | None = None,
+        locate_match: Callable[[Theme, ThemeQuote], None] | None = None,
     ) -> None:
         super().__init__(master)
         self.context = context
         self._context_source = context_source
+        self._locate_match = locate_match
+        self._last_disagreement: str | None = None
         self.report: IntercoderReliabilityReport | None = None
         self._comparison_project: CodedProject | None = None
         self._comparison_label = ""
@@ -122,10 +127,17 @@ class RigorDialog(tk.Toplevel):
         self.comparison_reviewer = ttk.Combobox(reviews, state="readonly", width=16)
         self.comparison_reviewer.pack(side="left", padx=(4, 12))
         ttk.Button(reviews, text="Export paired match reviews", command=self._export_paired_reviews).pack(side="left")
+        if self._locate_match is not None:
+            ttk.Button(actions, text="Next review disagreement", command=self._next_review_disagreement).grid(row=0, column=2)
+        for box in (self.current_reviewer, self.comparison_reviewer):
+            box.bind("<<ComboboxSelected>>", self._clear_review_location)
         ttk.Label(actions, text="Quote coverage by meaning unit").grid(row=2, column=0, sticky="w")
         ttk.Button(actions, text="Export coverage statistics", command=self._export_reliability).grid(row=2, column=1)
         ttk.Button(actions, text="Export coverage differences", command=self._export_disagreements).grid(row=2, column=2)
-        ttk.Label(tab, textvariable=self.status, wraplength=825).grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        summary = ttk.Frame(tab)
+        summary.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        ttk.Label(summary, textvariable=self.status, wraplength=825).pack(anchor="w")
+        self.dispute_text = ScrolledText(summary, height=6, width=1, wrap="word", state="disabled")
         self.reliability_tree = ttk.Treeview(
             tab,
             columns=("theme", "both", "current", "comparison", "neither", "agreement", "kappa", "warning"),
@@ -180,7 +192,10 @@ class RigorDialog(tk.Toplevel):
 
     def refresh_current_state(self, _event: tk.Event | None = None) -> None:
         if self._context_source is not None:
-            self.context = self._context_source()
+            current = self._context_source()
+            if self.context != current:
+                self._clear_review_location()
+            self.context = current
         if self.context.result is None:
             self.matrix_report = MatrixQueryReport((), ())
             self._render_current_state()
@@ -235,6 +250,7 @@ class RigorDialog(tk.Toplevel):
         )
         if not chosen:
             return
+        self._clear_review_location()
         self.report = None
         self._comparison_project = None
         self._comparison_label = ""
@@ -307,23 +323,68 @@ class RigorDialog(tk.Toplevel):
             return
         self._export_text(export_disagreements_csv(self.report), "quote-coverage-differences.csv")
 
-    def _export_paired_reviews(self) -> None:
+    def _paired_reviews(self) -> PairedReviewReport | None:
         context = self._context_source() if self._context_source else self.context
         if context.result is None or self._comparison_project is None:
-            self.status.set("Choose a comparison project before exporting paired match reviews.")
-            return
+            self.status.set("Choose a comparison project for paired match reviews.")
+            return None
         selected = self.current_reviewer.get()
         _reviewer_choices(self.current_reviewer, context.coder_name, context.audit_events)
         if self.current_reviewer.get() != selected:
-            self.status.set("The available reviewers changed. Check the reviewer names and export again.")
-            return
+            self.status.set("The available reviewers changed. Check the reviewer names and try again.")
+            return None
         try:
-            comparison = compare_match_reviews(
+            return compare_match_reviews(
                 CodedProject(context.documents, context.result, context.audit_events, context.codebook_entries), self._comparison_project,
                 CoderLabels(self.current_reviewer.get(), self.comparison_reviewer.get()),
             )
         except ValueError as exc:
             self.status.set(str(exc))
+            return None
+
+    def _clear_review_location(self, _event=None) -> None:
+        if self._last_disagreement is not None:
+            self.dispute_text.pack_forget()
+            self.dispute_text.configure(state="normal")
+            self.dispute_text.delete("1.0", tk.END)
+            self.dispute_text.configure(state="disabled")
+            self._last_disagreement = None
+        self.status.set("")
+
+    def _next_review_disagreement(self) -> None:
+        previous = self._last_disagreement
+        self._clear_review_location()
+        report = self._paired_reviews()
+        if report is None or self._locate_match is None:
+            return
+        disputes = [row for row in report.matches if row.outcome == "disagreement"]
+        counts = Counter(row.outcome for row in report.matches)
+        missing = counts["missing_current_review"] + counts["missing_comparison_review"] + counts["neither_reviewed"]
+        summary = f"Both reviewed with a deferral ({counts['deferred']}) · Missing one or both reviews ({missing})"
+        if not disputes:
+            self.status.set(f"No support-versus-decline disagreements. {summary}")
+            return
+        index = next((i + 1 for i, row in enumerate(disputes) if row.key == previous), 0) % len(disputes)
+        pair = disputes[index]
+        quote = pair.quote
+        try:
+            self._locate_match(pair.theme, quote)
+        except ValueError as exc:
+            self.status.set(str(exc))
+            return
+        self._last_disagreement = pair.key
+        self.status.set(f"Review disagreement {index + 1} of {len(disputes)} · {summary}\n"
+                        "Close Rigor tools to read the highlighted passage in the transcript.")
+        notes = (f"{note.actor} ({note.disposition})\n{note.reason}" for note in (pair.current, pair.comparison))
+        citation = f"{pair.theme.name} | {quote.source_name}, line {quote.source_line} [{quote.source_start}, {quote.source_end})"
+        self.dispute_text.configure(state="normal")
+        self.dispute_text.insert("1.0", "\n\n".join((citation + "\n" + quote.text, *notes)))
+        self.dispute_text.configure(state="disabled")
+        self.dispute_text.pack(fill="x")
+
+    def _export_paired_reviews(self) -> None:
+        comparison = self._paired_reviews()
+        if comparison is None:
             return
         if self._export_text(comparison.csv_text, "paired-match-reviews.csv", new_file=True):
             self.status.set(f"Exported {comparison.shared} shared match(es). Other quote rows excluded: "

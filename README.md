@@ -269,7 +269,11 @@ Check the **Current reviewer** and **Comparison reviewer** names, then select
 **Export paired match reviews** and choose a new CSV filename. Each side uses that person's latest audit
 note on the exact match in their project since its last **Analyze**. A project
 can contain several readers' notes. Choose the two whose decisions you want
-to compare.
+to compare. Use **Next review disagreement** to visit shared passages where one
+reader supported the match and the other declined it. The Intercoder tab shows
+the exact occurrence and both saved reasons. Close **Rigor tools** to read the
+highlighted occurrence in the full transcript. Deferrals and missing reviews
+are counted separately. Browsing leaves both projects' decisions intact.
 
 The paired CSV includes every theme/passage match with the same recorded snapshot
 and verified source span in both projects, including pairs with no reviews.
