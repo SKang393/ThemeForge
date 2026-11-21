@@ -17,9 +17,11 @@ REVIEW_LABELS = {"supported": "Supports this theme", "deferred": "Revisit later"
 DISPOSITIONS = set(REVIEW_LABELS)
 NO_CURRENT_REVIEW = "No current match review."
 HISTORICAL_ENTRY = "Historical codebook match. Its original entry cannot be verified in the loaded codebook."
+HISTORICAL_MANUAL = ("Earlier manual definition. Open Apply definition to this quote… to code this span "
+                     "under a loaded entry.")
 HISTORICAL_DEFINITION = f"{HISTORICAL_ENTRY} See Audit log for earlier decisions. Run Analyze to review current suggestions."
 REVIEW_SCOPE = ("Each review records one reader's judgment about one theme/passage match. "
-                "A codebook suggestion needs its original entry in the study's codebook for a current review. "
+                "A match under a codebook definition needs its original entry in the study's codebook for a current review. "
                 "Theme edit labels apply to the whole group. Coding assignments and relevance scores are separate. "
                 "A missing note means there is no current review on record for this pairing.")
 
@@ -105,8 +107,13 @@ class MatchReviews:
     def set_codebook(self, entries: Iterable[CodebookEntry]) -> None:
         self._definitions = {entry.snapshot(): entry for entry in entries}
 
+    @staticmethod
+    def _entry_snapshot(theme: Theme) -> str | None:
+        origin = theme.validation.get("generated_from_codebook_entry", theme.validation.get("manual_codebook_definition"))
+        return origin if isinstance(origin, str) else None
+
     def definition_is_current(self, theme: Theme) -> bool:
-        if "generated_from_codebook_entry" in theme.validation:
+        if "generated_from_codebook_entry" in theme.validation or "manual_codebook_definition" in theme.validation:
             return self.codebook_entry(theme) is not None
         # The generator reserves C01, C02, ... for codebook suggestions. Edited
         # groups can lose their generation status or gain a suffix on rerun.
@@ -114,8 +121,8 @@ class MatchReviews:
         return re.fullmatch(r"C[0-9]+(?:-r[0-9]+)?", theme.id) is None
 
     def codebook_entry(self, theme: Theme) -> CodebookEntry | None:
-        origin = theme.validation.get("generated_from_codebook_entry")
-        return self._definitions.get(origin) if isinstance(origin, str) else None
+        origin = self._entry_snapshot(theme)
+        return self._definitions.get(origin) if origin else None
 
     def observe(self, event: AuditEvent) -> None:
         if event.action == "analysis_run":
@@ -141,10 +148,8 @@ class MatchReviews:
         """Find this reader's note in this pass, including a note under a retired entry."""
         if not reviewer or not self._notes or sources.locate(quote).status != "exact_span":
             return None
-        if not self.definition_is_current(theme):
-            origin = theme.validation.get("generated_from_codebook_entry")
-            if not isinstance(origin, str) or not origin:
-                return None
+        if not self.definition_is_current(theme) and not self._entry_snapshot(theme):
+            return None
         return self._recorded(theme, quote, sources, reviewer)
 
     def _recorded(self, theme: Theme, quote: ThemeQuote, sources: TranscriptIndex,

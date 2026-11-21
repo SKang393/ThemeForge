@@ -98,7 +98,8 @@ def _matches(project: CodedProject, reviews: MatchReviews,
     total = 0
     for theme in project.result.themes:
         current_definition = reviews.definition_is_current(theme)
-        entry = reviews.codebook_entry(theme)
+        # Only generated suggestions use the entry/span pairing rule across projects.
+        entry = reviews.codebook_entry(theme) if "generated_from_codebook_entry" in theme.validation else None
         definition = None
         if entry is not None:
             definition = replace(entry, description=normalize_space(entry.description),

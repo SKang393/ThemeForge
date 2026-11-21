@@ -25,7 +25,7 @@ READINGS = {
 
 
 class CodebookReconsiderationTests(unittest.TestCase):
-    def test_revisit_only_this_readers_earlier_judgments_and_keep_unchanged_support(self):
+    def workshop(self):
         directory = TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         root = Path(directory.name)
@@ -54,6 +54,10 @@ class CodebookReconsiderationTests(unittest.TestCase):
                 press(app, "Choose codebook")
 
         import_book(OLD)
+        return app, root, screen, import_book
+
+    def test_revisit_only_this_readers_earlier_judgments_and_keep_unchanged_support(self):
+        app, root, screen, import_book = self.workshop()
         press(app, "Analyze")
         seen = set()
         for index, theme in enumerate(app.result.themes):
@@ -211,3 +215,142 @@ class CodebookReconsiderationTests(unittest.TestCase):
         print(f"Historical navigation on {screen[0]}x{screen[1]} in a 900x600 By source dialog. "
               f"Verified Ochre at [70, 125) and Indigo at [7, 62). "
               f"Preserved project bytes and {len(before[1])} export files.")
+
+    def test_manual_assignments_keep_their_recorded_definition_after_revision(self):
+        app, root, screen, import_book = self.workshop()
+        app.researcher_name.set("Ochre")
+        project = root / "manual.tfproj"
+
+        def support(reason):
+            with patch("themeforge.app.MatchReviewReason") as prompt:
+                prompt.return_value.result = reason
+                press(app, "Supports this theme")
+                prompt.assert_called_once()
+
+        def assign(name, start, end, code, reason):
+            app.transcript_notebook.select(app.transcript_frames[name])
+            app.update()
+            text = app.transcript_widgets[name]
+            text.tag_remove("sel", "1.0", "end")
+            text.tag_add("sel", f"1.0+{start}c", f"1.0+{end}c")
+            app.definition_box.current(code)
+            with patch.object(app, "wait_window", side_effect=lambda d: press(d, "Apply selected definition")):
+                press(app, "Apply codebook entry…")
+            if reason:
+                support(reason)
+            return app._current_quote_match().quote.quote_id
+
+        early_reason = "The maker prepared a drawing before opening."
+        early = assign("bench.txt", 70, 125, 0, early_reason)
+        joint = assign("tower.txt", 7, 65, 0, None)
+        unchanged = assign("tower.txt", 73, 128, 1, "The return label was attached.")
+        early_events = tuple(app.audit_events)
+
+        def save_and_reopen():
+            with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(project)):
+                press(app, "Save project")
+            with patch("themeforge.app.filedialog.askopenfilename", return_value=str(project)):
+                press(app, "Open project")
+
+        def rigor():
+            press(app, "Rigor tools")
+            dialog, = [w for w in app.winfo_children() if isinstance(w, RigorDialog)]
+            dialog.geometry("900x600+0+0")
+            app.update()
+            return dialog
+
+        def tables(stage):
+            folder = root / stage
+            folder.mkdir()
+            dialog = rigor()
+            source = dialog.source_matrix_tree.master
+            source.master.select(source)
+            manual = export(source, "Export this project's manual codebook assignments", folder / "assignments.csv")
+            audit = dialog.audit_tree.master
+            audit.master.select(audit)
+            app.update()
+            dialog.supported_sources.selection_set(0, "end")
+            supported = export(audit, "Export supported matches CSV", folder / "supported.csv")
+            dialog.destroy()
+            return {r["assignment_id"]: r for r in manual}, {r["quote_id"]: r for r in supported}
+
+        old_rows, old_support = tables("original-assignments")
+        self.assertEqual(set(old_rows), {early, joint, unchanged})
+        for key, source, start, end, words in ((early, "bench.txt", "70", "125", SOLO),
+                                               (joint, "tower.txt", "7", "65", JOINT),
+                                               (unchanged, "tower.txt", "73", "128", LABEL)):
+            row = old_rows[key]
+            self.assertEqual((row["source"], row["source_start"], row["source_end"], row["passage"]),
+                             (source, start, end, words))
+        self.assertEqual(set(old_support), {early, unchanged})
+        import_book(NEW)
+        save_and_reopen()
+        saved = project.read_bytes()
+        rows, supported = tables("revised")
+        self.assertEqual(rows, old_rows)
+        self.assertEqual(set(supported), {unchanged}, "An earlier manual definition still exports as supported")
+        self.assertEqual(supported[unchanged], old_support[unchanged])
+
+        def visit(assignment, definition, status):
+            row = old_rows[assignment]
+            dialog = rigor()
+            tree = dialog.source_matrix_tree
+            tree.master.master.select(tree.master)
+            if not dialog.my_manual_assignments.get():
+                toggle, = [w for w in descendants(tree.master) if isinstance(w, ttk.Checkbutton)
+                           and w.cget("text") == "Show only my manual codebook assignments"]
+                toggle.invoke()
+            parent, = [i for i in tree.get_children() if tree.set(i, "source") == row["source"]
+                       and row["theme_id"] in tree.item(i, "text")]
+            item, = tree.get_children(parent)
+            self.assertEqual(tree.set(parent, "reviews"), definition)
+            self.assertEqual(tree.set(item, "reviews"), status)
+            tree.focus_force()
+            app.update()
+            tree.focus(item)
+            tree.selection_set(item)
+            tree.event_generate("<Return>")
+            app.update()
+            self.assertEqual(dialog.state(), "withdrawn")
+            text = app.transcript_widgets[row["source"]]
+            self.assertEqual(text.get("selected_quote.first", "selected_quote.last"), row["passage"])
+            self.assertEqual(len(text.get("1.0", "selected_quote.first")), int(row["source_start"]))
+            self.assertEqual(app._current_quote_match().quote.quote_id, assignment)
+            self.assertIn(row["definition"], app.quote_reason.get())
+
+        visit(unchanged, "Current definition", "supported")
+        visit(early, "Earlier definition", "Historical: supported")
+        self.assertIn(early_reason, app.match_review_text.get())
+        with patch("themeforge.app.MatchReviewReason") as prompt:
+            press(app, "Supports this theme")
+            prompt.assert_not_called()
+        visit(joint, "Earlier definition", "No review this pass")
+        self.assertEqual(project.read_bytes(), saved)
+        self.assertEqual(tables("after-visiting"), (old_rows, supported))
+
+        def confirm(dialog):
+            dialog.choice.current(0)
+            dialog.show_choice()
+            self.assertIn(NEW, dialog.definitions.get("1.0", "end"))
+            self.assertEqual(dialog.passage.get("evidence.first", "evidence.last"), JOINT)
+            press(dialog, "Apply selected definition")
+
+        with patch.object(app, "wait_window", side_effect=confirm):
+            press(app, "Apply definition to this quote…")
+        fresh = app._current_quote_match().quote.quote_id
+        self.assertNotIn(fresh, old_rows)
+        self.assertEqual(tables("reapplied")[1], supported)
+        fresh_reason = "Both makers signed the joint drawing."
+        support(fresh_reason)
+        save_and_reopen()
+        rows, confirmed = tables("confirmed")
+        self.assertEqual({k: v for k, v in rows.items() if k != fresh}, old_rows)
+        self.assertEqual((rows[fresh]["source"], rows[fresh]["source_start"], rows[fresh]["source_end"],
+                          rows[fresh]["passage"], rows[fresh]["assigned_by"], rows[fresh]["definition"]),
+                         ("tower.txt", "7", "65", JOINT, "Ochre", NEW))
+        self.assertEqual(set(confirmed), {fresh, unchanged})
+        self.assertEqual(confirmed[unchanged], old_support[unchanged])
+        self.assertEqual(confirmed[fresh]["match_review_reason"], fresh_reason)
+        self.assertEqual(tuple(app.audit_events[:len(early_events)]), early_events)
+        print(f"Manual revision on {screen[0]}x{screen[1]}: 3 original assignments preserved, "
+              "2 supported rows before revision, 1 after revision, 2 after fresh review.")

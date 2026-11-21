@@ -425,6 +425,15 @@ replacement keeps the code and quote memo and records who made the change.
 The Audit log links the two assignments. An earlier support decision stays
 with the original span. Review the revised passage to record support for it.
 
+After loading a revised codebook, open **Rigor tools → By source** and select
+**Show only my manual codebook assignments**. Each group shows whether its
+recorded definition is current or earlier. Open an earlier assignment to see
+its exact passage and original definition. If the revised definition fits,
+use **Apply definition to this quote…**. This creates a separate assignment
+that needs its own review for support. The manual assignments CSV includes
+both definitions. The supported matches CSV excludes reviews under an
+earlier definition.
+
 These manual assignments have no relevance score. Markdown labels them
 unscored, CSV leaves relevance blank, and JSON reports use `null`.
 The name-based intercoder comparison does not support these assignments and

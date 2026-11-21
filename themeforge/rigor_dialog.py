@@ -435,10 +435,15 @@ class RigorDialog(tk.Toplevel):
                 if quote.manual_definition_assignment and quote.quote_id in links:
                     by_source[quote.source_name].append(quote)
             for source, quotes in sorted(by_source.items()):
-                parent = tree.insert("", tk.END, text=f"{theme.name} ({theme.id})", values=(source,), open=True)
+                current = reviews.definition_is_current(theme)
+                definition = "Current definition" if current else "Earlier definition"
+                parent = tree.insert("", tk.END, text=f"{theme.name} ({theme.id})", values=(source, definition), open=True)
                 for quote in sorted(quotes, key=lambda q: q.source_start):
-                    note = reviews.latest(theme, quote, sources, reviewer=reviewer)
-                    status = note.disposition if note else "No current review"
+                    note = reviews.for_navigation(theme, quote, sources, reviewer=reviewer)
+                    if current:
+                        status = note.disposition if note else "No current review"
+                    else:
+                        status = f"Historical: {note.disposition}" if note else "No review this pass"
                     item = self._insert_source_passage(parent, theme, quote, status)
                     tree.set(item, "match_link", "Recorded" if links[quote.quote_id] else "None recorded")
         return (f"Assignments by {reviewer}. Double-click a passage or press Enter to open it. "

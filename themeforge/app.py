@@ -51,7 +51,8 @@ from .manual_editing import (
     update_theme_memo,
 )
 from .match_reviews import (
-    HISTORICAL_DEFINITION, HISTORICAL_ENTRY, NO_CURRENT_REVIEW, REVIEW_ACTION, REVIEW_LABELS, MatchReviews, match_id, match_snapshot,
+    HISTORICAL_DEFINITION, HISTORICAL_ENTRY, HISTORICAL_MANUAL, NO_CURRENT_REVIEW, REVIEW_ACTION, REVIEW_LABELS,
+    MatchReviews, match_id, match_snapshot,
 )
 from .project_io import ProjectCopyRequired, ProjectState, UnsupportedProjectFormatError, load_project, save_project
 from .quote_units import speaker_stopwords, suggestion_inputs
@@ -1301,7 +1302,7 @@ class ThemeForgeApp(tk.Tk):
             self.status_text.set("Use Previous quote or Next quote to show the verified passage in its transcript before reviewing.")
             return
         if not self.match_reviews.definition_is_current(theme):
-            self.status_text.set(HISTORICAL_DEFINITION)
+            self.status_text.set(HISTORICAL_MANUAL if match.quote.manual_definition_assignment else HISTORICAL_DEFINITION)
             return
         actor = self.researcher_name.get().strip()
         if not actor:
@@ -1338,11 +1339,12 @@ class ThemeForgeApp(tk.Tk):
         if note:
             summary = note.describe(theme.name)
         elif not self.match_reviews.definition_is_current(theme):
-            summary = HISTORICAL_DEFINITION
+            summary = HISTORICAL_MANUAL if quote.manual_definition_assignment else HISTORICAL_DEFINITION
             if reviewer:
                 earlier = self.match_reviews.for_navigation(theme, quote, self._display_sources, reviewer=reviewer)
                 if earlier:
-                    summary = (f"{HISTORICAL_ENTRY} See Audit log.\n"
+                    entry_notice = HISTORICAL_MANUAL if quote.manual_definition_assignment else HISTORICAL_ENTRY
+                    summary = (f"{entry_notice} See Audit log.\n"
                                f"Earlier review: {earlier.disposition} by {earlier.actor} — {earlier.reason}")
         self.match_review_text.set(f"{quote.source_name}, line {quote.source_line} | {summary}")
 

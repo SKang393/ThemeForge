@@ -98,7 +98,8 @@ def current_assignment_csv(project: CodedProject) -> tuple[str, int, int]:
     writer.writerow(("assignment_id", "theme_id", "assigned_by", "assigned_utc", "code_name", "definition",
                      "examples_json", "source", "source_snapshot_sha256", "source_line", "source_start",
                      "source_end", "passage", "current_quote_memo", "other_current_rows_excluded", "scope"))
-    scope = ("Current manual codebook assignments only, checked against creation records and the cached source. "
+    scope = ("Manual assignments still in the project, checked against creation records and the cached source. "
+             "Each row uses its original definition, which may differ from the loaded codebook. "
              "Other stored quote rows, including suggestions and freehand codes, are excluded. Absence is not a negative code. "
              "These records do not establish findings or complete review. Spreadsheet-leading =, +, -, @ are apostrophe-prefixed.")
     for key, a in sorted(assignments.items()):
