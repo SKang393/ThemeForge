@@ -1,11 +1,12 @@
 """Compare current review notes and disclose definition differences at verified source spans."""
 import csv
 from collections import Counter
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 import io
 
 from .analysis_types import Theme, ThemeQuote
 from .audit import neutralize_csv_cell
+from .codebook_match import comparison_entry_snapshot
 from .match_reviews import MatchReviews, ReviewNote, match_id, match_snapshot, review_key
 from .rigor import CodedProject, CoderLabels
 from .source_location import TranscriptIndex
@@ -100,10 +101,7 @@ def _matches(project: CodedProject, reviews: MatchReviews,
         current_definition = reviews.definition_is_current(theme)
         # Only generated suggestions use the entry/span pairing rule across projects.
         entry = reviews.codebook_entry(theme) if "generated_from_codebook_entry" in theme.validation else None
-        definition = None
-        if entry is not None:
-            definition = replace(entry, description=normalize_space(entry.description),
-                                 examples=tuple(normalize_space(e) for e in entry.examples)).snapshot()
+        definition = comparison_entry_snapshot(entry) if entry is not None else None
         for quote in theme.quotes:
             if source_names is not None and quote.source_name not in source_names:
                 continue

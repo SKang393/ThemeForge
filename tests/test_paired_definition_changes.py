@@ -65,6 +65,23 @@ class PairedDefinitionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no verified shared matches"):
             compare_match_reviews(left, ambiguous, readers, source_names=bench)
 
+    def test_line_break_that_activates_example_guidance_is_not_cosmetic(self):
+        docs = (TranscriptDocument("bench.txt", TEXT.splitlines()[0]),)
+
+        def project(example):
+            entries = (CodebookEntry(*ORIGINAL[0], examples=(example,)),)
+            result = analyze_documents(docs, AnalysisSettings(codebook_entries=entries))
+            return CodedProject(docs, result, codebook_entries=entries)
+
+        readers = CoderLabels("Flint", "Ochre")
+        literal = project("We documented the rim Exclude: visual inspection alone.")
+        directive = project("We documented the rim\nExclude: visual inspection alone.")
+        respaced = project("We documented\n the rim\r\n  Exclude: visual  inspection alone.")
+        self.assertEqual(compare_match_reviews(literal, directive, readers).outcome_counts,
+                         {"different_definitions": 1})
+        self.assertEqual(compare_match_reviews(directive, respaced, readers).outcome_counts,
+                         {"neither_reviewed": 1})
+
     def test_saved_reviews_under_revised_and_respaced_definitions(self):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)

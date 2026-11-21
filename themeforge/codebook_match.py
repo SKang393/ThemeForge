@@ -23,6 +23,7 @@ from .analysis import (
     _theme_color,
     _weighted_bm25_score,
 )
+from .text_utils import normalize_space
 
 
 _LABEL = r"(include|exclude)[ \t]*:"
@@ -46,6 +47,16 @@ def _positive_text(text: str, label_pattern: re.Pattern[str]) -> str:
 def _search_entry(entry: CodebookEntry) -> CodebookEntry:
     examples = tuple(text for example in entry.examples if (text := _positive_text(example, _EXAMPLE_LABEL)))
     return replace(entry, description=_positive_text(entry.description, _DEFINITION_LABEL), examples=examples)
+
+
+def comparison_entry_snapshot(entry: CodebookEntry) -> str:
+    def sections(text: str, labels: re.Pattern[str]) -> str:
+        # Split first: in examples a newline can turn literal words into an instruction.
+        # Each normalized part is newline-free, so separators preserve every boundary.
+        return "\n".join(normalize_space(part) for part in labels.split(text))
+
+    return replace(entry, description=sections(entry.description, _DEFINITION_LABEL),
+                   examples=tuple(sections(e, _EXAMPLE_LABEL) for e in entry.examples)).snapshot()
 
 
 def build_codebook_themes(
