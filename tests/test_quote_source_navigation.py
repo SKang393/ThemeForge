@@ -83,11 +83,20 @@ class QuoteSourceNavigationTests(unittest.TestCase):
 
         app.next_quote()  # The selected text now belongs to the active quote.
         self.assertEqual(app._visible_review_match().quote, self.good)
+        app.researcher_name.set("  ")
+        app.uncode_current_quote()
+        self.assertIn("name or pseudonym", app.status_text.get())
+        self.assertEqual(path.read_bytes(), saved)
+        self.assertEqual(app.result, state.result)
+        self.assertFalse(app.audit_events)
+        self.assertEqual(app._visible_review_match().quote, self.good)
+
+        app.researcher_name.set("Second reader")
         app.uncode_current_quote()
         reopened = load_project(path)
         self.assertEqual(reopened.result.themes[0].quotes, [first, other])
-        self.assertEqual([(e.action, e.target_id) for e in reopened.audit_events],
-                         [("quote_uncoded", self.good.quote_id)])
+        self.assertEqual([(e.action, e.target_id, e.actor) for e in reopened.audit_events],
+                         [("quote_uncoded", self.good.quote_id, "Second reader")])
 
     def test_stale_span_and_partial_prefix_do_not_highlight_another_speaker_or_omit_records(self):
         state, path, original = self.open_rows([self.stale, self.good, self.prefix])

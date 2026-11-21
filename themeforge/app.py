@@ -1407,6 +1407,9 @@ class ThemeForgeApp(tk.Tk):
         if match is None:
             self.status_text.set("Use Previous quote or Next quote to show the passage you intend to uncode.")
             return
+        if not self.researcher_name.get().strip():
+            self.status_text.set("Enter your name or pseudonym before uncoding this quote.")
+            return
         widget = self.transcript_widgets[match.source_name]
         selection = widget.tag_ranges(tk.SEL)
         if selection and (widget.compare(selection[0], "<", match.location.start)
