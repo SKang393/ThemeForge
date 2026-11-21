@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Iterable
 import re
 
 from .analysis_constants import (
     EMBEDDED_SPEAKER_LABEL_RE,
+    EXCLUDED_SPEAKER_RE,
+    GENERIC_IMPORT_SPEAKER_RE,
     INLINE_SPEAKER_TIMESTAMP_RE,
     OTTER_BOILERPLATE_RE,
     PDF_HEADER_RE,
@@ -32,6 +35,9 @@ def parse_transcript(text: str, source_name: str = "Transcript") -> list[Transcr
     turn_line = 1
     current_has_speaker = False
     speaker_lookup: dict[str, str] = {}
+    # Physical line headers can corroborate a multiword role with no capitalization cues.
+    header_counts = Counter(normalize_space(header[1]).lower() for line in text.splitlines()
+                            if (header := SPEAKER_RE.match(line)))
     cursor = 0
     cursor_line = 1
 
@@ -48,6 +54,16 @@ def parse_transcript(text: str, source_name: str = "Transcript") -> list[Transcr
         if key not in speaker_lookup:
             speaker_lookup[key] = name
         return speaker_lookup[key]
+
+    def is_colon_label(raw_name: str) -> bool:
+        name = normalize_space(raw_name)
+        key = name.lower()
+        if key in speaker_lookup or header_counts[key] >= 2:
+            return True
+        if EXCLUDED_SPEAKER_RE.fullmatch(name) or GENERIC_IMPORT_SPEAKER_RE.fullmatch(name):
+            return True
+        words = name.split()
+        return len(words) == 1 or (len(words) == 2 and words[-1].isdecimal()) or all(w[0].isupper() for w in words)
 
     # Preparation inserts boundaries at labels and timestamps. Each nonempty
     # logical line is still a literal substring of the imported document.
@@ -74,7 +90,7 @@ def parse_transcript(text: str, source_name: str = "Transcript") -> list[Transcr
             continue
 
         speaker_match = SPEAKER_RE.match(line)
-        if speaker_match:
+        if speaker_match and is_colon_label(speaker_match[1]):
             flush()
             current_speaker = speaker_name(speaker_match.group(1))
             current_has_speaker = True

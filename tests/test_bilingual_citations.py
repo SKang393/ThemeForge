@@ -32,8 +32,10 @@ CONTROL_FILE = "desk-control.txt"
 CODE = "봉투 전달 / Envelope handoff"
 DEFINITION = "파란 봉투를 다음 조에 직접 건넨 일. Handing the blue envelope to the next crew."
 ACTOR = "검토자 솔"
+OTHER_ACTOR = "검토자 달"
 REASON = "두 번째 교대 때 봉투를 건넸고 저녁 조가 수령을 확인했다."
 DEFER = "첫 번째 교대 때 누가 받았는지 확인이 필요하다."
+OTHER_REASON = "두 번째 봉투의 수령 기록을 다시 보고 싶다."
 CONTROL_REASON = "The second control speaker describes handing over the envelope."
 
 # Half-open Unicode code-point offsets in the imported LF text, fixed before running Analyze.
@@ -87,7 +89,7 @@ class BilingualCitationTests(unittest.TestCase):
                               row["match_review_actor"], row["match_review_reason"], row["match_review_disposition"]),
                              (CODE, digest, "exact_span", ACTOR, reason, "supported"))
         output = path.read_bytes()
-        for withheld in (DEFER, CONTROL_FILE, CONTROL_QUOTE, CONTROL_REASON):
+        for withheld in (DEFER, OTHER_ACTOR, OTHER_REASON, CONTROL_FILE, CONTROL_QUOTE, CONTROL_REASON):
             self.assertNotIn(withheld, output.decode("utf-8"))
         manual_path = root / f"manual-{stage}.csv"
         manual, = export(audit, "Export this project's manual codebook assignments", manual_path)
@@ -130,6 +132,9 @@ class BilingualCitationTests(unittest.TestCase):
 
         self.review(app, FIRST, "Revisit later", DEFER)
         self.review(app, CONTROL_SECOND, "Supports this theme", CONTROL_REASON)
+        app.researcher_name.set(OTHER_ACTOR)
+        self.review(app, SECOND, "Revisit later", OTHER_REASON)
+        app.researcher_name.set(ACTOR)
         self.review(app, SECOND, "Supports this theme", REASON)
         # Select the second copy directly in the transcript, independently of the match highlight.
         widget = app.transcript_widgets[INTERVIEW_FILE]
@@ -159,8 +164,17 @@ class BilingualCitationTests(unittest.TestCase):
         with patch("themeforge.app.filedialog.askopenfilename", return_value=str(project)):
             press(app, "Open project")
         self.assertEqual(app.researcher_name.get(), ACTOR)
-        notes = [json.loads(event.details) for event in app.audit_events if event.action == "match_review_note"]
-        self.assertEqual([(n["match"]["quote"]["source_start"], n["disposition"], n["reason"]) for n in notes],
-                         [(99, "deferred", DEFER), (105, "supported", CONTROL_REASON), (190, "supported", REASON)])
+        notes = [(event.actor, json.loads(event.details)) for event in app.audit_events if event.action == "match_review_note"]
+        self.assertEqual([(actor, n["match"]["quote"]["source_start"], n["disposition"], n["reason"]) for actor, n in notes],
+                         [(ACTOR, 99, "deferred", DEFER), (ACTOR, 105, "supported", CONTROL_REASON),
+                          (OTHER_ACTOR, 190, "deferred", OTHER_REASON), (ACTOR, 190, "supported", REASON)])
+        app.review_source_box.current(app.review_source_box["values"].index(INTERVIEW_FILE))
+        for actor, button, reason in ((OTHER_ACTOR, "Next deferred", OTHER_REASON), (ACTOR, "Next supported", REASON)):
+            app.researcher_name.set(actor)
+            press(app, button)
+            quote = app._current_quote_match().quote
+            self.assertEqual((quote.source_name, quote.source_line, quote.source_start, quote.source_end,
+                              quote.speaker, quote.text), SECOND)
+            self.assertIn(reason, app.match_review_text.get())
         self.assertEqual(self.export_tables(app, root, "after"), before)
         self.assertEqual(project.read_bytes(), original)

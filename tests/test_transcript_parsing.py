@@ -19,6 +19,22 @@ Participant 3: I wanted more examples from the instructor before submitting big 
 
 
 class TranscriptParsingTests(unittest.TestCase):
+    def test_colons_in_prose_preserve_the_turn_and_its_exact_text(self):
+        opening = "The café had one rule: keep the counter clear."
+        english = "I kept a list. I wrote one reminder: check the seal.\nThe list also said: use blue ink."
+        korean = "봉투를 받았어요. 봉투에 이렇게 썼어요: 저녁 조가 받아 주세요."
+        text = f"{opening}\nRenée: {english}\n별: {korean}"
+        turns = parse_transcript(text)
+        self.assertEqual([(s.speaker, s.source_line, s.text) for s in turns],
+                         [("Unknown", 1, opening), ("Renée", 2, english), ("별", 4, korean)])
+        for turn in turns:
+            self.assertEqual(text[turn.source_start:turn.source_end], turn.text)
+
+    def test_multiword_roles_remain_labels_with_a_number_or_repeated_header(self):
+        text = ("포장 담당: 첫 번째 봉투를 받았어요.\n참여자 1: 다음 조에 전달했어요.\n"
+                "포장 담당: 두 번째 봉투도 받았어요.\nNote taker: Both deliveries were logged.")
+        self.assertEqual([s.speaker for s in parse_transcript(text)], ["포장 담당", "참여자 1", "포장 담당", "Note taker"])
+
     def test_inline_and_timestamped_accented_labels_preserve_original_offsets(self):
         for label in ("Écho", "E\u0301cho"):
             for header in (f"{label}: ", f"{label} 0:12 "):

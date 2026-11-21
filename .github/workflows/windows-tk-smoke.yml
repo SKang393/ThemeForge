@@ -52,6 +52,10 @@ jobs:
           test_selection_decisions.ImportedSelectionTests.test_first_freehand_code_exports_the_selected_occurrence
           test_discovery_hierarchy.DiscoveryHierarchyTests.test_reused_then_absent_parent_id_preserves_the_chosen_group
           test_supported_matches.SupportedMatchTests.test_discover_review_assign_reopen_and_export
+          test_bilingual_citations
+          test_transcript_parsing.TranscriptParsingTests.test_colons_in_prose_preserve_the_turn_and_its_exact_text
+          test_transcript_parsing.TranscriptParsingTests.test_multiword_roles_remain_labels_with_a_number_or_repeated_header
+          test_transcript_parsing.TranscriptParsingTests.test_inline_and_timestamped_accented_labels_preserve_original_offsets
           test_paired_match_reviews.PairedMatchReviewTests.test_independent_reviews_survive_reopen_and_comparison
           test_paired_match_reviews.PairedMatchReviewTests.test_appendix_counts_contain_only_fixed_labels_and_scoped_totals
           test_paired_match_reviews.PairedMatchReviewTests.test_empty_canceled_and_replaced_source_previews_cannot_write_a_file

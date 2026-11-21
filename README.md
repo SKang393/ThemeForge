@@ -543,6 +543,11 @@ Small group meetings helped because peers explained assignments.
 The app also accepts plain paragraphs without speaker labels, but speaker labels
 make quote evidence easier to review.
 
+A heading such as `Note:` can look like a speaker label. Check the parsed
+labels in **Speakers for suggestions**. For a multiword speaker label with
+lowercase or uncased words that appears only once, a timestamp header such as
+`포장 담당 0:03` makes the turn boundary explicit.
+
 Older analyses can include an accented speaker label in the quotation and
 credit the preceding speaker. Reopening preserves that recorded citation.
 Check the label against the transcript before sharing. To review newly parsed
