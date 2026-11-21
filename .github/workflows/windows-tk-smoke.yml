@@ -1,0 +1,116 @@
+name: Windows Tk smoke
+
+on:
+  push:
+    branches: [review/cloud-coding-windows-smoke]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  coding-workflows:
+    if: github.event.repository.private == false
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Build and unpack the standard portable ZIP
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $version = (Get-Content VERSION -Raw).Trim()
+          $venv = Join-Path $env:RUNNER_TEMP 'portable-build'
+          python -m venv $venv
+          $python = Join-Path $venv 'Scripts/python.exe'
+          & $python -m pip install --disable-pip-version-check .
+          ./scripts/build_windows_portable.ps1 -Python $python -Version $version
+          Expand-Archive -LiteralPath "release/ThemeForge-$version-windows-portable.zip" -DestinationPath "$env:RUNNER_TEMP/unpacked"
+      - name: Launch, measure and close the extracted executable
+        id: portable
+        shell: pwsh
+        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          $exe = "$env:RUNNER_TEMP/unpacked/ThemeForge-$version-windows-portable/ThemeForge.exe"
+          ./scripts/smoke_windows_portable.ps1 -Executable $exe -Version $version
+      # These synthetic studies use real Tk widgets and supply dialog responses in code.
+      - name: Check coding, discovery and review exports (portable ${{ steps.portable.outputs.layout }})
+        if: ${{ !cancelled() }}
+        env:
+          PYTHONPATH: tests
+          PYTHONHASHSEED: '0'
+          HF_HUB_OFFLINE: '1'
+        run: >-
+          python -m unittest -v
+          test_selection_decisions.FirstRunLayoutTests.test_launch_fits_available_area_and_exposes_first_code_and_review
+          test_selection_decisions.ImportedSelectionTests.test_first_freehand_code_exports_the_selected_occurrence
+          test_discovery_hierarchy.DiscoveryHierarchyTests.test_reused_then_absent_parent_id_preserves_the_chosen_group
+          test_supported_matches.SupportedMatchTests.test_discover_review_assign_reopen_and_export
+          test_bilingual_citations
+          test_timestamped_docx
+          test_paired_definition_changes
+          test_manual_record_comparison.ManualRecordComparisonTests.test_boundary_hints_preserve_exact_records_and_definition_scope
+          test_transcript_parsing.TranscriptParsingTests.test_colons_in_prose_preserve_the_turn_and_its_exact_text
+          test_transcript_parsing.TranscriptParsingTests.test_multiword_roles_remain_labels_with_a_number_or_repeated_header
+          test_transcript_parsing.TranscriptParsingTests.test_inline_and_timestamped_accented_labels_preserve_original_offsets
+          test_paired_match_reviews.PairedMatchReviewTests.test_independent_reviews_survive_reopen_and_comparison
+          test_paired_match_reviews.PairedMatchReviewTests.test_appendix_counts_contain_only_fixed_labels_and_scoped_totals
+          test_paired_match_reviews.PairedMatchReviewTests.test_empty_canceled_and_replaced_source_previews_cannot_write_a_file
+          test_paired_match_reviews.PairedMatchReviewTests.test_changed_matches_are_excluded_instead_of_counted_as_missing_reviews
+          test_resume_match_reviews.ResumeReviewTests.test_resume_across_codes_and_revisit_own_deferrals
+          test_resume_match_reviews.ResumeReviewTests.test_two_coders_reopen_independent_copies_at_compact_size
+          test_resume_match_reviews.ResumeReviewTests.test_finish_one_theme_across_sessions_with_other_codes_still_unreviewed
+          test_focus_codebook.FocusAndCodebookTests.test_exclusion_guidance_is_preserved_but_does_not_supply_search_terms
+          test_suggestion_speakers.SpeakerSelectionTests.test_first_import_narrow_dialog_save_reopen_and_export
+          test_speaker_turn_preview
+          test_suggestion_speakers.SpeakerSelectionTests.test_desktop_change_save_find_and_export
+          test_suggestion_coverage
+          test_source_scoped_find
+          test_cross_case_reviews.CrossCaseReviewTests.test_trace_supported_declined_and_deferred_passages_without_deciding_for_a_source
+          test_phase4_desktop_integration.Phase4DesktopIntegrationTests.test_open_rigor_dialog_refreshes_visible_rows_and_loaded_comparison_when_project_changes
+          test_match_reviews.MatchReviewTests.test_returning_to_by_source_refreshes_reviews_recorded_while_it_was_hidden
+          test_overlapping_assignments.OverlappingAssignmentsTests.test_revise_one_boundary_and_reopen_its_evidence
+          test_review_context.ReviewContextTests.test_neighboring_turns_in_decision_dialog_keep_exact_occurrence_and_export_scope
+          test_review_revision.ReviewRevisionTests.test_revisit_own_support_and_export_current_evidence
+          test_locate_disagreement.LocateDisagreementTests.test_two_saved_first_passes_locate_exact_disputes_without_changing_them
+      - name: Check supported evidence and selected review history at 900x600
+        if: ${{ !cancelled() }}
+        env:
+          PYTHONPATH: tests
+          PYTHONHASHSEED: '0'
+          HF_HUB_OFFLINE: '1'
+        run: >-
+          python -m unittest -v
+          test_evidence_handoff.EvidenceHandoffTests.test_selected_sources_trace_to_text_and_decision_without_the_project_audit
+          test_synthesis_handoff
+          test_scoped_decision_history
+      - name: Revisit historical passages by source and review a revised definition
+        if: ${{ !cancelled() }}
+        env:
+          PYTHONPATH: tests
+          PYTHONHASHSEED: '0'
+          HF_HUB_OFFLINE: '1'
+        run: >-
+          python -m unittest -v
+          test_codebook_reconsideration
+          test_reviewed_codebook_revision.ReviewedCodebookRevisionTests.test_repeated_match_under_a_revised_exclusion_needs_a_new_decision
+      - name: Recover a locked project and protect draft edits when changing studies
+        if: ${{ !cancelled() }}
+        env:
+          PYTHONPATH: tests
+          PYTHONHASHSEED: '0'
+          HF_HUB_OFFLINE: '1'
+        run: python -m unittest -v test_project_recovery test_transcript_handoff
+      - name: Check report rejection, codebook reuse and transcript amendments between studies
+        if: ${{ !cancelled() }}
+        env:
+          PYTHONPATH: tests
+          PYTHONHASHSEED: '0'
+          HF_HUB_OFFLINE: '1'
+        run: python -m unittest -v test_codebook_reuse test_transcript_amendment

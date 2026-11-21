@@ -6,8 +6,7 @@ from dataclasses import dataclass
 from .analysis_types import AnalysisResult, AnalysisSettings, QuoteUnit, Theme, ThemeQuote, TranscriptDocument
 from .analysis_vectors import cosine, tfidf_vectors
 from .local_embeddings import local_embedding_vectors
-from .quote_units import extract_quote_units
-from .transcript_parser import parse_transcript
+from .quote_units import suggestion_inputs
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +42,8 @@ def find_similar_passages(
     settings: AnalysisSettings,
     quote_id: str = "",
     limit: int = 8,
+    *,
+    source_names: set[str] | None = None,
 ) -> SimilarPassageResult:
     theme = next((item for item in result.themes if item.id == theme_id), None)
     if theme is None:
@@ -52,7 +53,7 @@ def find_similar_passages(
     if not query_text:
         return SimilarPassageResult((), "The selected theme has no text to use for similarity search.")
 
-    candidates = _uncoded_quote_units(documents, result, settings.min_quote_words)
+    candidates = _uncoded_quote_units(documents, result, settings)
     if not candidates:
         return SimilarPassageResult((), "No uncoded quote-length passages remain in the open transcripts.")
 
@@ -62,7 +63,9 @@ def find_similar_passages(
         return SimilarPassageResult((), "Similarity vectors could not be created for the open transcripts.")
 
     query_vector = vectors[0]
-    query = SimilarityQuery(theme.id, quote_id, query_text, note)
+    method_note = note if source_names is None else f"{note} Results limited to {', '.join(sorted(source_names))}."
+    query = SimilarityQuery(theme.id, quote_id, query_text, method_note)
+    # Keep similarity on the same corpus; apply the reviewer's source scope before the display limit.
     ranked = sorted(
         (
             SimilarPassage(
@@ -76,6 +79,7 @@ def find_similar_passages(
                 query=query,
             )
             for candidate, vector in zip(candidates, vectors[1:], strict=True)
+            if source_names is None or candidate.source_name in source_names
         ),
         key=lambda item: (-item.similarity, item.source_name.casefold(), item.source_start),
     )
@@ -97,18 +101,10 @@ def _query_text(theme: Theme, quote_id: str) -> str:
 def _uncoded_quote_units(
     documents: Sequence[TranscriptDocument],
     result: AnalysisResult,
-    min_quote_words: int,
+    settings: AnalysisSettings,
 ) -> list[QuoteUnit]:
     coded_quotes = [quote for theme in result.themes for quote in theme.quotes]
-    candidates = [
-        quote
-        for document in documents
-        if document.text.strip()
-        for quote in extract_quote_units(
-            parse_transcript(document.text, source_name=document.name or "Transcript"),
-            min_quote_words=min_quote_words,
-        )
-    ]
+    _, candidates = suggestion_inputs(documents, settings)
     return [candidate for candidate in candidates if not _is_already_coded(candidate, coded_quotes)]
 
 

@@ -389,20 +389,17 @@ THEME_COLORS = (
 
 TOKEN_RE = re.compile("[A-Za-z\uac00-\ud7a3][A-Za-z0-9\uac00-\ud7a3'-]*")
 TOKEN_NOISE_RE = re.compile(r"p\d+", re.IGNORECASE)
-SPEAKER_RE = re.compile("^\\s*([A-Za-z\uac00-\ud7a3][A-Za-z0-9\uac00-\ud7a3 _.-]{0,60})\\s*:\\s+(.+?)\\s*$")
-SPEAKER_TIMESTAMP_RE = re.compile(
-    "^\\s*([A-Za-z\uac00-\ud7a3][A-Za-z0-9\uac00-\ud7a3 _.'-]{0,60}?)\\s+"
-    r"(?:(?:\d+:)?\d{1,2}:\d{2}(?:\.\d+)?)\s*$"
-)
+# Match labels in place so accents (including decomposed accents) retain their source offsets.
+_SPEAKER_LABEL = r"[^\W\d_][\w\u0300-\u036f .-]{0,60}"
+_TIMESTAMP_LABEL = r"[^\W\d_][\w\u0300-\u036f .'-]{0,60}?"
+_TIMESTAMP = r"(?:\d+:)?\d{1,2}:\d{2}(?:\.\d+)?"
+SPEAKER_RE = re.compile(rf"^\s*({_SPEAKER_LABEL})\s*:\s+(.+?)\s*$")
+SPEAKER_TIMESTAMP_RE = re.compile(rf"^\s*({_TIMESTAMP_LABEL})\s+{_TIMESTAMP}\s*$")
 INLINE_SPEAKER_TIMESTAMP_RE = re.compile(
-    r"(?P<prefix>^|[.!?]\s+|\n)"
-    "(?P<header>[A-Za-z\uac00-\ud7a3][A-Za-z0-9\uac00-\ud7a3 _.'-]{0,60}?\\s+"
-    r"(?:(?:\d+:)?\d{1,2}:\d{2}(?:\.\d+)?))\s+",
+    rf"(?P<prefix>^|[.!?]\s+|\n)(?P<header>{_TIMESTAMP_LABEL}\s+{_TIMESTAMP})\s+",
     re.MULTILINE,
 )
-EMBEDDED_SPEAKER_LABEL_RE = re.compile(
-    "(?<=[.!?])\\s+(?=[A-Za-z\uac00-\ud7a3][A-Za-z0-9\uac00-\ud7a3 _.-]{0,60}\\s*:\\s+)"
-)
+EMBEDDED_SPEAKER_LABEL_RE = re.compile(rf"(?<=[.!?])\s+(?={_SPEAKER_LABEL}\s*:\s+)")
 SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 TIMESTAMP_RE = re.compile(r"^(?:\d+:)?\d{1,2}:\d{2}(?:\.\d+)?$")
 TIMESTAMP_RANGE_RE = re.compile(

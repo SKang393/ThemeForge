@@ -10,6 +10,7 @@ from math import isfinite
 from uuid import uuid4
 
 from .analysis_types import AnalysisResult, CodebookEntry, Theme, ThemeQuote, TranscriptDocument, ValidationValue
+from .audit import AuditEvent
 
 MANUAL_ONLY_NOTE = "No automated analysis has been run. Unselected passages have not been assessed."
 
@@ -288,9 +289,37 @@ def manual_assignment_rationale(entry: CodebookEntry, source: str, start: int, e
             f"[{start}:{end}]. Not scored.\n{definition_text(entry)}")
 
 
+def recorded_definition(theme: Theme) -> CodebookEntry:
+    snapshot = theme.validation.get("manual_codebook_definition")
+    if not isinstance(snapshot, str):
+        raise ValueError("A manual assignment has no original definition snapshot in its current group.")
+    raw = json.loads(snapshot)
+    if not (isinstance(raw, dict) and set(raw) == {"name", "description", "examples"}
+            and isinstance(raw["name"], str) and raw["name"].strip() and isinstance(raw["description"], str)
+            and isinstance(raw["examples"], list) and all(isinstance(v, str) for v in raw["examples"])):
+        raise ValueError("The recorded definition is incomplete or unsupported.")
+    entry = CodebookEntry(raw["name"], raw["description"], tuple(raw["examples"]))
+    if entry.name != theme.name:
+        raise ValueError("A manual assignment's current group differs from its recorded definition.")
+    return entry
+
+
+def assignment_creation(theme: Theme, quote: ThemeQuote, entry: CodebookEntry,
+                        matches: list[AuditEvent]) -> AuditEvent:
+    """Check the current assignment against the creation events indexed by its ID."""
+    if len(matches) != 1 or not matches[0].actor.strip():
+        raise ValueError("A manual assignment lacks one unambiguous, attributed creation audit event.")
+    event = matches[0]
+    anchor = quote.source_name, quote.source_start, quote.source_end
+    if (event.details != manual_assignment_details(entry, *anchor, theme.id)
+            or quote.rationale != manual_assignment_rationale(entry, *anchor, event.actor)):
+        raise ValueError("An assignment changed or no longer matches its original attributed record.")
+    return event
+
+
 def apply_codebook_definition(
     result: AnalysisResult, entry: CodebookEntry, document: TranscriptDocument,
-    selection: ManualSelection, actor: str,
+    selection: ManualSelection, actor: str, *, replacing: tuple[Theme, ThemeQuote] | None = None,
 ) -> tuple[AnalysisResult, str, str]:
     """Group by the exact loaded definition, never by its label or row number."""
     start, end = selection.source_start, selection.source_end
@@ -299,8 +328,17 @@ def apply_codebook_definition(
         or not selection.text.strip() or document.text.count("\n", 0, start) + 1 != selection.source_line
     ):
         raise ValueError("A named coder and an exact selection in the active transcript are required.")
-    snapshot = json.dumps(asdict(entry), ensure_ascii=False, sort_keys=True)
-    target = next((t for t in result.themes if t.validation.get("manual_codebook_definition") == snapshot), None)
+    snapshot = entry.snapshot()
+    original = None
+    if replacing:
+        target, original = replacing
+        if (not any(t is target for t in result.themes) or original not in target.quotes
+                or not original.manual_definition_assignment or original.source_name != document.name
+                or recorded_definition(target) != entry
+                or sum(q.quote_id == original.quote_id for t in result.themes for q in t.quotes) != 1):
+            raise ValueError("The original assignment, source or definition could not be identified.")
+    else:
+        target = next((t for t in result.themes if t.validation.get("manual_codebook_definition") == snapshot), None)
     if target and any(q.manual_definition_assignment and
                       (q.source_name, q.source_start, q.source_end) == (document.name, start, end)
                       for q in target.quotes):
@@ -316,8 +354,12 @@ def apply_codebook_definition(
         target = updated.themes[-1]
         bound = _refresh_theme(replace(target, validation={"manual_codebook_definition": snapshot}))
         return replace(updated, themes=[*updated.themes[:-1], bound]), bound.id, quote.quote_id
-    bound = _refresh_theme(replace(target, quotes=[*target.quotes, quote]))
-    return replace(result, themes=[bound if t.id == target.id else t for t in result.themes]), bound.id, quote.quote_id
+    if original is not None:
+        quotes = [replace(quote, memo=q.memo) if q.quote_id == original.quote_id else q for q in target.quotes]
+        bound = replace(target, quotes=quotes)
+    else:
+        bound = _refresh_theme(replace(target, quotes=[*target.quotes, quote]))
+    return replace(result, themes=[bound if t is target else t for t in result.themes]), bound.id, quote.quote_id
 
 
 def uncode_quote(result: AnalysisResult, theme_id: str, quote_id: str) -> AnalysisResult:
@@ -339,8 +381,11 @@ def update_quote_boundary(
     selection: ManualSelection,
 ) -> AnalysisResult:
     text = selection.text.strip()
-    if not text or _find_quote(result, theme_id, quote_id) is None:
+    original = _find_quote(result, theme_id, quote_id)
+    if not text or original is None:
         return result
+    if original.manual_definition_assignment:
+        raise ValueError("Review the recorded definition to replace a manual codebook assignment.")
     themes = [
         _refresh_theme(
             replace(
@@ -427,49 +472,88 @@ def preserve_manual_themes(previous: AnalysisResult | None, generated: AnalysisR
     if not manual_themes:
         return generated
 
-    if generated.themes and all("generated_from_codebook_entry" in t.validation for t in generated.themes):
+    codebook_run = bool(generated.themes) and all(
+        "generated_from_codebook_entry" in t.validation for t in generated.themes
+    )
+    if codebook_run:
         # C01 is an entry position, not a definition identity. Q0001 identifies a
         # passage, not its relationship to one particular definition.
         retained = [t if t.id.startswith("M") else replace(t, validation={
             **t.validation, "reanalysis_role": "Retained earlier edits"}) for t in manual_themes]
-        taken = {t.id for t in retained} | {t.parent_theme_id for t in retained if t.parent_theme_id}
-        reserved = taken | {t.id for t in generated.themes}
-        fresh = []
-        for t in generated.themes:
-            group_id = t.id
-            if group_id in taken:
-                n = 2
-                while f"{t.id}-r{n}" in reserved:
-                    n += 1
-                group_id = f"{t.id}-r{n}"
-                reserved.add(group_id)
-            fresh.append(replace(t, id=group_id, validation={**t.validation,
-                "reanalysis_role": "Fresh codebook suggestion",
-                "review_status": "Fresh codebook match; researcher review required"}))
-        return replace(generated, themes=[*retained, *fresh], notes=[*generated.notes,
-            "Retained edited groups: " + ", ".join(t.id for t in retained) + ". Fresh codebook suggestions: "
-            + ", ".join(t.id for t in fresh) + ". Matching group positions or passage IDs do not transfer review."])
+        candidates = [
+            replace(t, validation={**t.validation, "reanalysis_role": "Fresh codebook suggestion",
+                                   "review_status": "Fresh codebook match; researcher review required"})
+            for t in generated.themes
+        ]
+    else:
+        retained = manual_themes
+        manual_theme_ids = {t.id for t in retained}
+        manual_quote_ids = {q.quote_id for t in retained for q in t.quotes}
+        candidates = []
+        for theme in generated.themes:
+            if theme.id in manual_theme_ids or not theme.quotes:
+                continue
+            quotes = [q for q in theme.quotes if q.quote_id not in manual_quote_ids]
+            if len(quotes) == len(theme.quotes):
+                candidates.append(theme)  # The full cluster can be larger than its displayed examples.
+            elif quotes:
+                candidates.append(_refresh_generated_theme(replace(theme, quotes=quotes)))
 
-    manual_theme_ids = {theme.id for theme in manual_themes}
-    manual_quote_ids = {quote.quote_id for theme in manual_themes for quote in theme.quotes}
-    generated_themes = [
-        _refresh_generated_theme(
-            replace(
-                theme,
-                quotes=[quote for quote in theme.quotes if quote.quote_id not in manual_quote_ids],
-            )
-        )
-        for theme in generated.themes
-        if theme.id not in manual_theme_ids
-    ]
-    return replace(
-        generated,
-        themes=[*manual_themes, *[theme for theme in generated_themes if theme.quotes]],
-        notes=[
-            *generated.notes,
-            f"Preserved {len(manual_themes)} researcher-edited theme(s) during reanalysis.",
-        ],
-    )
+    parents, fresh = _preserve_hierarchy_parents(previous, retained, candidates)
+    notes = list(generated.notes)
+    if codebook_run:
+        notes.append("Retained edited groups: " + ", ".join(t.id for t in retained) + ". Fresh codebook suggestions: "
+                     + ", ".join(t.id for t in fresh) + ". Matching group positions or passage IDs do not transfer review.")
+    else:
+        notes.append(f"Preserved {len(retained)} researcher-edited theme(s) during reanalysis.")
+    if parents:
+        notes.append("Earlier suggestions kept as hierarchy parents: " + ", ".join(t.id for t in parents)
+                     + ". Their evidence and scores describe the earlier grouping.")
+    return replace(generated, themes=[*retained, *parents, *fresh], notes=notes)
+
+
+def _retained_parent(theme: Theme) -> Theme:
+    return replace(theme, validation={
+        **theme.validation,
+        "reanalysis_role": "Retained hierarchy parent",
+        "review_status": "Earlier suggestion retained for hierarchy. Researcher review required.",
+    })
+
+
+def _preserve_hierarchy_parents(previous: AnalysisResult, retained: list[Theme],
+                                candidates: list[Theme]) -> tuple[list[Theme], list[Theme]]:
+    by_id = {t.id: t for t in previous.themes}
+    retained_ids = {t.id for t in retained}
+    pending = [t.parent_theme_id for t in retained if t.parent_theme_id]
+    parent_ids: set[str] = set()
+    while pending:
+        parent_id = pending.pop()
+        if parent_id in parent_ids:
+            continue
+        parent_ids.add(parent_id)
+        parent = by_id.get(parent_id)
+        if parent and parent.parent_theme_id:
+            pending.append(parent.parent_theme_id)
+
+    parents = {t.id: _retained_parent(t) for t in previous.themes if t.id in parent_ids and t.id not in retained_ids}
+    # Reserve even unresolved older references. A new suggestion cannot supply the missing identity.
+    taken = retained_ids | parent_ids
+    reserved = taken | {t.id for t in candidates}
+    fresh = []
+    for candidate in candidates:
+        group_id = candidate.id
+        if group_id in parents and parents[group_id] == _retained_parent(candidate):
+            # The underlying group matches, including evidence and definition. One copy serves both uses.
+            del parents[group_id]
+        elif group_id in taken:
+            n = 2
+            while f"{group_id}-r{n}" in reserved:
+                n += 1
+            group_id = f"{group_id}-r{n}"
+            reserved.add(group_id)
+            candidate = replace(candidate, id=group_id)
+        fresh.append(candidate)
+    return list(parents.values()), fresh
 
 
 def _find_theme(result: AnalysisResult, theme_id: str) -> Theme | None:

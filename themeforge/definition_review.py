@@ -1,12 +1,88 @@
-"""Confirm an exact transcript passage against the full entries sharing a codebook label."""
+"""Review passages in context, apply codebook definitions, and preview codebook reuse."""
 from __future__ import annotations
 
 import tkinter as tk
 from collections.abc import Sequence
-from tkinter import ttk
+from dataclasses import replace
+from tkinter import simpledialog, ttk
+from tkinter.scrolledtext import ScrolledText
 
 from .analysis_types import CodebookEntry, TranscriptDocument
 from .manual_editing import ManualSelection, definition_text
+
+
+class CodebookReuseDialog(simpledialog.Dialog):
+    """Preview the codebook text that will enter a separate study."""
+
+    def __init__(self, parent: tk.Misc, entries: tuple[CodebookEntry, ...]):
+        self.options = {"Start without a codebook": (),
+                        "Names and definitions only": tuple(replace(e, examples=()) for e in entries)}
+        if any(e.examples for e in entries):
+            self.options["Names, definitions and examples"] = entries
+        self.choice = tk.StringVar(parent, value="Start without a codebook")
+        super().__init__(parent, "Reuse codebook in the new study")
+
+    def body(self, master):
+        ttk.Label(master, wraplength=460, text="Check the preview for excerpts, identifying details and source "
+                  "references. Copied text can appear in the new study’s exports. Theme hierarchy, transcripts, "
+                  "memos and review decisions stay in the original study.").pack(fill="x", pady=(0, 6))
+        for label in self.options:
+            ttk.Radiobutton(master, text=label, value=label, variable=self.choice,
+                            command=self.show_preview).pack(anchor="w")
+        ttk.Label(master, text="Codebook text to copy").pack(anchor="w", pady=(8, 2))
+        self.preview = ScrolledText(master, width=58, height=8, wrap="word")
+        self.preview.pack(fill="both", expand=True)
+        self.show_preview()
+
+    def show_preview(self):
+        entries = self.options[self.choice.get()]
+        self.preview.configure(state="normal")
+        self.preview.delete("1.0", "end")
+        self.preview.insert("1.0", "\n\n".join(definition_text(entry) for entry in entries) or "No entries selected.")
+        self.preview.configure(state="disabled")
+
+    def apply(self):
+        self.result = self.options[self.choice.get()]
+
+
+class MatchReviewReason(simpledialog.Dialog):
+    """Read the verified match in its transcript context while recording a decision."""
+
+    def __init__(self, parent: tk.Misc, title: str, citation: str, excerpt: str,
+                 neighbors: tuple[str, str], entry: CodebookEntry | None):
+        self.citation = citation
+        self.excerpt = excerpt
+        self.neighbors = neighbors
+        self.entry = entry
+        super().__init__(parent, title)
+
+    def body(self, master):
+        context = ScrolledText(master, width=64, height=12, wrap="word")
+        before, after = self.neighbors
+        context.insert("end", self.citation + "Review the highlighted passage. Surrounding text is context.\n\n")
+        context.insert("end", before)
+        context.insert("end", self.excerpt, "evidence")
+        context.insert("end", after)
+        context.tag_configure("evidence", background="#f5dea2", foreground="#1c2023", underline=True)
+        if self.entry is not None:
+            context.insert("end", "\n\nSaved codebook entry\n" + definition_text(self.entry))
+        context.configure(state="disabled")
+        context.pack(fill="both", expand=True)
+        context.bind("<Map>", lambda event: context.see("evidence.first"))
+        self.reason_label = ttk.Label(master, text="What in the passage led to this decision? (Required)")
+        self.reason_label.pack(anchor="w", pady=(8, 2))
+        self.reason = ttk.Entry(master)
+        self.reason.pack(fill="x")
+        return self.reason
+
+    def validate(self) -> bool:
+        if self.reason.get().strip():
+            return True
+        self.reason_label.configure(text="Enter a reason to record this review, or choose Cancel.")
+        return False
+
+    def apply(self):
+        self.result = self.reason.get()
 
 
 def entry_label(index: int, entry: CodebookEntry) -> str:
@@ -18,7 +94,8 @@ def entry_label(index: int, entry: CodebookEntry) -> str:
 
 class DefinitionReview(tk.Toplevel):
     def __init__(self, parent: tk.Misc, entries: Sequence[CodebookEntry], index: int | None,
-                 document: TranscriptDocument, selection: ManualSelection, actor: str, *, source_note: str = ""):
+                 document: TranscriptDocument, selection: ManualSelection, actor: str, *, source_note: str = "",
+                 apply_label: str = "Apply selected definition"):
         super().__init__(parent)
         self.withdraw()
         self.transient(parent)
@@ -62,7 +139,7 @@ class DefinitionReview(tk.Toplevel):
         actions = ttk.Frame(body)
         actions.grid(row=6, column=0, sticky="e")
         ttk.Button(actions, text="Cancel", command=self.destroy).pack(side="left", padx=4)
-        self.apply_button = ttk.Button(actions, text="Apply selected definition", command=self.apply)
+        self.apply_button = ttk.Button(actions, text=apply_label, command=self.apply)
         self.apply_button.pack(side="left")
         self.show_choice()
         self.bind("<Escape>", lambda _e: self.destroy())
@@ -104,8 +181,10 @@ class DefinitionReview(tk.Toplevel):
 
 
 def review_definition(parent: tk.Misc, entries: Sequence[CodebookEntry], index: int | None, document: TranscriptDocument,
-                      selection: ManualSelection, actor: str, *, source_note: str = "") -> int | None:
-    dialog = DefinitionReview(parent, entries, index, document, selection, actor, source_note=source_note)
+                      selection: ManualSelection, actor: str, *, source_note: str = "",
+                      apply_label: str = "Apply selected definition") -> int | None:
+    dialog = DefinitionReview(parent, entries, index, document, selection, actor, source_note=source_note,
+                              apply_label=apply_label)
     if parent.winfo_viewable():
         dialog.deiconify()
         dialog.wait_visibility()

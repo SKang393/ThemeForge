@@ -45,7 +45,8 @@ class MatchReviewTests(unittest.TestCase):
         self.fail("Expected fictional speaker in the selected group")
 
     def mark(self, status, reason):
-        with patch("themeforge.app.simpledialog.askstring", return_value=reason):
+        with patch("themeforge.app.MatchReviewReason") as prompt:
+            prompt.return_value.result = reason
             self.app.review_current_match(status)
 
     def export(self, suffix):
@@ -53,6 +54,61 @@ class MatchReviewTests(unittest.TestCase):
         with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(path)):
             self.app.save_report()
         return path.read_text(encoding="utf-8")
+
+    def test_returning_to_by_source_refreshes_reviews_recorded_while_it_was_hidden(self):
+        app = self.app
+        app.deiconify()
+        app.update()
+        self.mark("deferred", "Check who sent the log.")
+        app.open_rigor_tools()
+        dialog, = [child for child in app.winfo_children() if isinstance(child, RigorDialog)]
+        dialog.geometry("900x600+0+0")
+        app.update()
+        tree = dialog.source_matrix_tree
+
+        def follow(item):
+            self.assertTrue(tree.winfo_viewable())
+            tree.see(item)
+            tree.focus_force()
+            tree.focus(item)
+            tree.selection_set(item)
+            app.update()
+            tree.event_generate("<Return>")
+            app.update()
+            self.assertEqual(dialog.state(), "withdrawn")
+
+        parent, = [row for row in tree.get_children() if tree.set(row, "reviews") == "1 deferred"]
+        item, = tree.get_children(parent)
+        follow(item)
+
+        with patch.object(dialog, "_render_current_state", wraps=dialog._render_current_state) as render:
+            self.mark("declined", "Jo says the log was never submitted.")
+            app.update()
+            self.select(0, "Ren")
+            self.mark("supported", "Ren describes submitting it.")
+            app.update()
+            render.assert_not_called()
+            app.open_rigor_tools()
+            app.update()
+            render.assert_called_once()
+        reviewed, = [row for row in tree.get_children() if tree.set(row, "reviews") == "1 supported, 1 declined"]
+        self.assertEqual(len(dialog.audit_tree.get_children()), len(app.audit_events))
+        saved_state = app._project_state()
+        expected = [(1, 4, 36, "declined", "Jo says the log was never submitted."),
+                    (2, 42, 75, "supported", "Ren describes submitting it.")]
+        for item, (line, start, end, status, reason) in zip(tree.get_children(reviewed), expected, strict=True):
+            self.assertEqual(tree.item(item, "text"), f"Line {line} [{start}, {end})")
+            self.assertEqual(tree.set(item, "reviews"), status)
+            follow(item)
+            self.assertEqual(app._current_document_name(), self.doc.name)
+            text = app.transcript_widgets[self.doc.name]
+            self.assertEqual(len(text.get("1.0", "selected_quote.first")), start)
+            self.assertEqual(text.get("selected_quote.first", "selected_quote.last"), self.doc.text[start:end])
+            self.assertIn(f"{status} by Reader A", app.match_review_text.get())
+            self.assertIn(reason, app.match_review_text.get())
+            app.open_rigor_tools()
+            app.update()
+        self.assertEqual(app._project_state(), saved_state)
 
     def test_reviews_survive_reopen_and_export_but_never_change_coding_or_transfer_to_new_run(self):
         app = self.app
@@ -93,8 +149,20 @@ class MatchReviewTests(unittest.TestCase):
             self.assertIn(detail["reason"], report_text)
         rows = list(csv.DictReader(io.StringIO(self.export("csv"))))
         self.assertEqual([r["match_review_disposition"] for r in rows].count("declined"), 1)
-        app.analyze()
+        original = project.read_bytes()
+        # A reader joining the study can also reset other readers' current decisions.
+        app.researcher_name.set("Reader C")
+        before = app._project_state()
+        with patch("themeforge.app.messagebox.askokcancel", return_value=False) as confirm:
+            app.analyze()
+        confirm.assert_called_once()
+        self.assertEqual(confirm.call_args.kwargs["default"], "cancel")
+        self.assertEqual(app._project_state(), before)
+        self.assertEqual(project.read_bytes(), original)
+        with patch("themeforge.app.messagebox.askokcancel", return_value=True):
+            app.analyze()
         self.assertEqual(app.result, self.first)
+        self.assertFalse(app.match_reviews.has_reviews_since_analysis)
         self.assertNotIn("Reader B", app.match_review_text.get())
         self.assertTrue(all(r["latest_match_review"] is None for t in json.loads(self.export("json"))["themes"] for r in t["quotes"]))
         self.assertEqual([e for e in load_project(project).audit_events if e.action == "match_review_note"], events)

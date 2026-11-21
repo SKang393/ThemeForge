@@ -78,9 +78,10 @@ Archive DOI: <https://doi.org/10.5281/zenodo.20653169>
 - Shows theme-by-source and theme-by-speaker matrix views with quote counts and
   unique-span coverage for coded evidence review.
 - Compares two `.tfproj` files when they have identical shared transcript text
-  and fixed shared meaning units, reporting per-theme percent agreement and
-  Cohen's kappa, prevalence or undefined-kappa warnings, and side-by-side
-  disagreements.
+  and fixed shared meaning units. Quote coverage reports show per-theme percent
+  agreement and Cohen's kappa, prevalence or undefined-kappa warnings, and
+  side-by-side disagreements. The paired review export compares two named
+  readers' decisions on shared matches.
 - Stores coder identity with persistent and exportable coding audit events.
 
 ### Exports and interface
@@ -119,8 +120,13 @@ Run the desktop app:
 python -m themeforge.app
 ```
 
-In the desktop app, use **Choose files** for transcripts and **Choose codebook**
-for optional deductive matching against researcher-defined themes.
+The desktop app starts with a blank project. Use **Choose files** to import a
+transcript. For a first code of your own, enter a **Coder name**, type the code
+in **Theme name**, select a passage in the transcript, and click **New code from
+selection** under **Code passages**. **Details** holds the keyword and memo
+controls. **Organize** holds the hierarchy and reassignment controls. Use
+**Choose codebook** for optional deductive matching against researcher-defined
+themes.
 
 To code a passage **without running Analyze**, enter a researcher name or
 pseudonym, select the passage in its transcript tab, choose a codebook entry
@@ -133,8 +139,61 @@ definition actually used. Entries with the same label but different definitions
 stay separate. Unselected text is not a rejection. Save or export immediately;
 running Analyze later adds separate suggestions, not endorsements.
 
+After **Analyze** with a codebook, the footer counts eligible passages across
+all sources with at least one displayed codebook suggestion. To browse one
+interview, choose its filename under **Quote review → Next in**, then choose
+**Next without suggestion** in the footer. It selects each eligible passage
+without a suggestion in that file, wrapping back to the first. Choose **All
+sources** to browse omissions across interviews. Changing scope uses the
+existing coverage result. Review completion is tracked separately.
+Read the surrounding text and, if a definition fits, use **Apply codebook
+entry…**. Browsing records no decision. A passage with one suggested code may
+still need another. A declined or deferred suggestion still counts as displayed.
+
+To resume, use **Open project**, check **Coder name**, then choose **Next
+unreviewed** or **Next deferred** in **Quote review**. Choose **Preview
+coverage** in the footer to count codebook suggestions under the current
+settings and browse omissions with **Next without suggestion**. The preview
+uses the transcript text inside the project, even if the original files have
+moved or changed. A different quote limit, codebook or speaker selection can
+give a different count from the saved review pass. Previewing and browsing
+leave the saved reviews and evidence intact.
+
+Choose **Analyze** when you want to start a new review pass for all coders.
+Earlier decisions stay in the audit history, and the supported evidence table
+needs fresh support decisions. To keep the reviewed pass, save the project,
+use **Save as…** for a working copy, then analyze that copy. If prompted to
+start a new pass, **Cancel** keeps the current one open.
+
+To see which passages changed for a code, use **Full report…** to save a CSV
+before editing the guidance and another after analyzing the copy. Keep the
+speaker selection and quote limit fixed. Compare the code’s generated rows
+by transcript and character range, even when the coverage totals agree.
+Open added candidates in **Quote review** on the copy. For a dropped candidate,
+return to its exact passage in the saved original. A drop records no decision.
+
+After **Choose files**, open **Speakers for suggestions** before your first
+**Analyze**. It shows the parsed labels in each imported transcript,
+the automatic decision and the number of turns. Select one row to read a
+highlighted turn beside its source context. **Next turn** cycles through the
+occurrences of that label in that file. Include and Exclude apply to all of them.
+The highlight shows how ThemeForge grouped the text. Use the source to check
+who spoke. Changing eligibility leaves the transcript and its labels intact.
+Select one or more rows and choose **Include**, **Exclude**, or **Use automatic**,
+then **Apply**. Preview coverage, Analyze and both Find actions use these choices before ranking.
+Automatic uses the existing Analyze role rules across the open study. A correction
+applies only to the selected transcript and label. Passage filters still apply.
+You can still read and manually code any source. Apply clears the open Find list
+and records the change in the audit log. Run Analyze to generate new theme
+suggestions. Save the project to keep your choices for the next session.
+Older app versions ignore these choices. From the CLI, pass a filename and its
+parsed label, for example `--include-speaker workshop.txt Host` or
+`--exclude-speaker interview.txt Facilitator`.
+
 **Reviewing candidate quotes:** Previous/Next visits the stored records,
-including ones the app cannot locate. A recorded source span is highlighted
+including ones the app cannot locate. Below the transcript, **Quote review**
+shows the rationale and decisions. The adjacent tabs hold the quote and document
+memos and the search for similar passages. A recorded source span is highlighted
 only when the full excerpt and line match at its saved offsets. This verifies
 the location, not the speaker attribution or whether the code fits the text.
 The app does not substitute another speaker's identical wording or a matching
@@ -156,18 +215,230 @@ interpretations remain unverified even for exact spans. Reports generated
 without the source documents cannot verify any locations. Older reports
 are unchanged; reopen the project and export again to see these checks.
 
-**Recording a match review:** Enter a reviewer name, select a source-verified
-quote, then choose **Not this match** (decline the pairing) or **Revisit later**
-(defer judgment). Give a reason. Unlike **Uncode quote**, neither action removes
-evidence or changes an assignment, score, count or agreement input. The latest
-note for that exact pairing appears beside its rationale and in Markdown, CSV
-and JSON reports. It is one reviewer's note, not team consensus. A blank review
+**Recording a match review.** For an independent first pass, open the
+unreviewed project saved after Analyze and choose **Save as…** to make your
+working copy. **Save as…** carries over the suggestions and any reviews
+already in the file. Keep the unreviewed original for the other reader.
+
+Enter your own **Coder name** and select a source-verified quote in its
+transcript. In **Quote review**, choose **Supports this theme**, **Not this match**
+or **Revisit later**. The reason dialog highlights the exact proposed span and
+shows the neighboring turns from the saved transcript. Read them before
+entering your reason. Choose **OK** to record the decision or **Cancel** to
+leave the passage as it was. The supported-evidence CSV includes the approved span
+and your reason. Any context you type into the reason is also shared. Each review
+records one reader's judgment about that passage under that theme. With a
+coder name entered, **Quote review** shows that reader's latest note for the
+exact pairing. Markdown, CSV and JSON reports show the latest note across
+readers, attributed to its author. A blank review
 does not mean the passage was assessed or rejected. Running **Analyze** again
 starts fresh, even if a quote ID repeats. Earlier notes, their exact excerpts,
 scores and reviewer names remain in **Rigor tools → Audit log** and its CSV export.
 Older readers do not display the review notes alongside the quotes.
 
-**Coding a passage you found in a match:** In the quote rationale panel, choose
+**Tracing a theme across interviews.** Enter your coder name and open
+**Rigor tools → By source**. Quote counts and character coverage include suggestions. The review
+column counts your latest decisions on exact passages under each theme in each
+source. Expand a row and double-click a reviewed passage, or select it and press
+Enter, to see the highlight and your recorded reason in **Quote review**.
+Open **Rigor tools** again to return to the same row. A declined match might
+document a counterexample or simply mention the topic. Read the reason before
+interpreting it. “No current reviews” leaves that source’s position open.
+
+**Comparing cases.** A source row pairs a theme with one transcript. A passage
+listed under two codes contributes to both rows. **By speaker** pools turns
+with the same parsed label, even when several interviews
+use “Worker” for different people. Define the case for your study first. For
+example, if a workshop is a case, record its study label in **Document memo**
+for each visit. Open a supported passage from **By source** and check that
+memo. For a transcript covering several cases, verify membership for the exact
+passage. Tally each identified case once per theme and keep the supported
+quote count alongside it. Leave unknown cases unmapped. ThemeForge saves the
+memos as text and leaves the case tally to the researcher.
+
+To return to passages where you applied a codebook entry yourself, select
+**Show only my manual codebook assignments** in **By source**. Open a row to see the exact span,
+including assignments you have yet to review for support. **Direct match
+link** shows whether the saved assignment records use of **Apply definition
+to this quote…**. With no recorded link, you can trace the assignment but
+cannot tell whether the reader found it through omission navigation, an
+independent reading, or another route. The filter applies to the screen.
+Both export buttons retain their project-wide scope.
+
+**Revising a codebook after review.** A codebook match review shows the full
+passage and the saved entry, including its examples and exclusions. When you
+load a revised codebook, only entries with the same code name, definition and
+examples keep their current decisions. A removed or revised entry immediately
+becomes historical, even before **Analyze**. Before starting a new pass,
+enter your coder name and open **Rigor tools → By source**. Expand a
+**historical review** row and press Enter on a passage to see its exact
+occurrence and your earlier reason. Historical rows belong to the saved pass
+and are excluded from current supported evidence. Unchanged entries still
+show current decisions. **Analyze** starts a fresh pass for all coders.
+Afterward, use **Rigor tools → Audit log** for the earlier decisions and
+select a fresh suggestion to review it against the revised wording.
+If an older codebook suggestion lacks its original entry,
+rerun discovery to review it against a verifiable definition.
+
+Changing only the spacing between words in a suggested code's **Theme name**
+keeps the review on the same passage and definition. The supported CSV gives
+the displayed label in `theme_name` and the reviewed label in
+`match_review_theme_name`, with the original reviewer, time and audit target.
+A change of words or capitalization requires a new review. Editing a name
+inside the codebook itself changes the entry.
+
+When exporting a saved project through Python, pass
+`codebook_entries=state.settings.codebook_entries` to the report exporter.
+Without those entries, it can show the recorded quotes but cannot verify
+current codebook support. The desktop supplies the saved entries on reopen.
+
+**Resuming a study.** Open the saved project and check **Coder name**.
+In **Quote review**, **Next unreviewed** jumps across themes to the next
+scored passage with a verified span and no current review by that coder.
+To finish one code, select it in **Themes** and choose **Unreviewed in theme**.
+The footer counts suggestions with exact spans that still need your review
+for this theme and the **Next in** source selection. The count includes the
+passage just opened. Opening a passage records no decision. A zero count can
+still leave deferred matches and passages the analysis never suggested for
+this code. Read a decline’s reason to see why the reader declined that pairing.
+**Next deferred** returns to passages where that coder last chose **Revisit
+later** and shows the saved reason. Use **Next supported** to find a passage
+you supported and read your earlier reason. To revise it, choose **Not this
+match** or **Revisit later** and record a new reason. The audit keeps both
+decisions. In a multi-transcript study, choose a filename under **Next in**,
+then choose **Next unreviewed**, **Next deferred** or **Next supported**.
+Each button starts after the displayed match and wraps within the chosen
+source. **All sources** searches the whole study and is the default when
+you open a project. **Similar passages → Find from quote** and **Find from
+theme** use the same **Next in** choice. It limits which transcripts supply
+results, even when the starting quote is in another file. Read a result in
+its transcript, then use **Code selected suggestion** to record an unscored
+manual assignment. Evidence exports have their own source chooser.
+**Previous quote** and **Next quote** browse every recorded passage in the
+selected theme.
+
+To look up wording you remember, open the transcript tab and choose **Find
+text…** (or press **Ctrl+F** in the transcript). Enter a literal substring,
+such as `임시 받침` to find occurrences including `임시 받침을` and
+`임시 받침대`. **F3** advances to the next occurrence and wraps in that
+tab. Search is case-sensitive and includes passages already suggested for
+another code. Read the turn, select the exact span you want, and use **Apply
+codebook entry…** to record a manual assignment. Finding text leaves the
+review decisions and suggestion scores intact.
+
+**Handing off reviewed evidence.** Select a theme and choose **Supported CSV…**
+beside **Analyze**. This opens **Rigor tools → Audit log** with the displayed
+theme selected and the source selection empty. Select the transcripts your
+collaborator may see, check **Supported table theme**, then choose **Export
+supported matches CSV**. **Full report…** includes all themes and sources,
+including unreviewed and declined matches.
+**All themes** includes supported matches for every theme in the selected
+transcripts. Each row is an exact passage whose latest review across coders supports
+the match. The table names that reviewer and includes their reason, time and
+the original quote relevance. Read the excerpts, names, theme labels and
+free-text reasons before sharing. A reason can mention another interview.
+
+A contrary case can qualify a revised claim. If you explicitly supported that
+pairing, its review reason accompanies the quote. To revisit a decline, open
+its passage in **By source** and read the reason. To share an earlier decision
+deliberately, use **Choose review history…**, which has its own decision selection.
+
+To check a citation with an authorized copy of the imported transcript text,
+compare `source_sha256` with the SHA-256 of that text encoded as UTF-8.
+For a PDF or Word document, use ThemeForge's extracted text. Slice that text
+from `source_start` up to but excluding `source_end`, counting characters
+from zero. Compare the result with `quote` and the one-based `source_line`.
+The project custodian can trace the decision in the retained audit by matching
+`match_review_target_id` to `target_id`, then checking the actor, time,
+disposition and reason. The same pairing can have several review events.
+
+**Sharing why a finding changed.** Set **Coder name** to the reader whose
+decisions you intend to share. In **Rigor tools → Audit log**, highlight one
+transcript and click **Choose review history…**. Start with the earlier support,
+then select its withdrawal and the decision for the revised finding. Use the
+line and character offsets to distinguish repeated wording. The preview starts
+empty and shows the CSV that will be written to a new file.
+
+Each selected row carries the recorded theme label, line, character offsets,
+exact reviewed excerpt, decision and reason. Rows follow audit order and can
+include superseded judgments from earlier analyses if the recorded source
+still verifies. The selection can be partial, and a label's definition may
+have changed. Read the labels, excerpts and reasons for identifying details
+or references to other transcripts before sharing.
+
+Theme keywords and suggestion rationales can draw on other sources. The
+supported table omits those fields, theme color and group review status.
+The regular quote report includes these fields and all dispositions. Its `match_review_disposition`
+column describes the individual pairing. `validation_review_status` describes
+the whole theme and can read “Researcher edited” after a rename. The supported
+export has only its header when no current match qualifies. **Export audit CSV**
+contains the whole project's recorded history for every source, including
+earlier decisions, declined and deferred excerpts and reasons. The transcript
+selection applies to the scoped exports. Older readers can display a previous
+decline or deferral as current if they skip a later `supported` audit event.
+
+**Comparing two readers' match reviews.** Save a study after discovery and give
+each reader a separate copy before either starts reviewing. In each copy, enter
+a distinct reviewer name or pseudonym, review passages, and save. Open one
+copy, go to **Rigor tools → Intercoder**, and choose the other saved project.
+Check the **Current reviewer** and **Comparison reviewer** names, then select
+**Export paired match reviews**. Highlight the sources to include, check the
+preview's paired row count, then choose **OK** and a new CSV filename. Each side
+uses that person's latest audit note on the exact match in their project since
+its last **Analyze**. A project
+can contain several readers' notes. Choose the two whose decisions you want
+to compare. Use **Next review disagreement** to visit shared passages where one
+reader supported the match and the other declined it. The Intercoder tab shows
+the exact occurrence and both saved reasons. Close **Rigor tools** to read the
+highlighted occurrence in the full transcript. Deferrals and missing reviews
+are counted separately. Browsing leaves both projects' decisions intact.
+
+The comparison on screen covers all shared sources. Each paired CSV starts
+with an empty source selection. The chooser lists transcripts with at least
+one shared, verified match. **Select all sources** includes every listed
+transcript. The export includes comparable matches with verified spans, even
+when a reader has yet to review one. It also flags a changed codebook entry
+when its original code name, displayed label, speaker and exact passage identify
+one match in each copy of the same source. The supported evidence export has its own source
+selection in **Audit log**. Before sharing a paired CSV, check excerpts, labels,
+names and both readers' free-text reasons for identifying details and references
+to other transcripts.
+Each recorded decision includes the reader's reason, time, and audit CSV target.
+The theme and quote IDs describe the current project's row. For different targets, use
+`current_review_target_id` and `comparison_review_target_id` to look up each
+decision. The shared `match_review_target_id` is blank when the targets differ.
+Filter `review_comparison` to find support versus
+decline (`disagreement`), two supports or two declines, missing reviews, or
+decisions awaiting a revisit. A row marked `different_definitions` keeps both
+available decisions and their original audit targets. Each suggestion must still
+verify against its own project's codebook. Earlier decisions remain in the audit.
+Check the recorded entries in both audits before interpreting those judgments. Word spacing
+alone in a description or example preserves comparability when the rest of the
+match snapshot agrees. Where one review is missing, the other reader's
+disposition is still shown. Exclusion counts cover stored quote rows in the
+selected sources that fall outside the shared set, including changed suggestions
+or unverifiable spans. The disagreement navigator lists these unpaired rows as
+separate counts for each project. Missing reviews are counted only on shared
+matches. Matching decisions record what two named readers entered.
+Adjudication requires a
+separate discussion. **Export coverage statistics** and **Export coverage
+differences** compare stored theme quotes across transcript units, including
+automatically suggested quotes.
+
+For a methods appendix, choose **Export outcome counts only** in the paired
+CSV source chooser. The table pools the selected sources and counts each
+shared, verified theme/passage match once. Agreement is split into both
+supported and both declined. Disagreement means support versus decline.
+A match with two reviews and at least one deferral counts as deferred. A match
+missing one or both reviews goes in the corresponding missing category, even
+if the available review was deferred. The six outcomes sum to the comparable-pair
+denominator. Adding pairs excluded for different definitions or examples gives
+the total paired across the selected sources. Two further counts show each
+project's unpaired quote rows, including unverifiable or ambiguous matches.
+These are descriptive counts of match reviews. The file contains only fixed
+labels and integers. Small counts can still identify people in context.
+
+**Coding a passage you found in a match:** In the **Quote review** tab, choose
 **Apply definition to this quote…**. The dialog shows the current quote in its
 transcript, even if a different passage was previously selected with the mouse.
 Choose an entry from the current codebook, compare its full definition and
@@ -177,6 +448,23 @@ are not two independent passages. Applying the same definition to the same
 span again creates neither a duplicate nor an endorsement by another coder.
 The Audit log links the original match to the new assignment. For a different
 span, select its text and use **Apply codebook entry…** instead.
+
+To revise one of two overlapping manual codebook assignments, select its theme
+and quote, highlight the revised passage in the same transcript, and choose
+**Update boundary**. Check the code definition, the original character range
+and the highlighted replacement before choosing **Replace assignment**. The
+replacement keeps the code and quote memo and records who made the change.
+The Audit log links the two assignments. An earlier support decision stays
+with the original span. Review the revised passage to record support for it.
+
+After loading a revised codebook, open **Rigor tools → By source** and select
+**Show only my manual codebook assignments**. Each group shows whether its
+recorded definition is current or earlier. Open an earlier assignment to see
+its exact passage and original definition. If the revised definition fits,
+use **Apply definition to this quote…**. This creates a separate assignment
+that needs its own review for support. The manual assignments CSV includes
+both definitions. The supported matches CSV excludes reviews under an
+earlier definition.
 
 These manual assignments have no relevance score. Markdown labels them
 unscored, CSV leaves relevance blank, and JSON reports use `null`.
@@ -192,7 +480,22 @@ interpret an unselected passage as a negative decision or supply a denominator
 for agreement or establish coder independence. Other quote rows, including
 lexical suggestions, are excluded and counted separately.
 Choose a new CSV filename. Spreadsheet-sensitive text cells receive a leading
-apostrophe; the offsets always refer to the original transcript.
+apostrophe. Offsets refer to the original transcript.
+
+For a one-sided row, `other_project_overlapping_spans` lists the other
+project’s ranges that share characters in the same source under that exact
+definition. Each range starts at the first included character and ends just
+after the last. Use these offsets to discuss where each reader drew the
+boundary. Each selection keeps its original exact-span count. A blank cell
+on a one-sided row means no qualifying overlap was found.
+
+To record a follow-up after discussion, open each reader’s first-pass project,
+choose **Save as…** and use a new filename. In each working copy the reader
+can revisit the exact match and record a decision with their own reason.
+If they choose a new extent for a manual assignment, use **Update boundary**
+in that reader’s working copy and check the highlighted replacement.
+Earlier reviews remain in the audit log. Keep the original files for the
+first-pass comparison.
 
 **Move quote** requires a researcher name or pseudonym and prompts for why
 the passage belongs under the destination theme. It retains the quote ID,
@@ -226,6 +529,15 @@ JSON `null`, and no numeric score in Markdown. Earlier versions wrote `1.000`
 for these actions. Existing scores and reports are not retrospectively changed;
 a numeric 1 alone does not identify a manual decision.
 
+When you place a manual code under a suggested theme, running **Analyze** again
+keeps the parent you chose. If the new run changes or omits that group, the
+theme list marks the earlier parent **Retained**. Its quotes and scores describe
+the earlier run. Current suggestions can cite the same passages. The JSON report
+records the parent ID, group and passage memos, and source offsets.
+If an older project is missing the saved parent, the selector shows
+**Unavailable parent** with its ID. You can choose another parent or **Top-level**
+and save the hierarchy.
+
 **Merge theme** uses your researcher name and asks for a reason. It counts the same exact
 passage once even when its two assignments have different quote IDs. The
 destination assignment keeps its own rationale, memo and score. A passage
@@ -243,13 +555,41 @@ that recorded only the destination ID cannot reconstruct lost notes.
 When replacing or removing transcripts, you can save the outgoing study, leave
 without saving, or cancel. Apply unfinished theme or memo edits before saving.
 The next study starts as a separate unsaved project, without the old results,
-memos or audit log. You can explicitly reuse codebook definitions and examples;
-check that their text is appropriate for the next study.
+memos or audit log. To reuse the current codebook, choose **Names and definitions
+only** and read the preview before continuing. This leaves examples in the original
+study. You can also choose to copy examples. Check all selected text for excerpts,
+names and source references. The new study gets the displayed entries in order.
+Theme hierarchy belongs to the original project. For a new session, import your
+definitions file with **Choose codebook**. The supported evidence and manual
+assignment CSVs are study reports with cited passages and reviewer information.
 
 Opening another saved project or closing the main window also prompts if the
 current study has unsaved changes. To keep text still in a theme or memo
-editor, apply it first. Choosing **No** discards those edits. An unreadable
-project or a failed or canceled save leaves the current study open.
+editor, apply it first. If **Previous quote**, **Next quote**, or a selection in
+**Themes** would discard unfinished edits, the prompt names the affected fields.
+Choose **Cancel** to stay with the passage and save your edits. You can switch
+transcripts while drafting a document memo. Return to its transcript tab and
+choose **Save document memo** to include the draft in the project. In the
+prompt about saving before leaving a study, **No** discards unapplied edits.
+An unreadable project or a failed or canceled save leaves the current study open.
+
+**Recovering after a save failure.** Keep the study open to retain changes
+made since the last successful save. Apply any unfinished theme or memo edits.
+Retry **Save project**, or choose **Save as…** and pick an unused filename in
+a writable folder. A successful **Save as…** makes that file the destination
+for subsequent saves and autosaves. Reopen the original project to inspect
+the last version saved there. If the application stopped during a save, reopen
+the `.tfproj`. A temporary `.tmp` file beside it can be incomplete. Changes
+that were still only in memory need to be entered again.
+
+**Open project** reads the transcripts and codebook stored in the project.
+If a source file has changed on disk, the supported CSV still cites the saved
+text and its `source_sha256`. To review the revised text, save the current
+study and use **Choose files** to start a separate project with the revised
+sources. Before you leave, the prompt compares the imported text for filenames
+that occur once in each collection. A difference can be anywhere in the
+transcript, even when a coded passage reads the same. The revised project
+needs its own coding and reviews.
 
 Run the command-line analyzer with one transcript:
 
@@ -287,9 +627,25 @@ Python, a model download, or an online service. Install ThemeForge from source
 with `themeforge[nlp]` to enable sentence-transformer embeddings and
 `kiwipiepy` morphology.
 
-CSV codebooks should include a `theme`, `code`, `name`, or `category` column.
-Optional `description` and `example` or `quote` columns improve quote matching.
-TXT, DOCX, RTF, and text-based PDF codebooks can also use labeled lines such as
+CSV codebooks need at least one named row under `theme`, `code`, `name`, or
+`category`. ThemeForge reads a definition from `description`, `definition`, or
+`memo` and one example per row from `example`, `quote`, or `evidence`.
+Both are optional. Headers ignore case and surrounding spaces. For each field,
+the first nonblank value in the listed alias order is used. If a file has no
+named entries, the import fails and the current codebook stays active.
+Use the definition or example field for inclusion and exclusion guidance.
+The CSV importer ignores separate criterion and parent columns.
+Within each field, `Exclude:` starts guidance for the reader and `Include:`
+resumes the text used for ranking. For example, “Test after a repair. Exclude:
+price estimates.” uses the repair test for retrieval. A passage mentioning an
+estimate can still be suggested if it also matches the test. Each new example
+starts with positive search terms unless marked otherwise. In an example,
+put a label at the start of the field or line, or after a period, semicolon,
+question mark, or exclamation point. Ordinary wording such as “we listed
+what to exclude: buckled clasps” stays searchable. Use quotation marks around
+a literal “Exclude:” at the start of an example. The reviewer sees the
+complete original definition and examples when judging the passage.
+TXT, MD, DOCX, RTF, and text-based PDF codebooks can also use labeled lines such as
 `Theme:`, `Description:`, and `Example:`.
 
 Run tests:
@@ -334,8 +690,40 @@ Participant 1 1:04
 Small group meetings helped because peers explained assignments.
 ```
 
+For a repeated passage, use the supported-evidence CSV’s source line and
+character range to find the occurrence in the imported transcript. The
+speaker and time on the cue header are visible in the transcript tab.
+Manual selections carry no automatic speaker attribution, and the CSV has
+no separate cue-time field.
+
+Fresh DOCX imports preserve both Word line breaks and carriage returns
+between a cue header and its speech. Some older imports joined a timestamp
+to the following words. Check the saved transcript against the Word document.
+If a line break is missing, keep the original study and import the DOCX into
+a new project to review the corrected turns. Reopening the original preserves
+its text and decisions.
+
 The app also accepts plain paragraphs without speaker labels, but speaker labels
 make quote evidence easier to review.
+
+A heading such as `Note:` can look like a speaker label. Check the parsed
+turns in **Speakers for suggestions**. If the highlight covers only editorial
+material, you can exclude that label in that file and keep a speaker with
+the same name in another file. If the highlight also covers an unlabeled
+answer, excluding the label skips the answer too. Check the original turn.
+If you can identify the speaker, add their label before the answer in a
+transcript copy and import the copy into a separate project. Existing projects
+keep their saved transcript, attributions and review history.
+
+For a multiword speaker label with lowercase or uncased words that appears
+only once, a timestamp header such as
+`포장 담당 0:03` makes the turn boundary explicit.
+
+Older analyses can include an accented speaker label in the quotation and
+credit the preceding speaker. Reopening preserves that recorded citation.
+Check the label against the transcript before sharing. To review newly parsed
+turns while keeping the original decisions, choose **Save as…** and run
+**Analyze** in the copy.
 
 ## Community Guidelines
 
@@ -370,7 +758,8 @@ python -m unittest discover -s tests -v
    passages, then code only the suggestions supported by the transcript context.
 8. Rename, merge, split, or reject themes in your own qualitative analysis
    workflow.
-9. Export the report or quote table for researcher review.
+9. Choose **Supported CSV…** for reviewed evidence under the displayed theme,
+   select the sources, and export. Use **Full report…** to inspect the whole analysis.
 
 ## Validation Logic
 

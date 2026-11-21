@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import asdict
-import json
+from dataclasses import replace
 import math
+import re
 from statistics import mean
 
 from .analysis import (
@@ -25,6 +25,29 @@ from .analysis import (
 )
 
 
+_LABEL = r"(include|exclude)[ \t]*:"
+# Text codebook imports can join definition lines with spaces.
+_DEFINITION_LABEL = re.compile(r"(?:^|(?<=[\s.;!?]))" + _LABEL, re.IGNORECASE)
+# Examples can quote ordinary speech such as "we listed what to exclude: ...".
+_EXAMPLE_LABEL = re.compile(r"(?:^|(?<=[\r\n.;!?]))[^\S\r\n]*" + _LABEL, re.IGNORECASE)
+
+
+def _positive_text(text: str, label_pattern: re.Pattern[str]) -> str:
+    sections = label_pattern.split(text)
+    if len(sections) == 1:
+        return text
+    positive = [sections[0]]
+    for label, body in zip(sections[1::2], sections[2::2], strict=True):
+        if label.lower() == "include":
+            positive.append(body)
+    return " ".join(part.strip() for part in positive if part.strip())
+
+
+def _search_entry(entry: CodebookEntry) -> CodebookEntry:
+    examples = tuple(text for example in entry.examples if (text := _positive_text(example, _EXAMPLE_LABEL)))
+    return replace(entry, description=_positive_text(entry.description, _DEFINITION_LABEL), examples=examples)
+
+
 def build_codebook_themes(
     quotes: list[QuoteUnit],
     settings: AnalysisSettings,
@@ -44,9 +67,12 @@ def build_codebook_themes(
     )
     themes: list[Theme] = []
     for index, entry in enumerate(settings.codebook_entries, start=1):
-        query_terms = _terms_for_vector(" ".join([entry.name, entry.description, *entry.examples]), speaker_stopwords)
+        search_entry = _search_entry(entry)
+        query_terms = _terms_for_vector(
+            " ".join([search_entry.name, search_entry.description, *search_entry.examples]), speaker_stopwords,
+        )
         query_weights = {term: 1.4 if "_" in term else 1.0 for term in query_terms if not _is_low_value_term(term)}
-        ranked_quotes = _rank_codebook_quotes(quotes, term_documents, profile, query_weights, entry, settings)
+        ranked_quotes = _rank_codebook_quotes(quotes, term_documents, profile, query_weights, search_entry, settings)
         if not ranked_quotes:
             continue
         themes.append(
@@ -54,12 +80,12 @@ def build_codebook_themes(
                 id=f"C{index:02d}",
                 name=entry.name,
                 color=_theme_color(index),
-                keywords=_codebook_keywords(entry, speaker_stopwords),
+                keywords=_codebook_keywords(search_entry, speaker_stopwords),
                 quote_count=len(ranked_quotes),
                 score=round(mean(quote.relevance for quote in ranked_quotes), 3),
                 quotes=_limit_theme_quotes(ranked_quotes, settings.quotes_per_theme),
                 validation={**_codebook_validation(ranked_quotes),
-                            "generated_from_codebook_entry": json.dumps(asdict(entry), ensure_ascii=False, sort_keys=True)},
+                            "generated_from_codebook_entry": entry.snapshot()},
             )
         )
     return themes

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from collections import defaultdict
-from typing import Iterable
+from collections import Counter, defaultdict
+from collections.abc import Iterable, Iterator, Sequence
 import re
 
 from .analysis_constants import (
@@ -15,46 +15,58 @@ from .analysis_constants import (
     PARTICIPANT_SPEAKER_RE,
     URL_RE,
 )
-from .analysis_types import QuoteUnit, TranscriptSegment
+from .analysis_types import AnalysisSettings, QuoteUnit, SpeakerOverride, TranscriptDocument, TranscriptSegment
 from .text_utils import normalize_space, split_sentences, tokenize
+from .transcript_parser import document_segments
+
+
+def automatic_speaker_selection(segments: list[TranscriptSegment]) -> dict[tuple[str, str], bool]:
+    excluded = _infer_excluded_speakers(segments)
+    return {(s.source_name, s.speaker): s.speaker not in excluded for s in segments}
+
+
+def suggestion_inputs(documents: Sequence[TranscriptDocument],
+                      settings: AnalysisSettings) -> tuple[list[TranscriptSegment], list[QuoteUnit]]:
+    segments = document_segments(documents)
+    if settings.speaker_overrides:
+        names = Counter(d.name or "Transcript" for d in documents)
+        available = {(s.source_name, s.speaker) for s in segments}
+        for rule in settings.speaker_overrides:
+            key = rule.source_name, rule.speaker
+            if names[rule.source_name] != 1 or key not in available:
+                raise ValueError(f"Expected one decision for an existing speaker in a unique transcript: {key!r}")
+            available.remove(key)
+    return segments, extract_quote_units(segments, settings.min_quote_words, settings.speaker_overrides)
+
+
 def extract_quote_units(
     segments: Iterable[TranscriptSegment],
     min_quote_words: int = 4,
+    speaker_overrides: Iterable[SpeakerOverride] = (),
 ) -> list[QuoteUnit]:
     quotes: list[QuoteUnit] = []
     next_id = 1
     segment_list = list(segments)
-    excluded_speakers = _infer_excluded_speakers(segment_list)
+    included = automatic_speaker_selection(segment_list)
+    included.update({(rule.source_name, rule.speaker): rule.included for rule in speaker_overrides})
 
     for segment in segment_list:
-        if segment.speaker in excluded_speakers:
+        if not included[segment.source_name, segment.speaker]:
             continue
-        usable_sentences = [
-            sentence
-            for sentence in split_sentences(segment.text)
-            if _is_quote_sentence(sentence, segment.speaker)
-        ]
-        segment_text_offset = 0
-        for unit in _meaning_units(usable_sentences):
+        for unit_start, unit_end, source_line in _meaning_units(segment):
+            unit = segment.text[unit_start:unit_end]
             content_word_count = len(tokenize(unit))
             if content_word_count < 3:
                 continue
             word_count = len(tokenize(unit, keep_stopwords=True))
             if word_count < min_quote_words:
                 continue
-            unit_start = segment.text.find(unit, segment_text_offset)
-            if unit_start < 0:
-                unit_start = segment.text.find(unit)
-            if unit_start < 0:
-                unit_start = 0
-            unit_end = unit_start + len(unit)
-            segment_text_offset = unit_end
             quotes.append(
                 QuoteUnit(
                     id=f"Q{next_id:04d}",
                     speaker=segment.speaker,
                     text=unit,
-                    source_line=segment.source_line,
+                    source_line=source_line,
                     word_count=word_count,
                     source_name=segment.source_name,
                     source_start=segment.source_start + unit_start,
@@ -75,11 +87,28 @@ def _is_quote_sentence(text: str, speaker: str) -> bool:
     return not _is_backchannel_text(text)
 
 
-def _meaning_units(sentences: list[str]) -> list[str]:
-    return [
-        normalize_space(" ".join(sentences[index : index + 2]))
-        for index in range(0, len(sentences), 2)
-    ]
+def _meaning_units(segment: TranscriptSegment) -> Iterator[tuple[int, int, int]]:
+    # Pair only adjacent usable sentences. Joining across an excluded sentence
+    # would create an excerpt that never occurred in the transcript.
+    pending: tuple[int, int, int] | None = None
+    cursor = 0
+    line = segment.source_line
+    for sentence in split_sentences(segment.text):
+        start = segment.text.index(sentence, cursor)
+        line += segment.text.count("\n", cursor, start)
+        cursor = start + len(sentence)
+        if _is_quote_sentence(normalize_space(sentence), segment.speaker):
+            if pending is None:
+                pending = start, cursor, line
+            else:
+                yield pending[0], cursor, pending[2]
+                pending = None
+        elif pending is not None:
+            yield pending
+            pending = None
+        line += sentence.count("\n")
+    if pending is not None:
+        yield pending
 
 
 def _is_excluded_speaker(speaker: str) -> bool:

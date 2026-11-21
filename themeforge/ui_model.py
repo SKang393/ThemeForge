@@ -1,7 +1,10 @@
 from __future__ import annotations
 
-from pathlib import Path
+from collections import Counter
+from pathlib import Path, PureWindowsPath
 from typing import Mapping, Sequence
+
+from .analysis_types import TranscriptDocument
 
 ValidationValue = str | int | float
 
@@ -53,8 +56,40 @@ def file_selection_summary(paths: Sequence[Path]) -> str:
     return f"{len(paths)} transcripts selected"
 
 
+def transcript_import_comparison(
+    current_paths: Sequence[Path], current: Sequence[TranscriptDocument],
+    selected_paths: Sequence[Path], selected: Sequence[TranscriptDocument],
+) -> str:
+    def unique_texts(paths: Sequence[Path], documents: Sequence[TranscriptDocument]) -> dict[str, str]:
+        if len(paths) != len(documents):
+            return {}
+        # Saved paths can come from Windows. Use only their names, never reopen them.
+        labels = {doc.name for doc in documents}
+        names = [path.name if path.name in labels else PureWindowsPath(path).name for path in paths]
+        counts = Counter(names)
+        return {doc.name: doc.text for name, doc in zip(names, documents)
+                if counts[name] == 1 and name == doc.name}
+
+    previous = unique_texts(current_paths, current)
+    incoming = unique_texts(selected_paths, selected)
+    shared = previous.keys() & incoming.keys()
+    if not shared:
+        return "No selected transcript could be compared by unique filename with the open study."
+    changed = sorted(name for name in shared if previous[name] != incoming[name])
+    summary = ("Compared imported text by unique filename with the open study.\n"
+               f"{len(shared) - len(changed)} identical, {len(changed)} different.")
+    if changed:
+        examples = ", ".join(transcript_tab_label(name, 60) for name in changed[:3])
+        summary += f" Different text in {examples}" + (" …" if len(changed) > 3 else "")
+    if len(selected) > len(shared):
+        summary += f"\n{len(selected) - len(shared)} selected without a unique filename match."
+    return summary
+
+
 def codebook_selection_summary(path: Path | None, entry_count: int = 0) -> str:
     if path is None:
+        if entry_count:
+            return f"Project codebook | {entry_count} " + ("entry" if entry_count == 1 else "entries")
         return "No codebook selected"
     if entry_count > 0:
         label = "theme" if entry_count == 1 else "themes"

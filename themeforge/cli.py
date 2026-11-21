@@ -7,6 +7,7 @@ from typing import assert_never
 
 from . import __version__
 from .analysis import AnalysisSettings, TranscriptDocument, analyze_documents
+from .analysis_types import SpeakerOverride
 from .codebook import load_codebook_entries
 from .exports import export_json, export_markdown, export_quotes_csv
 from .io import load_transcript_text
@@ -37,8 +38,11 @@ def main() -> int:
     parser.add_argument(
         "--codebook",
         type=Path,
-        help="Optional CSV, TXT, DOCX, RTF, or text-based PDF codebook with theme names and descriptions",
+        help="Optional CSV, TXT, MD, DOCX, RTF, or text-based PDF codebook with code names and definitions",
     )
+    for flag in ("--include-speaker", "--exclude-speaker"):
+        parser.add_argument(flag, action="append", nargs=2, metavar=("FILENAME", "LABEL"), default=[],
+                            help="Override automatic speaker selection for one transcript (repeatable)")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     args = parser.parse_args()
 
@@ -54,17 +58,22 @@ def main() -> int:
         except (OSError, ValueError) as error:
             parser.error(str(error))
         documents.append(TranscriptDocument(name=input_path.name, text=text))
-    result = analyze_documents(
-        documents,
-        AnalysisSettings(
-            theme_count=args.themes,
-            quotes_per_theme=args.quotes,
-            central_theme=args.central_theme,
-            semantic_backend=args.semantic_backend.replace("-", "_"),
-            language_mode=args.language,
-            codebook_entries=codebook_entries,
-        ),
+    overrides = tuple(SpeakerOverride(name, label, included)
+                      for pairs, included in ((args.include_speaker, True), (args.exclude_speaker, False))
+                      for name, label in pairs)
+    settings = AnalysisSettings(
+        theme_count=args.themes,
+        quotes_per_theme=args.quotes,
+        central_theme=args.central_theme,
+        semantic_backend=args.semantic_backend.replace("-", "_"),
+        language_mode=args.language,
+        codebook_entries=codebook_entries,
+        speaker_overrides=overrides,
     )
+    try:
+        result = analyze_documents(documents, settings)
+    except ValueError as error:
+        parser.error(str(error))
 
     match args.format:
         case "markdown":

@@ -40,7 +40,7 @@ from .analysis_vectors import (
     tfidf_vectors as _tfidf_vectors,
 )
 from .local_embeddings import local_embedding_vectors as _local_embedding_vectors
-from .quote_units import extract_quote_units, speaker_stopwords as build_speaker_stopwords
+from .quote_units import extract_quote_units, speaker_stopwords as build_speaker_stopwords, suggestion_inputs
 from .transcript_parser import parse_transcript
 
 
@@ -52,18 +52,25 @@ def analyze_documents(
     documents: Sequence[TranscriptDocument],
     settings: AnalysisSettings | None = None,
 ) -> AnalysisResult:
+    result, _ = analyze_documents_with_units(documents, settings)
+    return result
+
+
+def analyze_documents_with_units(
+    documents: Sequence[TranscriptDocument],
+    settings: AnalysisSettings | None = None,
+) -> tuple[AnalysisResult, list[QuoteUnit]]:
+    """Also return the eligible source spans in transcript order for desktop navigation."""
     settings = settings or AnalysisSettings()
     transcript_documents = [document for document in documents if document.text.strip()]
-    segments = [
-        segment
-        for document in transcript_documents
-        for segment in parse_transcript(document.text, source_name=document.name or "Transcript")
-    ]
-    quotes = extract_quote_units(segments, min_quote_words=settings.min_quote_words)
+    segments, quotes = suggestion_inputs(transcript_documents, settings)
     notes = [
         "Researcher review required: generated themes are suggested analytic groupings, not final qualitative findings.",
         "Use exported quotes as evidence candidates and verify meaning against the full transcript context.",
     ]
+    for rule in settings.speaker_overrides:
+        decision = "included" if rule.included else "excluded"
+        notes.append(f"Speaker selection for suggestions: {rule.source_name} | {rule.speaker} | {decision}.")
     validation_summary = _validation_summary(settings)
     if settings.central_theme.strip():
         notes.append(
@@ -82,7 +89,7 @@ def analyze_documents(
             themes=[],
             notes=notes + ["No quote-length text units were found."],
             validation_summary=validation_summary,
-        )
+        ), quotes
 
     speaker_stopwords = build_speaker_stopwords(segments)
     if settings.codebook_entries:
@@ -97,7 +104,7 @@ def analyze_documents(
                 themes=themes,
                 notes=notes,
                 validation_summary=validation_summary,
-            )
+            ), quotes
         notes.append("No codebook entries matched quote-length text units; automatic theme discovery was used.")
 
     focus_profile = _build_focus_profile(quotes, settings.central_theme, speaker_stopwords)
@@ -128,4 +135,4 @@ def analyze_documents(
         themes=_sort_themes(themes, settings),
         notes=notes,
         validation_summary=validation_summary,
-    )
+    ), quotes

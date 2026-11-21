@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+import json
 
 ValidationValue = str | int | float
 
@@ -9,6 +10,16 @@ class CodebookEntry:
     name: str
     description: str = ""
     examples: tuple[str, ...] = ()
+
+    def snapshot(self) -> str:
+        return json.dumps(asdict(self), ensure_ascii=False, sort_keys=True)
+
+
+@dataclass(frozen=True, slots=True, order=True)
+class SpeakerOverride:
+    source_name: str
+    speaker: str
+    included: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,6 +33,7 @@ class AnalysisSettings:
     semantic_backend: str = "tfidf"
     language_mode: str = "Auto"
     codebook_entries: tuple[CodebookEntry, ...] = ()
+    speaker_overrides: tuple[SpeakerOverride, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

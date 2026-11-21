@@ -8,11 +8,12 @@ import json
 
 from .analysis_types import CodebookEntry, ThemeQuote
 from .audit import AuditEvent, neutralize_csv_cell
-from .manual_editing import manual_assignment_details, manual_assignment_rationale
+from .manual_editing import assignment_creation, recorded_definition
 from .rigor import CodedProject
 
 SCOPE = ("Exact recorded manual definition and source span only. An absent record is not a negative decision. "
-         "Review completeness and coder independence are not established; no agreement statistic.")
+         "Review completeness and coder independence are not established; no agreement statistic. "
+         "Overlap ranges locate other selections under the same definition in this source for discussion.")
 RecordKey = tuple[str, int, int, str]  # Source, start, end, canonical definition snapshot.
 
 
@@ -39,18 +40,6 @@ def _sources(project: CodedProject) -> dict[str, str]:
     return sources
 
 
-def _definition(snapshot: object) -> tuple[CodebookEntry, str]:
-    if not isinstance(snapshot, str):
-        raise ValueError("A manual assignment has no original definition snapshot in its current group.")
-    raw = json.loads(snapshot)
-    if not (isinstance(raw, dict) and set(raw) == {"name", "description", "examples"}
-            and isinstance(raw["name"], str) and raw["name"].strip() and isinstance(raw["description"], str)
-            and isinstance(raw["examples"], list) and all(isinstance(v, str) for v in raw["examples"])):
-        raise ValueError("The recorded definition is incomplete or unsupported.")
-    entry = CodebookEntry(raw["name"], raw["description"], tuple(raw["examples"]))
-    return entry, json.dumps(raw, ensure_ascii=False, sort_keys=True)
-
-
 def _verified_assignments(project: CodedProject, sources: dict[str, str]) -> tuple[dict[RecordKey, _Assignment], set[str], int]:
     events = defaultdict(list)
     for event in project.audit_events:
@@ -64,22 +53,15 @@ def _verified_assignments(project: CodedProject, sources: dict[str, str]) -> tup
         skipped += len(theme.quotes) - len(assigned)
         if not assigned:
             continue
-        entry, snapshot = _definition(theme.validation.get("manual_codebook_definition"))
-        if entry.name != theme.name:
-            raise ValueError("A manual assignment's current group differs from its recorded definition.")
+        entry = recorded_definition(theme)
+        snapshot = entry.snapshot()
         for q in assigned:
             source, start, end = q.source_name, q.source_start, q.source_end
             text = sources.get(source)
             if (text is None or not 0 <= start < end <= len(text) or text[start:end] != q.text
                     or text.count("\n", 0, start) + 1 != q.source_line):
                 raise ValueError("A manual source anchor does not match the saved transcript.")
-            matches = events.get(q.quote_id, ())
-            if len(matches) != 1 or not matches[0].actor.strip():
-                raise ValueError("A manual assignment lacks one unambiguous, attributed creation audit event.")
-            event = matches[0]
-            if (event.details != manual_assignment_details(entry, source, start, end, theme.id)
-                    or q.rationale != manual_assignment_rationale(entry, source, start, end, event.actor)):
-                raise ValueError("An assignment changed or no longer matches its original attributed record.")
+            event = assignment_creation(theme, q, entry, events.get(q.quote_id, []))
             key = source, start, end, snapshot
             if key in records or q.quote_id in current_ids:
                 raise ValueError("Duplicate manual records make the assignment identities ambiguous.")
@@ -96,6 +78,14 @@ def _records(project: CodedProject, sources: dict[str, str]) -> tuple[dict[Recor
     return {key: a.quote.quote_id for key, a in assignments.items()}, actors.pop(), history, skipped
 
 
+def manual_assignment_links(project: CodedProject, actor: str) -> dict[str, bool]:
+    """Current verified assignments by this coder and presence of a direct source-match event."""
+    assignments, _, _ = _verified_assignments(project, _sources(project))
+    linked = {e.target_id for e in project.audit_events
+              if e.action == "assignment_source_match" and e.target_type == "quote" and e.actor == actor}
+    return {a.quote.quote_id: a.quote.quote_id in linked for a in assignments.values() if a.event.actor == actor}
+
+
 def current_assignment_csv(project: CodedProject) -> tuple[str, int, int]:
     """One current project; report the original assigning actor on each verified row."""
     sources = _sources(project)
@@ -108,7 +98,8 @@ def current_assignment_csv(project: CodedProject) -> tuple[str, int, int]:
     writer.writerow(("assignment_id", "theme_id", "assigned_by", "assigned_utc", "code_name", "definition",
                      "examples_json", "source", "source_snapshot_sha256", "source_line", "source_start",
                      "source_end", "passage", "current_quote_memo", "other_current_rows_excluded", "scope"))
-    scope = ("Current manual codebook assignments only, checked against creation records and the cached source. "
+    scope = ("Manual assignments still in the project, checked against creation records and the cached source. "
+             "Each row uses its original definition, which may differ from the loaded codebook. "
              "Other stored quote rows, including suggestions and freehand codes, are excluded. Absence is not a negative code. "
              "These records do not establish findings or complete review. Spreadsheet-leading =, +, -, @ are apostrophe-prefixed.")
     for key, a in sorted(assignments.items()):
@@ -118,6 +109,31 @@ def current_assignment_csv(project: CodedProject) -> tuple[str, int, int]:
                   start, end, a.quote.text, a.quote.memo, skipped, scope)
         writer.writerow(neutralize_csv_cell(v) if isinstance(v, str) else v for v in values)
     return output.getvalue(), len(assignments), skipped
+
+
+def _overlap_hints(one_sided: set[RecordKey], other: dict[RecordKey, str]) -> dict[RecordKey, str]:
+    """Find opposite spans for discussion within the same verified source and definition."""
+    events = defaultdict(list)
+    for is_query, records in ((True, one_sided), (False, other)):
+        for key in records:
+            source, start, end, definition = key
+            group = (source, definition)
+            if is_query or group in events:
+                events[group].extend(((start, True, is_query, key), (end, False, is_query, key)))
+    overlaps = defaultdict(list)
+    for boundaries in events.values():
+        active = {True: set(), False: set()}
+        # End events sort first: selections that only touch share no characters.
+        for _, begins, is_query, key in sorted(boundaries):
+            if not begins:
+                active[is_query].remove(key)
+                continue
+            for opposite in active[not is_query]:
+                query, counterpart = (key, opposite) if is_query else (opposite, key)
+                overlaps[query].append(counterpart[1:3])
+            active[is_query].add(key)
+    return {key: "; ".join(f"[{start}, {end})" for start, end in sorted(ranges))
+            for key, ranges in overlaps.items()}
 
 
 def compare_recorded_assignments(current: CodedProject, comparison: CodedProject) -> RecordedComparison:
@@ -134,13 +150,16 @@ def compare_recorded_assignments(current: CodedProject, comparison: CodedProject
     writer = csv.writer(output)
     writer.writerow(("recorded_by", "current_coder", "comparison_coder", "definition_json",
                      "source", "source_start", "source_end", "passage", "current_quote_id", "comparison_quote_id",
-                     "matching_documents", "other_current_quote_rows_excluded", "other_comparison_quote_rows_excluded", "scope"))
+                     "matching_documents", "other_current_quote_rows_excluded", "other_comparison_quote_rows_excluded", "scope",
+                     "other_project_overlapping_spans"))
     both = len(left.keys() & right.keys())
+    hints = _overlap_hints(left.keys() - right.keys(), right)
+    hints.update(_overlap_hints(right.keys() - left.keys(), left))
     for key in sorted(left.keys() | right.keys()):
         source, start, end, snapshot = key
         side = "both" if key in left and key in right else "current only" if key in left else "comparison only"
         writer.writerow((side, neutralize_csv_cell(coder_a), neutralize_csv_cell(coder_b), snapshot,
                          neutralize_csv_cell(source), start, end, neutralize_csv_cell(sources[source][start:end]),
                          neutralize_csv_cell(left.get(key, "")), neutralize_csv_cell(right.get(key, "")),
-                         len(sources), skipped_a, skipped_b, SCOPE))
+                         len(sources), skipped_a, skipped_b, SCOPE, hints.get(key, "")))
     return RecordedComparison(output.getvalue(), both, len(left) - both, len(right) - both)

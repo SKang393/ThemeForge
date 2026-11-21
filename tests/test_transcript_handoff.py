@@ -43,14 +43,16 @@ class TranscriptHandoffTests(unittest.TestCase):
         if self.app.tk.call("info", "commands", "."):
             self.app.destroy()
 
-    def choose(self, decisions, source=None):
+    def choose(self, decisions, source=None, *, reuse=()):
         with patch("themeforge.app.filedialog.askopenfilenames", return_value=[str(source or self.new_source)]), \
-                patch("themeforge.app.messagebox.askyesnocancel", side_effect=decisions):
+                patch("themeforge.app.messagebox.askyesnocancel", side_effect=decisions), \
+                patch("themeforge.app.CodebookReuseDialog") as dialog:
+            dialog.return_value.result = reuse
             self.app.open_transcript()
 
     def test_replacement_starts_separate_project_and_saves_only_new_study(self):
         original = self.first.read_bytes()
-        self.choose([False, True])  # Leave without saving; explicitly reuse the definitions.
+        self.choose([False], reuse=(self.entry,))
         second = self.folder / "second.tfproj"
         with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(second)):
             self.app.save_project()
@@ -85,19 +87,19 @@ class TranscriptHandoffTests(unittest.TestCase):
         original = self.first.read_bytes()
         self.choose([None])
         self.assertEqual(self.app._project_state(), before)
-        self.choose([False, None])
+        self.choose([False], reuse=None)
         self.assertEqual(self.app._project_state(), before)
         with patch("themeforge.app.messagebox.showerror"):
             self.choose([], self.folder / "missing.txt")
             self.assertEqual(self.app._project_state(), before)
             with patch("themeforge.app.save_project", side_effect=OSError("disk full")):
-                self.choose([True, False])
+                self.choose([True])
         self.assertEqual(self.app._project_state(), before)
         self.assertEqual(self.app.project_path, self.first)
         self.assertEqual(self.first.read_bytes(), original)
         self.app.project_path = None
         with patch("themeforge.app.filedialog.asksaveasfilename", return_value=""):
-            self.choose([True, False])
+            self.choose([True])
         self.assertEqual(self.app._project_state(), before)
         self.assertIsNone(self.app.project_path)
 
@@ -109,9 +111,12 @@ class TranscriptHandoffTests(unittest.TestCase):
         self.assertEqual(self.app.project_path, self.first)
         self.assertEqual(self.first.read_bytes(), original)
         self.assertIn("Not applied yet.", self.app.document_memo_text.get("1.0", "end-1c"))
-        self.app.documents[0] = replace(self.app.documents[0], memo="Revised outgoing memo.")
-        self.app._refresh_document_memo()
-        with patch("themeforge.app.messagebox.askyesnocancel", side_effect=[True, False]):
+        self.app.document_memo_text.delete("1.0", "end")
+        self.app.document_memo_text.insert("1.0", "Revised outgoing memo.")
+        self.app.save_document_memo()
+        with patch("themeforge.app.messagebox.askyesnocancel", side_effect=[True]), \
+                patch("themeforge.app.CodebookReuseDialog") as dialog:
+            dialog.return_value.result = ()
             self.app.remove_transcripts()
         self.assertEqual(load_project(self.first).documents[0].memo, "Revised outgoing memo.")
         self.assertIsNone(self.app.project_path)
@@ -224,7 +229,8 @@ class TranscriptHandoffTests(unittest.TestCase):
                     close()
                 destroy.assert_not_called()
                 self.assertIn("Unapplied.", self.app.document_memo_text.get("1.0", "end-1c"))
-            self.app._refresh_document_memo()
+            self.app.document_memo_text.delete("1.0", "end")
+            self.app.document_memo_text.insert("1.0", self.state.documents[0].memo)
             self.app.researcher_name.set("Changed reviewer")
             with patch("themeforge.app.messagebox.askyesnocancel", return_value=True), \
                     patch("themeforge.app.messagebox.showerror"), \

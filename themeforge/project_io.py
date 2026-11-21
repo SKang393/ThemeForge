@@ -13,6 +13,7 @@ from .analysis_types import (
     AnalysisResult,
     AnalysisSettings,
     CodebookEntry,
+    SpeakerOverride,
     Theme,
     ThemeQuote,
     TranscriptDocument,
@@ -138,8 +139,8 @@ def _optional_path(value: str | None) -> Path | None:
     return Path(value)
 
 
-def _settings_to_json(settings: AnalysisSettings) -> dict[str, ValidationValue | list[dict[str, str | list[str]]]]:
-    return {
+def _settings_to_json(settings: AnalysisSettings) -> dict[str, object]:  # noqa: OBJECT_OK - JSON boundary.
+    payload = {
         "theme_count": settings.theme_count,
         "quotes_per_theme": settings.quotes_per_theme,
         "min_theme_size": settings.min_theme_size,
@@ -157,9 +158,30 @@ def _settings_to_json(settings: AnalysisSettings) -> dict[str, ValidationValue |
             for entry in settings.codebook_entries
         ],
     }
+    if settings.speaker_overrides:
+        payload["speaker_overrides"] = [asdict(rule) for rule in settings.speaker_overrides]
+    return payload
 
 
-def _settings_from_json(payload: dict[str, ValidationValue | list[dict[str, str | list[str]]]]) -> AnalysisSettings:
+def _speaker_overrides_from_json(rows: object) -> tuple[SpeakerOverride, ...]:  # noqa: OBJECT_OK - JSON boundary.
+    if not isinstance(rows, list):
+        raise ValueError("Expected a list of speaker selections.")
+    rules = []
+    seen = set()
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get("included"), bool):
+            raise ValueError("Invalid include/exclude decision in speaker selections.")
+        source, speaker = row.get("source_name"), row.get("speaker")
+        if not isinstance(source, str) or not source or not isinstance(speaker, str) or not speaker:
+            raise ValueError("A speaker selection needs a transcript and speaker label.")
+        if (source, speaker) in seen:
+            raise ValueError("Duplicate speaker selection for one transcript.")
+        seen.add((source, speaker))
+        rules.append(SpeakerOverride(source, speaker, row["included"]))
+    return tuple(sorted(rules))
+
+
+def _settings_from_json(payload: dict[str, ValidationValue | list[dict[str, str | list[str] | bool]]]) -> AnalysisSettings:
     entries = payload.get("codebook_entries", [])
     return AnalysisSettings(
         theme_count=int(payload.get("theme_count", 8)),
@@ -170,6 +192,7 @@ def _settings_from_json(payload: dict[str, ValidationValue | list[dict[str, str 
         central_theme=str(payload.get("central_theme", "")),
         semantic_backend=str(payload.get("semantic_backend", "tfidf")),
         language_mode=str(payload.get("language_mode", "Auto")),
+        speaker_overrides=_speaker_overrides_from_json(payload.get("speaker_overrides", [])),
         codebook_entries=tuple(_codebook_entry_from_json(item) for item in entries if isinstance(item, dict)),
     )
 
