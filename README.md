@@ -167,7 +167,9 @@ start a new pass, **Cancel** keeps the current one open.
 
 After **Choose files**, open **Speakers for suggestions** before your first
 **Analyze**. It shows the parsed labels in each imported transcript,
-the automatic decision, the number of turns and a sample with its source line.
+the automatic decision and the number of turns. Select one row to read a
+highlighted turn beside its source context. **Next turn** cycles through the
+occurrences of that label in that file. Include and Exclude apply to all of them.
 Select one or more rows and choose **Include**, **Exclude**, or **Use automatic**,
 then **Apply**. Preview coverage, Analyze and both Find actions use these choices before ranking.
 Automatic uses the existing Analyze role rules across the open study. A correction
@@ -544,8 +546,16 @@ The app also accepts plain paragraphs without speaker labels, but speaker labels
 make quote evidence easier to review.
 
 A heading such as `Note:` can look like a speaker label. Check the parsed
-labels in **Speakers for suggestions**. For a multiword speaker label with
-lowercase or uncased words that appears only once, a timestamp header such as
+turns in **Speakers for suggestions**. If the highlight covers only editorial
+material, you can exclude that label in that file and keep a speaker with
+the same name in another file. If the highlight also covers an unlabeled
+answer, excluding the label skips the answer too. Check the original turn.
+If you can identify the speaker, add their label before the answer in a
+transcript copy and import the copy into a separate project. Existing projects
+keep their saved transcript, attributions and review history.
+
+For a multiword speaker label with lowercase or uncased words that appears
+only once, a timestamp header such as
 `포장 담당 0:03` makes the turn boundary explicit.
 
 Older analyses can include an accented speaker label in the quotation and

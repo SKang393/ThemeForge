@@ -7,7 +7,7 @@ from hashlib import sha256
 import re
 from typing import Literal
 
-from .analysis_types import QuoteUnit, ThemeQuote, TranscriptDocument
+from .analysis_types import QuoteUnit, ThemeQuote, TranscriptDocument, TranscriptSegment
 from .transcript_parser import parse_transcript
 
 
@@ -54,7 +54,7 @@ class TranscriptIndex:
             self._digests[name] = sha256(entry[0].encode("utf-8")).hexdigest()
         return self._digests[name]
 
-    def neighboring_turn_text(self, quote: ThemeQuote) -> tuple[str, str]:
+    def neighboring_turn_text(self, quote: ThemeQuote | TranscriptSegment) -> tuple[str, str]:
         """Raw text around a verified excerpt, through one neighboring parsed turn on each side."""
         entry = self._sources.get(quote.source_name)
         if entry is None or self.locate(quote).status != "exact_span":
@@ -70,7 +70,7 @@ class TranscriptIndex:
         stop = ends[last + 1] if last + 1 < len(ends) else len(source)
         return source[start:quote.source_start].lstrip("\r\n"), source[quote.source_end:stop].rstrip("\r\n")
 
-    def locate(self, q: ThemeQuote | QuoteUnit) -> SourceLocation:
+    def locate(self, q: ThemeQuote | QuoteUnit | TranscriptSegment) -> SourceLocation:
         entry = self._sources.get(q.source_name)
         if entry is None or not q.text:
             return SourceLocation("unverifiable", "No unique named source or nonempty recorded excerpt.")
