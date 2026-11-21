@@ -9,6 +9,7 @@ from dataclasses import asdict
 from .analysis import AnalysisResult, ValidationValue
 from .analysis_types import CodebookEntry, TranscriptDocument
 from .audit import AuditEvent, neutralize_csv_cell
+from .codebook import SharedCodebook
 from .manual_editing import MANUAL_ONLY_NOTE
 from .match_reviews import NO_CURRENT_REVIEW, REVIEW_SCOPE, MatchReviews
 from .source_location import LOCATION_SCOPE, TranscriptIndex
@@ -129,7 +130,9 @@ def export_json(result: AnalysisResult, documents: Iterable[TranscriptDocument] 
 
 def export_quotes_csv(result: AnalysisResult, documents: Iterable[TranscriptDocument] = (),
                       audit_events: Iterable[AuditEvent] = (), *, supported_only: bool = False,
-                      codebook_entries: Iterable[CodebookEntry] = ()) -> str:
+                      codebook_entries: Iterable[CodebookEntry] = (), shared_codebook: SharedCodebook | None = None) -> str:
+    if shared_codebook is not None and not supported_only:
+        raise ValueError("Codebook links are available for supported evidence only.")
     sources = TranscriptIndex(documents)
     reviews = MatchReviews(audit_events, codebook_entries=codebook_entries)
     buffer = io.StringIO()
@@ -142,6 +145,8 @@ def export_quotes_csv(result: AnalysisResult, documents: Iterable[TranscriptDocu
                 "match_review_time_utc", "match_review_target_id", "match_review_theme_name")
     if supported_only:
         fields = (*theme_fields, *citation, *decision, "source_sha256")
+        if shared_codebook is not None:
+            fields = (*fields, "shared_codebook_entry_number", "shared_codebook_file_sha256")
     else:
         fields = (*theme_fields, "theme_keywords", "theme_color", *citation,
                   "selection_rationale", "validation_review_status", *decision)
@@ -169,6 +174,14 @@ def export_quotes_csv(result: AnalysisResult, documents: Iterable[TranscriptDocu
             }
             if supported_only:
                 row["source_sha256"] = sources.digest(quote.source_name)
+                if shared_codebook is not None:
+                    entry = reviews.codebook_entry(theme)
+                    number = shared_codebook.entry_numbers.get(entry) if entry is not None else None
+                    if number is None:
+                        raise ValueError(f"{theme.name} ({theme.id}) needs one exact match for its active codebook "
+                                         "entry, including examples. Check the shared CSV or export without links.")
+                    row["shared_codebook_entry_number"] = number
+                    row["shared_codebook_file_sha256"] = shared_codebook.file_sha256
             else:
                 row.update(theme_keywords="; ".join(theme.keywords), theme_color=theme.color,
                            selection_rationale=quote.rationale,

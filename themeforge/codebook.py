@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import csv
+from dataclasses import dataclass
+from hashlib import sha256
+from io import StringIO
 from pathlib import Path
+from typing import TextIO
 
 from .analysis import CodebookEntry
 from .io import load_transcript_text
@@ -22,10 +26,8 @@ def load_codebook_entries(path: str | Path) -> tuple[CodebookEntry, ...]:
     source = Path(path)
     suffix = source.suffix.lower()
     if suffix == ".csv":
-        try:
-            return _load_csv_codebook(source)
-        except csv.Error as exc:
-            raise ValueError(f"Could not read the codebook CSV. {CSV_GUIDANCE}") from exc
+        with source.open("r", encoding="utf-8-sig", newline="") as stream:
+            return _load_csv_codebook(stream)
     if suffix not in {".txt", ".md", ".docx", ".rtf", ".pdf"}:
         raise ValueError("Choose a CSV, TXT, MD, DOCX, RTF, or text-based PDF codebook.")
     entries = _load_text_codebook(load_transcript_text(source))
@@ -34,9 +36,26 @@ def load_codebook_entries(path: str | Path) -> tuple[CodebookEntry, ...]:
     return entries
 
 
-def _load_csv_codebook(path: Path) -> tuple[CodebookEntry, ...]:
+@dataclass(frozen=True)
+class SharedCodebook:
+    file_sha256: str
+    entry_numbers: dict[CodebookEntry, int | None]
+
+    @classmethod
+    def from_csv(cls, path: Path) -> SharedCodebook:
+        if path.suffix.lower() != ".csv":
+            raise ValueError("Choose the CSV codebook your collaborator will use.")
+        raw = path.read_bytes()
+        entries = _load_csv_codebook(StringIO(raw.decode("utf-8-sig"), newline=""))
+        numbers = {}
+        for number, entry in enumerate(entries, start=1):
+            numbers[entry] = None if entry in numbers else number
+        return cls(sha256(raw).hexdigest(), numbers)
+
+
+def _load_csv_codebook(source: TextIO) -> tuple[CodebookEntry, ...]:
     entries: list[CodebookEntry] = []
-    with path.open("r", encoding="utf-8-sig", newline="") as source:
+    try:
         rows = csv.DictReader(source, strict=True)
         headers = {field.strip().lower() for field in rows.fieldnames or ()}
         if headers.isdisjoint(NAME_FIELDS):
@@ -53,6 +72,8 @@ def _load_csv_codebook(path: Path) -> tuple[CodebookEntry, ...]:
                     name=name, description=_first_value(row, DESCRIPTION_FIELDS),
                     examples=(example,) if example else (),
                 ))
+    except csv.Error as exc:
+        raise ValueError(f"Could not read the codebook CSV. {CSV_GUIDANCE}") from exc
     if not entries:
         raise ValueError("No named codebook entries found in the CSV rows.\n\n" + CSV_GUIDANCE)
     return tuple(entries)

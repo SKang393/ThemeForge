@@ -11,6 +11,7 @@ import zipfile
 
 from .analysis_types import AnalysisResult, CodebookEntry, Theme, ThemeQuote, TranscriptDocument
 from .audit import AuditEvent, export_audit_events_csv
+from .codebook import SharedCodebook
 from .decision_history import DecisionRow, decision_history_csv, decision_rows
 from .exports import export_quotes_csv
 from .manual_record_comparison import compare_recorded_assignments, current_assignment_csv, manual_assignment_links
@@ -323,6 +324,9 @@ class RigorDialog(tk.Toplevel):
             row=0, column=2, sticky="w")
         ttk.Button(handoff, text="Choose review history…", command=self._export_review_history).grid(
             row=3, column=1, columnspan=2, sticky="e")
+        ttk.Button(handoff, text="Export supported CSV with codebook links…",
+                   command=lambda: self._export_supported_matches(link_codebook=True)).grid(
+            row=4, column=0, sticky="w", pady=(4, 0))
         actions = ttk.Frame(tab)
         actions.grid(row=1, column=0, sticky="w", pady=(0, 8))
         ttk.Button(actions, text="Export audit CSV", command=self._export_audit).pack(side="left")
@@ -740,7 +744,7 @@ class RigorDialog(tk.Toplevel):
             return
         self._export_text(output, "selected-review-history.csv", new_file=True, status=self.audit_status)
 
-    def _export_supported_matches(self) -> None:
+    def _export_supported_matches(self, *, link_codebook: bool = False) -> None:
         context = self._context_source() if self._context_source else self.context
         result = context.result
         if result is None:
@@ -758,10 +762,32 @@ class RigorDialog(tk.Toplevel):
             return
         if index > 0:
             result = replace(result, themes=[result.themes[index - 1]])
+        shared = None
+        if link_codebook:
+            path = filedialog.askopenfilename(parent=self, title="Choose the CSV codebook your collaborator will use",
+                                              filetypes=[("CSV codebook", "*.csv")])
+            if not path:
+                self.audit_status.set("Export canceled.")
+                return
+            current = self._context_source() if self._context_source else self.context
+            if (current != context or self.supported_theme.current() != index
+                    or selected != {self.supported_sources.get(i) for i in self.supported_sources.curselection()}):
+                self.audit_status.set("The study or export scope changed. Choose the sources and theme again.")
+                return
+            try:
+                shared = SharedCodebook.from_csv(Path(path))
+            except (OSError, ValueError) as exc:
+                self.audit_status.set(f"Cannot link the shared CSV. {exc}")
+                return
         documents = (doc for doc in context.documents if doc.name in selected)
-        output = export_quotes_csv(result, documents, context.audit_events, supported_only=True,
-                                   codebook_entries=context.codebook_entries)
-        self._export_text(output, "supported-matches.csv", status=self.audit_status)
+        try:
+            output = export_quotes_csv(result, documents, context.audit_events, supported_only=True,
+                                       codebook_entries=context.codebook_entries, shared_codebook=shared)
+        except ValueError as exc:
+            self.audit_status.set(str(exc))
+            return
+        filename = "supported-matches-linked.csv" if link_codebook else "supported-matches.csv"
+        self._export_text(output, filename, new_file=link_codebook, status=self.audit_status)
 
     def _export_text(self, text: str, default_name: str, *, new_file: bool = False,
                      status: tk.StringVar | None = None) -> bool:

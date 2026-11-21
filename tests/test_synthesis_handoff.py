@@ -1,4 +1,5 @@
 """Hand off a revised finding from a saved fictional three-interview study."""
+import csv
 from dataclasses import replace
 from hashlib import sha256
 import json
@@ -66,6 +67,42 @@ class SynthesisHandoffTests(unittest.TestCase):
             press(app, "Save project")
 
         self.root, self.app, self.project = root, app, project
+
+    def test_supported_rows_link_to_the_recipients_numbered_codebook(self):
+        saved = self.project.read_bytes()
+        dialog = open_audit(self.app, self.project)
+        bell, art = self.app.codebook_entries
+        sources = dialog.supported_sources
+        sources.selection_set(sources.get(0, "end").index("cove.txt"))
+        ordinary = export(dialog, "Export supported matches CSV", self.root / "ordinary.csv")
+        linked = self.root / "linked.csv"
+        shared = self.root / "shared.csv"
+        action = "Export supported CSV with codebook links…"
+
+        def write_book(entries):
+            with shared.open("w", encoding="utf-8-sig", newline="") as stream:
+                writer = csv.writer(stream)
+                writer.writerow(("code", "definition", "example"))
+                writer.writerows((e.name, e.description, *e.examples) for e in entries)
+
+        alternative = replace(bell, examples=("Exclude: a planned gate closure.",))
+        write_book((art, alternative, bell))
+        with patch("themeforge.rigor_dialog.filedialog.askopenfilename", return_value=str(shared)):
+            rows = export(dialog, action, linked)
+        self.assertEqual([{field: row[field] for field in ordinary[0]} for row in rows], ordinary)
+        self.assertEqual({r["theme_name"]: r["shared_codebook_entry_number"] for r in rows},
+                         {bell.name: "3", art.name: "1"})
+        self.assertEqual({r["shared_codebook_file_sha256"] for r in rows}, {sha256(shared.read_bytes()).hexdigest()})
+        self.assertEqual(set(rows[0]) - set(ordinary[0]), {"shared_codebook_entry_number", "shared_codebook_file_sha256"})
+
+        for entries in ((art, alternative), (art, bell, bell)):
+            write_book(entries)
+            with patch("themeforge.rigor_dialog.filedialog.askopenfilename", return_value=str(shared)), \
+                    patch("themeforge.rigor_dialog.filedialog.asksaveasfilename") as destination:
+                press(dialog, action)
+                destination.assert_not_called()
+            self.assertIn("one exact match", dialog.audit_status.get())
+        self.assertEqual(self.project.read_bytes(), saved)
 
     def test_one_theme_traces_support_and_a_reviewed_exception(self):
         root, app, project = self.root, self.app, self.project

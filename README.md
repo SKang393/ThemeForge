@@ -44,6 +44,8 @@ In the supported CSV, find `source_file` and `source_line`. The example quotatio
 
 Use the transcript text saved in the project when checking offsets. For Word or PDF input, use the extracted text. Its SHA-256 digest, computed over the UTF-8 text, should match `source_sha256`. To trace the review, export the audit CSV from **Rigor tools → Audit log**. Match `match_review_target_id` to `target_id`, then check the reviewer, UTC time and reason.
 
+If a collaborator already has a CSV codebook, choose **Export supported CSV with codebook links…** and select their copy. It can contain just the entries you intend to share, in any order. Each supported row must match one entry by code name, definition and examples. The evidence CSV adds the file’s SHA-256 and the entry number shown when that file is opened with **Choose codebook**. The codebook text stays in the separate file.
+
 ## Offline use
 
 The default TF-IDF workflow runs on a CPU without an account or model download. **Local embeddings** is optional. To use it, install `sentence-transformers` and cache the MiniLM model for the selected language in advance. ThemeForge looks only in the local model cache and falls back to TF-IDF if embeddings are unavailable. [Sentence Transformers model-loading guide](https://www.sbert.net/docs/package_reference/sentence_transformer/model.html)
