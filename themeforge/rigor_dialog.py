@@ -13,7 +13,7 @@ from .analysis_types import AnalysisResult, CodebookEntry, Theme, ThemeQuote, Tr
 from .audit import AuditEvent, export_audit_events_csv
 from .decision_history import DecisionRow, decision_history_csv, decision_rows
 from .exports import export_quotes_csv
-from .manual_record_comparison import compare_recorded_assignments, current_assignment_csv
+from .manual_record_comparison import compare_recorded_assignments, current_assignment_csv, manual_assignment_links
 from .match_reviews import MatchReviews, REVIEW_ACTION
 from .paired_reviews import PairedReviewReport, compare_match_reviews
 from .project_io import UnsupportedProjectFormatError, load_project
@@ -175,6 +175,7 @@ class RigorDialog(tk.Toplevel):
         self._locate_match = locate_match
         self._source_review_matches: dict[str, tuple[Theme, ThemeQuote]] = {}
         self.source_review_hint = tk.StringVar(self)
+        self.my_manual_assignments = tk.BooleanVar(self, value=False)
         self._last_disagreement: str | None = None
         self.report: IntercoderReliabilityReport | None = None
         self._comparison_project: CodedProject | None = None
@@ -220,12 +221,15 @@ class RigorDialog(tk.Toplevel):
         if axis_label == "source":
             ttk.Button(actions, text="Export this project's manual codebook assignments",
                        command=self._export_current_assignments).pack(side="left", padx=8)
+            ttk.Checkbutton(actions, text="Show only my manual codebook assignments",
+                            variable=self.my_manual_assignments, command=self._render_source_matrix).pack(side="left")
             ttk.Label(tab, textvariable=self.source_review_hint, wraplength=800).grid(row=2, column=0, sticky="w")
             ttk.Label(tab, textvariable=self.assignment_status, wraplength=780).grid(row=3, column=0, sticky="w")
-            tree = ttk.Treeview(tab, columns=("source", "reviews", "quotes", "chars", "coverage"), selectmode="browse")
-            tree.heading("#0", text="Theme / reviewed passage")
+            tree = ttk.Treeview(tab, columns=("source", "reviews", "quotes", "chars", "coverage", "match_link"),
+                                selectmode="browse")
             tree.column("#0", width=210)
-            self._configure_tree(tree, ("Source", "Match reviews", "Stored quotes", "Covered chars", "Coverage %"))
+            self._configure_tree(tree, ("Source", "Match reviews", "Stored quotes", "Covered chars", "Coverage %",
+                                        "Direct match link"))
             tree.column("reviews", width=230)
             for col in ("quotes", "chars", "coverage"):
                 tree.column(col, width=90)
@@ -359,6 +363,14 @@ class RigorDialog(tk.Toplevel):
         self._clear_tree(tree)
         self._source_review_matches.clear()
         reviewer = self.context.coder_name.strip()
+        if self.my_manual_assignments.get():
+            tree.configure(displaycolumns=("source", "reviews", "match_link"))
+            tree.heading("#0", text="Code / assigned passage")
+            hint = self._render_manual_sources(reviewer)
+            self.source_review_hint.set(f"{hint} Both CSV buttons keep their project-wide scope.")
+            return
+        tree.configure(displaycolumns=("source", "reviews", "quotes", "chars", "coverage"))
+        tree.heading("#0", text="Theme / reviewed passage")
         hint = (f"Match reviews by {reviewer}. Historical rows show earlier decisions in this pass under a changed "
                 "or removed entry. They are excluded from current support. Expand a row and double-click a passage "
                 "or press Enter to read its quote and reason." if reviewer else
@@ -390,9 +402,42 @@ class RigorDialog(tk.Toplevel):
             parent = tree.insert("", tk.END, text=f"{theme.name} ({theme.id})", values=(
                 row.axis_value, summary, row.quote_count, row.covered_chars, f"{row.coverage_ratio * 100:.2f}"))
             for quote, status in sorted(matches, key=lambda pair: pair[0].source_start):
-                item = tree.insert(parent, tk.END, text=f"Line {quote.source_line} [{quote.source_start}, {quote.source_end})",
-                                   values=(row.axis_value, f"Historical: {status}" if historical else status))
-                self._source_review_matches[item] = theme, quote
+                self._insert_source_passage(parent, theme, quote, f"Historical: {status}" if historical else status)
+
+    def _insert_source_passage(self, parent: str, theme: Theme, quote: ThemeQuote, status: str) -> str:
+        location = f"Line {quote.source_line} [{quote.source_start}, {quote.source_end})"
+        item = self.source_matrix_tree.insert(parent, tk.END, text=location, values=(quote.source_name, status))
+        self._source_review_matches[item] = theme, quote
+        return item
+
+    def _render_manual_sources(self, reviewer: str) -> str:
+        result = self.context.result
+        if not reviewer or result is None:
+            return "Open a coded study and enter your coder name to see your manual assignments."
+        project = CodedProject(self.context.documents, result, self.context.audit_events)
+        try:
+            links = manual_assignment_links(project, reviewer)
+        except ValueError as exc:
+            return f"Manual assignments could not be verified: {exc}"
+        if not links:
+            return f"No current manual codebook assignments recorded by {reviewer}."
+        sources = TranscriptIndex(project.documents)
+        reviews = MatchReviews(project.audit_events, reviewer=reviewer, codebook_entries=self.context.codebook_entries)
+        tree = self.source_matrix_tree
+        for theme in result.themes:
+            by_source = defaultdict(list)
+            for quote in theme.quotes:
+                if quote.manual_definition_assignment and quote.quote_id in links:
+                    by_source[quote.source_name].append(quote)
+            for source, quotes in sorted(by_source.items()):
+                parent = tree.insert("", tk.END, text=f"{theme.name} ({theme.id})", values=(source,), open=True)
+                for quote in sorted(quotes, key=lambda q: q.source_start):
+                    note = reviews.latest(theme, quote, sources, reviewer=reviewer)
+                    status = note.disposition if note else "No current review"
+                    item = self._insert_source_passage(parent, theme, quote, status)
+                    tree.set(item, "match_link", "Recorded" if links[quote.quote_id] else "None recorded")
+        return (f"Assignments by {reviewer}. Double-click a passage or press Enter to open it. "
+                "A direct link records use of Apply definition to this quote. With no link, the discovery route is unknown.")
 
     def _open_source_review(self, event: tk.Event) -> str | None:
         tree = self.source_matrix_tree

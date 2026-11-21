@@ -78,6 +78,14 @@ def _records(project: CodedProject, sources: dict[str, str]) -> tuple[dict[Recor
     return {key: a.quote.quote_id for key, a in assignments.items()}, actors.pop(), history, skipped
 
 
+def manual_assignment_links(project: CodedProject, actor: str) -> dict[str, bool]:
+    """Current verified assignments by this coder and presence of a direct source-match event."""
+    assignments, _, _ = _verified_assignments(project, _sources(project))
+    linked = {e.target_id for e in project.audit_events
+              if e.action == "assignment_source_match" and e.target_type == "quote" and e.actor == actor}
+    return {a.quote.quote_id: a.quote.quote_id in linked for a in assignments.values() if a.event.actor == actor}
+
+
 def current_assignment_csv(project: CodedProject) -> tuple[str, int, int]:
     """One current project; report the original assigning actor on each verified row."""
     sources = _sources(project)

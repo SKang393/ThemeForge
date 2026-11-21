@@ -3,10 +3,11 @@ from dataclasses import replace
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from tkinter import ttk
 import unittest
 from unittest.mock import patch
 
-from test_evidence_handoff import export, open_audit, press
+from test_evidence_handoff import descendants, export, open_audit, press
 from themeforge.app import ThemeForgeApp
 from themeforge.project_io import load_project, save_project
 from themeforge.rigor_dialog import RigorDialog
@@ -186,6 +187,29 @@ class SuggestionCoverageTests(unittest.TestCase):
         self.assertEqual((root / "before.csv").read_bytes(), (root / "after.csv").read_bytes())
         self.assertEqual(export(audit, "Export this project's manual codebook assignments", root / "manual-after.csv"),
                          [manual])
+        tree = audit.source_matrix_tree
+        tree.master.master.select(tree.master)
+        fresh.update()
+        toggle, = [w for w in descendants(tree.master) if isinstance(w, ttk.Checkbutton)
+                   and w.cget("text") == "Show only my manual codebook assignments"]
+        self.assertFalse(toggle.instate(["selected"]))
+        toggle.invoke()
+        parent, = tree.get_children()
+        item, = tree.get_children(parent)
+        self.assertEqual((tree.set(item, "source"), tree.item(item, "text"), tree.set(item, "reviews"),
+                          tree.set(item, "match_link")), (source.name, f"Line 2 [{start}, {end})",
+                                                         "No current review", "None recorded"))
+        tree.focus_force()
+        fresh.update()
+        tree.focus(item)
+        tree.selection_set(item)
+        tree.event_generate("<Return>")
+        fresh.update()
+        self.assertEqual(audit.state(), "withdrawn")
+        transcript = fresh.transcript_widgets[source.name]
+        self.assertEqual(transcript.get("selected_quote.first", "selected_quote.last"), omitted)
+        self.assertEqual(len(transcript.get("1.0", "selected_quote.first")), start)
+        self.assertEqual(fresh._project_state(), saved)
         audit.destroy()
         self.assertEqual(path.read_bytes(), original)
 

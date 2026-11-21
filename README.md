@@ -238,6 +238,15 @@ Open **Rigor tools** again to return to the same row. A declined match might
 document a counterexample or simply mention the topic. Read the reason before
 interpreting it. “No current reviews” leaves that source’s position open.
 
+To return to passages where you applied a codebook entry yourself, select
+**Show only my manual codebook assignments** in **By source**. Open a row to see the exact span,
+including assignments you have yet to review for support. **Direct match
+link** shows whether the saved assignment records use of **Apply definition
+to this quote…**. With no recorded link, you can trace the assignment but
+cannot tell whether the reader found it through omission navigation, an
+independent reading, or another route. The filter applies to the screen.
+Both export buttons retain their project-wide scope.
+
 **Revising a codebook after review.** A codebook match review shows the full
 passage and the saved entry, including its examples and exclusions. When you
 load a revised codebook, only entries with the same code name, definition and
