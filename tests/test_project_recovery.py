@@ -51,7 +51,8 @@ class ProjectRecoveryTests(unittest.TestCase):
                          ("shift.txt", SHIFT.rindex(HANDOFF), len(SHIFT), HANDOFF))
         self.discover(OLD)
         self.review(1, "Supports this theme", "The card records the initial count.")
-        self.discover(REVISED)
+        with patch("themeforge.app.messagebox.askokcancel", return_value=True):
+            self.discover(REVISED)
         self.review(2, "Supports this theme", "The card records a completed count.")
         with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(self.original)):
             press(self.app, "Save project")

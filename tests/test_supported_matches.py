@@ -4,6 +4,7 @@ from hashlib import sha256
 import io
 import json
 from pathlib import Path
+import sys
 import tempfile
 from tkinter import ttk
 import unittest
@@ -12,6 +13,7 @@ from unittest.mock import Mock, patch
 from themeforge.app import ThemeForgeApp
 from themeforge.definition_review import DefinitionReview
 from themeforge.exports import export_quotes_csv
+from themeforge.project_io import load_project
 from themeforge.rigor_dialog import RigorDialog
 
 
@@ -45,7 +47,7 @@ class SupportedMatchTests(unittest.TestCase):
         self.root = Path(folder.name)
         self.app = ThemeForgeApp()
         self.app.withdraw()
-        self.addCleanup(self.app.destroy)
+        self.addCleanup(lambda: self.app.destroy())
         paths = []
         for name, text in SOURCES.items():
             path = self.root / name
@@ -173,11 +175,82 @@ class SupportedMatchTests(unittest.TestCase):
         self.review("Not this match", "Withdrawing support after checking the context.")
         self.assertEqual(self.export_csv(rigor, "Export supported matches CSV", "latest.csv"), [])
         self.review("Supports this theme", reason)
-        with patch("themeforge.app.messagebox.askokcancel", return_value=True):
-            app.analyze()
-        self.assertEqual(self.export_csv(rigor, "Export supported matches CSV", "new-run.csv"), [])
-        history = self.export_csv(rigor, "Export audit CSV", "history.csv")
-        self.assertIn(event, history)
+        rigor.destroy()
+        press(app, "Save project")
+        self.check_return_to_study(project, assigned, reason, event)
+
+    def check_return_to_study(self, project, assigned, reason, original_support_event):
+        project_bytes = project.read_bytes()
+        saved = load_project(project)
+        self.app.request_close()
+        self.app = app = ThemeForgeApp()
+        screen = app.winfo_screenwidth(), app.winfo_screenheight()
+        if sys.platform == "win32" and screen == (1024, 768):
+            app.state("zoomed")
+        else:
+            app.geometry("1024x705+0+0")
+        with patch("themeforge.app.filedialog.askopenfilename", return_value=str(project)):
+            press(app, "Open project")
+        app.update()
+
+        def analyze(accept):
+            if sys.platform == "win32":
+                from windows_analyze_prompt import answer_analyze_prompt
+                answer_analyze_prompt(lambda: press(app, "Analyze"), accept, screen)
+            else:
+                with patch("themeforge.app.messagebox.askokcancel", return_value=accept) as prompt:
+                    press(app, "Analyze")
+                prompt.assert_called_once()
+
+        def west_export(filename):
+            press(app, "Rigor tools")
+            dialog, = [w for w in app.winfo_children() if isinstance(w, RigorDialog)]
+            tab = dialog.audit_tree.master
+            tab.master.select(tab)
+            sources = dialog.supported_sources
+            sources.selection_set(sources.get(0, "end").index("west.txt"))
+            rows = self.export_csv(dialog, "Export supported matches CSV", filename)
+            dialog.destroy()
+            app.update()
+            return rows
+
+        evidence, = west_export("before-cancel.csv")
+        self.assertEqual((evidence["source_file"], evidence["quote"], evidence["match_review_reason"]),
+                         ("west.txt", DONE, reason))
+        analyze(False)
+        self.assertEqual(west_export("after-cancel.csv"), [evidence])
+        self.assertEqual((self.root / "after-cancel.csv").read_bytes(), (self.root / "before-cancel.csv").read_bytes())
+        press(app, "Next deferred")
+        q = app._current_quote_match().quote
+        widget = app.transcript_widgets[q.source_name]
+        self.assertEqual((q.source_name, q.source_start, q.source_end, widget.get("selected_quote.first", "selected_quote.last")),
+                         ("east.txt", 109, 164, PLAN))
+        self.assertIn("Only a plan is described.", app.match_review_text.get())
+        self.assertEqual(app._project_state(), saved)
+        self.assertEqual(project.read_bytes(), project_bytes)
+
+        copy = self.root / "new-pass.tfproj"
+        with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(copy)):
+            press(app, "Save as…")
+        self.assertEqual(app.project_path, copy)
+        analyze(True)
+        with patch("themeforge.app.filedialog.askopenfilename", return_value=str(copy)):
+            press(app, "Open project")
+        self.assertEqual(west_export("new-run.csv"), [])
+        reopened = app._project_state()
+        self.assertEqual(reopened, load_project(copy))
+        self.assertEqual(reopened.audit_events[:-1], saved.audit_events)
+        self.assertEqual(reopened.audit_events[-1].action, "analysis_run")
+        press(app, "Rigor tools")
+        rigor, = [w for w in app.winfo_children() if isinstance(w, RigorDialog)]
+        audit = self.export_csv(rigor, "Export audit CSV", "history.csv")
+        self.assertIn(original_support_event, audit)
+        self.assertEqual([json.loads(r["details"])["disposition"] for r in audit if r["action"] == "match_review_note"],
+                         ["declined", "deferred", "supported", "declined", "supported"])
+        self.assertEqual([q for t in reopened.result.themes for q in t.quotes if q.manual_definition_assignment], [assigned])
+        self.assertEqual(project.read_bytes(), project_bytes)
+        print("Cancel preserved the project and scoped CSV bytes. Next deferred selected east.txt [109, 164). "
+              "The reopened copy retained all five review notes and the west.txt [3, 49) assignment, with zero supported rows.")
 
     def test_review_requires_the_same_visible_match_and_reviewer_throughout(self):
         app = self.app

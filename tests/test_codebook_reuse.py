@@ -90,7 +90,8 @@ class CodebookReuseTests(unittest.TestCase):
     def first_project(self):
         self.discover(OLD)
         self.review("Supports this theme", "A shuttle log was mentioned.")
-        self.discover(NEW)
+        with patch("themeforge.app.messagebox.askokcancel", return_value=True):
+            self.discover(NEW)
         child, = [t for t in self.app.result.themes if t.name == "Shuttle log"]
         parent, = [t for t in self.app.result.themes if t.name == "Shuttle handling"]
         self.assertFalse(child.parent_theme_id)
