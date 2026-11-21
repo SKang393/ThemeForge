@@ -54,12 +54,26 @@ def find_similar_passages(
     if not query_text:
         return SimilarPassageResult((), "The selected theme has no text to use for similarity search.")
 
-    candidates = _uncoded_quote_units(documents, result, settings)
+    _, units = suggestion_inputs(documents, settings)
+    other_quotes = [q for t in result.themes if t.id != theme_id for q in t.quotes]
+    uncoded, stored_elsewhere = [], []
+    for unit in units:
+        if _is_already_coded(unit, theme.quotes):
+            continue
+        if _is_already_coded(unit, other_quotes):
+            if not quote_id:
+                stored_elsewhere.append(unit)
+        else:
+            uncoded.append(unit)
+    candidates = uncoded + stored_elsewhere
     if not candidates:
-        return SimilarPassageResult((), "No uncoded quote-length passages remain in the open transcripts.")
+        note = ("No uncoded quote-length passages remain in the open transcripts." if quote_id else
+                "No eligible passages remain outside the selected theme.")
+        return SimilarPassageResult((), note)
 
     texts = [query_text, *(candidate.text for candidate in candidates)]
-    vectors, note, method_label = _retrieval_vectors(texts, settings)
+    # Keep the original query and uncoded passages as the TF-IDF reference corpus.
+    vectors, note, method_label = _retrieval_vectors(texts, settings, 1 + len(uncoded))
     if len(vectors) != len(texts):
         return SimilarPassageResult((), "Similarity vectors could not be created for the open transcripts.")
 
@@ -86,7 +100,7 @@ def find_similar_passages(
     )
     passages = tuple(item for item in ranked if item.similarity > 0.0)[: max(0, limit)]
     if not passages:
-        return SimilarPassageResult((), f"{note} No related uncoded passages received a positive similarity score.", method_label)
+        return SimilarPassageResult((), f"{note} No related passages received a positive similarity score.", method_label)
     return SimilarPassageResult(passages, note, method_label)
 
 
@@ -97,16 +111,6 @@ def _query_text(theme: Theme, quote_id: str) -> str:
             return quote.text
     evidence = " ".join(quote.text for quote in theme.quotes[:3])
     return " ".join((theme.name, *theme.keywords, evidence)).strip()
-
-
-def _uncoded_quote_units(
-    documents: Sequence[TranscriptDocument],
-    result: AnalysisResult,
-    settings: AnalysisSettings,
-) -> list[QuoteUnit]:
-    coded_quotes = [quote for theme in result.themes for quote in theme.quotes]
-    _, candidates = suggestion_inputs(documents, settings)
-    return [candidate for candidate in candidates if not _is_already_coded(candidate, coded_quotes)]
 
 
 def _is_already_coded(candidate: QuoteUnit, coded_quotes: Sequence[ThemeQuote]) -> bool:
@@ -124,13 +128,15 @@ def _is_already_coded(candidate: QuoteUnit, coded_quotes: Sequence[ThemeQuote]) 
 def _retrieval_vectors(
     texts: list[str],
     settings: AnalysisSettings,
+    reference_count: int,
 ) -> tuple[list[dict[str, float]], str, str]:
     if settings.semantic_backend == "local_embeddings":
         embedding_result = local_embedding_vectors(texts, settings.language_mode)
         if len(embedding_result.vectors) == len(texts):
             label = embedding_result.model_name.rsplit("/", 1)[-1] or "Local embeddings"
             return embedding_result.vectors, "Local embedding cosine similarity was used for these suggestions.", label
-        vectors, _idf = tfidf_vectors(texts)
-        return vectors, f"{embedding_result.note} TF-IDF similarity was used for these suggestions.", "TF-IDF fallback"
-    vectors, _idf = tfidf_vectors(texts)
-    return vectors, "TF-IDF cosine similarity was used for these suggestions.", "TF-IDF"
+        note, label = f"{embedding_result.note} TF-IDF similarity was used for these suggestions.", "TF-IDF fallback"
+    else:
+        note, label = "TF-IDF cosine similarity was used for these suggestions.", "TF-IDF"
+    vectors, _idf = tfidf_vectors(texts, reference_count=reference_count)
+    return vectors, note, label

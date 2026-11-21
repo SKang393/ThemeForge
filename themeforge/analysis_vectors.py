@@ -138,13 +138,17 @@ def _merge_small_clusters(
     return clusters
 
 
-def tfidf_vectors(texts: list[str], extra_stopwords: set[str] | None = None) -> tuple[list[dict[str, float]], dict[str, float]]:
+def tfidf_vectors(texts: list[str], extra_stopwords: set[str] | None = None, *,
+                  reference_count: int | None = None) -> tuple[list[dict[str, float]], dict[str, float]]:
+    """Fit IDF on the reference prefix and apply those weights to every text."""
     documents = [terms_for_vector(text, extra_stopwords) for text in texts]
+    reference = documents if reference_count is None else documents[:reference_count]
     document_frequency: Counter[str] = Counter()
-    for document in documents:
+    for document in reference:
         document_frequency.update(set(document))
 
-    total = max(1, len(documents))
+    total = max(1, len(reference))
+    unseen_idf = math.log(1 + total) + 1  # Smoothed weight for zero reference documents containing a term.
     idf = {
         term: math.log((1 + total) / (1 + frequency)) + 1
         for term, frequency in document_frequency.items()
@@ -155,7 +159,7 @@ def tfidf_vectors(texts: list[str], extra_stopwords: set[str] | None = None) -> 
         counts = Counter(document)
         total_terms = sum(counts.values()) or 1
         vector = {
-            term: (count / total_terms) * idf.get(term, 1.0)
+            term: (count / total_terms) * idf.get(term, unseen_idf)
             for term, count in counts.items()
         }
         vectors.append(normalize_vector(vector))

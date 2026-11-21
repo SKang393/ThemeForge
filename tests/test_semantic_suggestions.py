@@ -1,7 +1,9 @@
+from dataclasses import replace
 from unittest.mock import patch
 import unittest
 
 from themeforge.analysis import AnalysisResult, AnalysisSettings, Theme, ThemeQuote, TranscriptDocument
+from themeforge.analysis_vectors import cosine, tfidf_vectors
 from themeforge.local_embeddings import EmbeddingResult
 from themeforge.quote_units import extract_quote_units
 from themeforge.semantic_suggestions import find_similar_passages
@@ -29,6 +31,40 @@ def result_with_quote(quote: ThemeQuote) -> AnalysisResult:
 
 
 class SemanticSuggestionTests(unittest.TestCase):
+    def test_theme_can_find_a_passage_stored_under_another_code(self):
+        lines = (
+            "Fitter: I used the manometer to copy the gauge reading onto my card.",
+            "Fitter: I started a lockout and copied the gauge reading onto my card.",
+            "Fitter: I finished a lockout before stacking the empty drums.",
+            "Fitter: I copied the gauge reading onto a spare slip.",
+        )
+        doc = TranscriptDocument("floor.txt", "\n".join(lines))
+        units = extract_quote_units(parse_transcript(doc.text, source_name=doc.name))
+
+        def stored(unit):
+            return ThemeQuote(unit.id, unit.speaker, unit.text, 0.9, unit.source_line, doc.name,
+                              source_start=unit.source_start, source_end=unit.source_end)
+
+        seed, shared, unrelated, fresh = units
+        result = result_with_quote(stored(seed))
+        target = replace(result.themes[0], name="Pressure logging", keywords=["manometer"])
+        isolation = replace(target, id="T02", name="Switch isolation", keywords=["lockout"],
+                            quotes=[stored(shared), stored(unrelated)], quote_count=2)
+        result = replace(result, themes=[target, isolation])
+        request = ((doc,), result, target.id, AnalysisSettings())
+        hits = {p.source_start: p for p in find_similar_passages(*request).passages}
+        self.assertEqual(set(hits), {shared.source_start, fresh.source_start})
+        hit = hits[shared.source_start]
+        self.assertEqual(doc.text[hit.source_start:hit.source_end], shared.text)
+        reference, _ = tfidf_vectors([hit.query.text, fresh.text])
+        self.assertEqual(hits[fresh.source_start].similarity, cosine(*reference))
+        from_quote = find_similar_passages(*request, quote_id=seed.id)
+        self.assertEqual([p.source_start for p in from_quote.passages], [fresh.source_start])
+        isolation = replace(isolation, quotes=[*isolation.quotes, stored(fresh)], quote_count=3)
+        fully_stored = replace(result, themes=[target, isolation])
+        hits = find_similar_passages((doc,), fully_stored, target.id, AnalysisSettings()).passages
+        self.assertEqual({p.source_start for p in hits}, {shared.source_start, fresh.source_start})
+
     def test_tfidf_ranking_returns_related_uncoded_passages_and_excludes_coded_span(self):
         transcript = "\n".join(
             (

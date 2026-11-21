@@ -1275,9 +1275,10 @@ class ThemeForgeApp(tk.Tk):
         if self.similar_passages:
             self.similar_list.selection_set(0)
             self.show_selected_similar_passage()
-            self.status_text.set(f"Found {len(self.similar_passages)} related uncoded passages")
+            self.status_text.set(f"Found {len(self.similar_passages)} related uncoded passages" if quote else
+                                 "Related passages may already be stored under another theme.")
             return
-        self.status_text.set("No related uncoded passages found")
+        self.status_text.set("No related passages found")
 
     def show_selected_similar_passage(self, _event: tk.Event | None = None) -> None:
         passage = self._selected_similar_passage()
