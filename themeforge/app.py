@@ -838,8 +838,8 @@ class ThemeForgeApp(tk.Tk):
             return
         self.edit_history = self.edit_history.record(self.result)
         self.result = updated
-        self._render_themes()
-        self._select_theme_by_id(theme.id)
+        self._refresh_selected_theme_row()
+        self._set_editable_text_content(self.theme_memo_text, memo_text.strip())
         self._record_audit_event("theme_memo_updated", "theme", theme.id, f"memo_chars={len(memo_text.strip())}")
         self._set_manual_status("Theme memo saved")
 
@@ -874,8 +874,10 @@ class ThemeForgeApp(tk.Tk):
             return
         self.edit_history = self.edit_history.record(self.result)
         self.result = updated
-        self._render_themes()
-        self._select_theme(self.current_theme_index)
+        quote = updated.themes[match.theme_index].quotes[match.quote_index]
+        self.current_quote_matches[self.current_quote_index] = replace(match, quote=quote)
+        self._refresh_selected_theme_row()
+        self._set_editable_text_content(self.quote_memo_text, quote.memo)
         self._record_audit_event("quote_memo_updated", "quote", match.quote.quote_id, f"theme_id={theme_id}; memo_chars={len(memo_text.strip())}")
         self._set_manual_status("Quote memo saved")
 
@@ -1665,21 +1667,31 @@ class ThemeForgeApp(tk.Tk):
             return
         if MANUAL_ONLY_NOTE in self.result.notes:
             self.theme_summary.set("Manual coding | No automated analysis")
-        for theme in self.result.themes:
-            label = theme_list_label(
-                theme.name,
-                theme.color,
-                theme.quote_count,
-                None if theme.reported_score is None else float(theme.validation.get("central_theme_alignment", 0)),
-                depth=1 if theme.parent_theme_id else 0,
-            )
-            role = theme.validation.get("reanalysis_role")
-            if role in ("Retained earlier edits", "Retained hierarchy parent", "Fresh codebook suggestion"):
-                label = f"[{role.split()[0]}] {label}"
-            self.theme_list.insert(tk.END, label)
-            self.theme_list.itemconfig(tk.END, foreground=theme.color)
+        for index, theme in enumerate(self.result.themes):
+            self._insert_theme_row(index, theme)
         self._apply_display_colors()
         self._refresh_editor()
+
+    def _insert_theme_row(self, index: int, theme: Theme) -> None:
+        label = theme_list_label(
+            theme.name, theme.color, theme.quote_count,
+            None if theme.reported_score is None else float(theme.validation.get("central_theme_alignment", 0)),
+            depth=1 if theme.parent_theme_id else 0,
+        )
+        role = theme.validation.get("reanalysis_role")
+        if role in ("Retained earlier edits", "Retained hierarchy parent", "Fresh codebook suggestion"):
+            label = f"[{role.split()[0]}] {label}"
+        self.theme_list.insert(index, label)
+        self.theme_list.itemconfig(index, foreground=theme.color)
+
+    def _refresh_selected_theme_row(self) -> None:
+        # Memo edits can change the theme summary. Reselecting the theme also reloads unrelated draft editors.
+        index = self.current_theme_index
+        theme = self._current_theme()
+        if index is not None and theme is not None:
+            self.theme_list.delete(index)
+            self._insert_theme_row(index, theme)
+            self.theme_list.selection_set(index)
 
     def _clear_theme_view(self, quote_meta: str) -> None:
         self.match_review_text.set("")

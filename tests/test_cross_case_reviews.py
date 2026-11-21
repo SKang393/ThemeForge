@@ -68,6 +68,8 @@ class CrossCaseReviewTests(unittest.TestCase):
                 press(app, REVIEW_LABELS[status])
                 prompt.assert_called_once()
 
+        claim = "The noon bell can prompt closure, but the dune gate stayed open until dusk."
+        annotation = "The keeper heard the cue. Check what kept the gate open."
         for _ in app.current_quote_matches:
             quote = app._current_quote_match().quote
             start, end, words, status, reason = CASES[quote.source_name][quote.source_line - 1]
@@ -79,6 +81,25 @@ class CrossCaseReviewTests(unittest.TestCase):
                 record("deferred", "I will return to the keeper's explanation.")
             if status:
                 record(status, reason)
+            if quote.source_name == "dune.txt" and status == "declined":
+                theme_memo, quote_memo = app.theme_memo_text, app.quote_memo_text
+                theme_memo.master.master.select(theme_memo.master)
+                quote_memo.master.master.select(quote_memo.master)
+                app.update()
+                theme_memo.insert("1.0", claim)
+                quote_memo.insert("1.0", "The keeper heard the cue.")
+                press(app, "Save quote memo")
+                self.assertEqual(theme_memo.get("1.0", "end-1c"), claim)
+                self.assertEqual(app._current_theme().memo, "")
+                quote_memo.insert("end-1c", " Check what kept the gate open.")
+                press(app, "Save theme memo")
+                self.assertEqual(quote_memo.get("1.0", "end-1c"), annotation)
+                self.assertEqual(app._current_quote_match().quote.memo, "The keeper heard the cue.")
+                press(app, "Save quote memo")
+                app.update()
+                self.assertEqual(app._visible_review_match().quote.quote_id, quote.quote_id)
+                self.assertEqual(app.transcript_widgets[quote.source_name].get("selected_quote.first", "selected_quote.last"), words)
+                self.assertFalse(app._has_pending_source_edits())
             press(app, "Next quote")
 
         # The researcher identifies two visits to the same market. The third file has no case mapping.
@@ -198,6 +219,9 @@ class CrossCaseReviewTests(unittest.TestCase):
                 self.assertTrue(app.quote_review_page.winfo_viewable())
                 self.assertIn(f"{status} by Flax", app.match_review_text.get())
                 self.assertIn(reason, app.match_review_text.get())
+                self.assertEqual(app.theme_memo_text.get("1.0", "end-1c"), claim)
+                self.assertEqual(app.quote_memo_text.get("1.0", "end-1c"),
+                                 annotation if (name, status) == ("dune.txt", "declined") else "")
                 if name == "cove.txt" and status == "declined":
                     self.assertNotIn("counterexample", app.match_review_text.get().lower())
                 label, = [w for w in descendants(app.quote_review_page) if isinstance(w, ttk.Label)
@@ -261,4 +285,5 @@ class CrossCaseReviewTests(unittest.TestCase):
               "Both guidance labels fit. Six stored passages shared one speaker label across three transcripts. "
               "Review links reopened both visits to the same researcher-mapped market. "
               "Verified four Flax passages and Reed’s independent deferral. "
+              "The revised claim and passage memo survived both save orders and reopening. "
               "Project, source matrix, audit and scoped evidence bytes preserved.")
