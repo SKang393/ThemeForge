@@ -9,6 +9,10 @@ from .audit import neutralize_csv_cell
 from .rigor import IntercoderReliabilityReport, MatrixCell
 
 COVERAGE_BASIS: Final = "Stored theme quote coverage by transcript unit, including discovered suggestions"
+MATRIX_COVERAGE_BASIS: Final = (
+    "Stored theme quotes, including unreviewed suggestions and declined or deferred matches. "
+    "The percentage is the share of characters they cover."
+)
 RELIABILITY_COLUMNS: Final = (
     "theme",
     "both_present",
@@ -36,6 +40,7 @@ def export_matrix_csv(rows: Sequence[MatrixCell], *, axis_label: str) -> str:
                 "quote_count": str(row.quote_count),
                 "unique_coded_characters": str(row.covered_chars),
                 "coverage_percent": _percent(row.coverage_ratio),
+                "coverage_basis": MATRIX_COVERAGE_BASIS,
             }
         )
     return output.getvalue()
@@ -92,8 +97,8 @@ def export_disagreements_csv(report: IntercoderReliabilityReport) -> str:
     return output.getvalue()
 
 
-def _matrix_columns(axis_label: str) -> tuple[str, str, str, str, str]:
-    return ("theme", axis_label, "quote_count", "unique_coded_characters", "coverage_percent")
+def _matrix_columns(axis_label: str) -> tuple[str, ...]:
+    return ("theme", axis_label, "quote_count", "unique_coded_characters", "coverage_percent", "coverage_basis")
 
 
 def _percent(ratio: float) -> str:

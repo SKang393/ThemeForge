@@ -12,6 +12,7 @@ from themeforge.rigor import (
 )
 from themeforge.rigor_exports import (
     COVERAGE_BASIS,
+    MATRIX_COVERAGE_BASIS,
     export_disagreements_csv,
     export_matrix_csv,
     export_reliability_csv,
@@ -42,6 +43,8 @@ class RigorExportTests(unittest.TestCase):
                     "quote_count": "2",
                     "unique_coded_characters": "25",
                     "coverage_percent": "25.00",
+                    "coverage_basis": "Stored theme quotes, including unreviewed suggestions and declined or deferred "
+                                      "matches. The percentage is the share of characters they cover.",
                 }
             ],
         )
@@ -149,7 +152,7 @@ class RigorExportTests(unittest.TestCase):
         # Then: every theme and axis marker is preserved behind an apostrophe.
         self.assertEqual(
             reader.fieldnames,
-            ["theme", "source", "quote_count", "unique_coded_characters", "coverage_percent"],
+            ["theme", "source", "quote_count", "unique_coded_characters", "coverage_percent", "coverage_basis"],
         )
         self.assertEqual(
             parsed,
@@ -160,6 +163,7 @@ class RigorExportTests(unittest.TestCase):
                     "quote_count": "1",
                     "unique_coded_characters": "10",
                     "coverage_percent": "50.00",
+                    "coverage_basis": MATRIX_COVERAGE_BASIS,
                 }
                 for prefix in ("=", "+", "-", "@")
             ],
