@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, simpledialog, ttk
@@ -319,8 +319,15 @@ class RigorDialog(tk.Toplevel):
         ttk.Label(handoff, wraplength=780, text="The supported table includes exact matches whose latest review across coders is supported. "
                   "Excerpts, source and speaker names, theme labels, reviewer names and free-text reasons can identify "
                   "people. Check these fields before sharing.").grid(row=2, column=0, columnspan=3, sticky="w", pady=4)
-        ttk.Button(handoff, text="Export supported matches CSV", command=self._export_supported_matches).grid(
-            row=3, column=0, sticky="w")
+        evidence = ttk.Frame(handoff)
+        evidence.grid(row=3, column=0, sticky="ew")
+        evidence.columnconfigure(1, weight=1)
+        ttk.Label(evidence, text="Supported table theme").grid(row=0, column=0, sticky="w")
+        self.supported_theme = ttk.Combobox(evidence, state="readonly", width=22, exportselection=False)
+        self.supported_theme.set("All themes")
+        self.supported_theme.grid(row=0, column=1, sticky="ew", padx=6)
+        ttk.Button(evidence, text="Export supported matches CSV", command=self._export_supported_matches).grid(
+            row=0, column=2, sticky="w")
         ttk.Button(handoff, text="Choose review history…", command=self._export_review_history).grid(
             row=3, column=1, columnspan=2, sticky="e")
         actions = ttk.Frame(tab)
@@ -482,8 +489,17 @@ class RigorDialog(tk.Toplevel):
             self.supported_sources.delete(0, tk.END)
             self.supported_sources.insert(tk.END, *names)
 
+    def _refresh_supported_themes(self, result: AnalysisResult | None) -> None:
+        themes = result.themes if result else ()
+        labels = ("All themes", *(f"{theme.name} ({theme.id})" for theme in themes))
+        selected = self.supported_theme.get()
+        self.supported_theme.configure(values=labels)
+        if labels.count(selected) != 1:
+            self.supported_theme.set("")  # Require a new choice if the selected theme disappeared.
+
     def _render_audit(self) -> None:
         self._refresh_supported_sources(self.context.documents)
+        self._refresh_supported_themes(self.context.result)
         self._clear_tree(self.audit_tree)
         for event in self.context.audit_events:
             self.audit_tree.insert(
@@ -725,7 +741,8 @@ class RigorDialog(tk.Toplevel):
 
     def _export_supported_matches(self) -> None:
         context = self._context_source() if self._context_source else self.context
-        if context.result is None:
+        result = context.result
+        if result is None:
             self.audit_status.set("Open a project with quote evidence to export supported matches.")
             return
         self._refresh_supported_sources(context.documents)
@@ -733,8 +750,15 @@ class RigorDialog(tk.Toplevel):
         if not selected:
             self.audit_status.set("Choose at least one transcript for the supported evidence table.")
             return
+        self._refresh_supported_themes(result)
+        index = self.supported_theme.current()
+        if index < 0:
+            self.audit_status.set("Choose an evidence theme or All themes before exporting.")
+            return
+        if index > 0:
+            result = replace(result, themes=[result.themes[index - 1]])
         documents = (doc for doc in context.documents if doc.name in selected)
-        output = export_quotes_csv(context.result, documents, context.audit_events, supported_only=True,
+        output = export_quotes_csv(result, documents, context.audit_events, supported_only=True,
                                    codebook_entries=context.codebook_entries)
         self._export_text(output, "supported-matches.csv", status=self.audit_status)
 

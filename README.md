@@ -321,11 +321,18 @@ codebook entry…** to record a manual assignment. Finding text leaves the
 review decisions and suggestion scores intact.
 
 **Handing off reviewed evidence.** In **Rigor tools → Audit log**, select the
-transcripts your collaborator may see, then choose **Export supported matches
-CSV**. Each row is an exact passage whose latest review across coders supports
+transcripts your collaborator may see. For a single finding, choose its name
+and ID under **Supported table theme**, then **Export supported matches CSV**.
+**All themes** includes supported matches for every theme in the selected
+transcripts. Each row is an exact passage whose latest review across coders supports
 the match. The table names that reviewer and includes their reason, time and
 the original quote relevance. Read the excerpts, names, theme labels and
 free-text reasons before sharing. A reason can mention another interview.
+
+A contrary case can qualify a revised claim. If you explicitly supported that
+pairing, its review reason accompanies the quote. To revisit a decline, open
+its passage in **By source** and read the reason. To share an earlier decision
+deliberately, use **Choose review history…**, which has its own decision selection.
 
 To check a citation with an authorized copy of the imported transcript text,
 compare `source_sha256` with the SHA-256 of that text encoded as UTF-8.

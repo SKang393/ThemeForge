@@ -87,6 +87,7 @@ jobs:
         run: >-
           python -m unittest -v
           test_evidence_handoff.EvidenceHandoffTests.test_selected_sources_trace_to_text_and_decision_without_the_project_audit
+          test_synthesis_handoff
           test_scoped_decision_history
       - name: Revisit historical passages by source and review a revised definition
         if: ${{ !cancelled() }}
