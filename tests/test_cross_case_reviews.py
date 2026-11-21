@@ -81,6 +81,15 @@ class CrossCaseReviewTests(unittest.TestCase):
                 record(status, reason)
             press(app, "Next quote")
 
+        # The researcher identifies two visits to the same market. The third file has no case mapping.
+        memos = {"cove.txt": "Market case: Quay", "dune.txt": "Market case: Quay"}
+        document_memo = app.document_memo_text
+        document_memo.master.master.select(document_memo.master)
+        for name, memo in memos.items():
+            app.transcript_notebook.select(app.transcript_frames[name])
+            app.update()
+            document_memo.insert("1.0", memo)
+            press(app, "Save document memo")
         path = root / "market.tfproj"
         with patch("themeforge.app.filedialog.asksaveasfilename", return_value=str(path)):
             press(app, "Save project")
@@ -88,6 +97,7 @@ class CrossCaseReviewTests(unittest.TestCase):
         with patch("themeforge.app.filedialog.askopenfilename", return_value=str(path)):
             press(app, "Open project")
         saved_state = app._project_state()
+        self.assertEqual({d.name: d.memo for d in saved_state.documents if d.memo}, memos)
         memo_tab = app.quote_memo_text.master
         memo_tab.master.select(memo_tab)
         press(app, "Rigor tools")
@@ -102,9 +112,27 @@ class CrossCaseReviewTests(unittest.TestCase):
         pooled, = speaker.get_children()
         self.assertEqual((speaker.heading("speaker", "text"), speaker.set(pooled, "speaker"),
                           speaker.set(pooled, "quotes")), ("Speaker label", "Keeper", "6"))
-        self.assertTrue(any(w.winfo_viewable() and "pooled across transcripts" in w.cget("text")
-                            for w in descendants(speaker.master) if isinstance(w, ttk.Label)))
+        def assert_guidance_fits(label):
+            self.assertTrue(label.winfo_viewable())
+            self.assertGreaterEqual(label.winfo_width(), label.winfo_reqwidth())
+            self.assertGreaterEqual(label.winfo_height(), label.winfo_reqheight())
+            x, y = label.winfo_rootx(), label.winfo_rooty()
+            for px, py in ((x, y), (x + label.winfo_width() - 1, y + label.winfo_height() - 1)):
+                self.assertTrue(0 <= px < screen[0] and 0 <= py < screen[1])
+                self.assertEqual(app.winfo_containing(px, py), label)
+
+        speaker_hint, = [w for w in descendants(speaker.master) if isinstance(w, ttk.Label)
+                         and "pooled across transcripts" in w.cget("text")]
+        assert_guidance_fits(speaker_hint)
+        self.assertEqual(speaker.heading("quotes", "text"), "Stored quotes")
+        self.assertIn("Different people can share a label", speaker_hint.cget("text"))
+        tree.master.master.select(tree.master)
+        app.update()
+        source_hint, = [w for w in descendants(tree.master) if isinstance(w, ttk.Label)
+                        and str(w.cget("textvariable")) == str(dialog.source_review_hint)]
+        assert_guidance_fits(source_hint)
         self.assertEqual(tree.heading("source", "text"), "Transcript")
+        self.assertIn("One summary row per theme and transcript", dialog.source_review_hint.get())
         self.assertIn("case mapping in Document memo", dialog.source_review_hint.get())
 
         def export_tables(stage):
@@ -179,6 +207,9 @@ class CrossCaseReviewTests(unittest.TestCase):
                 x, y = label.winfo_rootx(), label.winfo_rooty()
                 self.assertEqual(app.winfo_containing(x + label.winfo_reqwidth() - 1,
                                                       y + label.winfo_reqheight() - 1), label)
+                document_memo.master.master.select(document_memo.master)
+                app.update()
+                self.assertEqual(document_memo.get("1.0", "end-1c"), memos[name])
                 self.assertEqual(app._project_state(), saved_state)
                 press(app, "Rigor tools")
                 app.update()
@@ -227,5 +258,7 @@ class CrossCaseReviewTests(unittest.TestCase):
         self.assertIn("Enter a coder name", dialog.source_review_hint.get())
         self.assertEqual(path.read_bytes(), saved_bytes)
         print(f"Cross-case reviews on {screen[0]}x{screen[1]}, matrix {dialog.winfo_width()}x{dialog.winfo_height()}. "
+              "Both guidance labels fit. Six stored passages shared one speaker label across three transcripts. "
+              "Review links reopened both visits to the same researcher-mapped market. "
               "Verified four Flax passages and Reed’s independent deferral. "
               "Project, source matrix, audit and scoped evidence bytes preserved.")
