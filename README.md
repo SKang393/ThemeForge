@@ -75,6 +75,10 @@ Enter your **Coder name** to see your current reviews. Expand a theme and case t
 
 Save a grouped study as a **protected master**. Earlier versions of ThemeForge cannot open this format. When you first save case assignments in an older project, choose an unused filename for the master. The existing source, speaker and supported-evidence reports are available in either workflow.
 
+To collect another interview after review, save the protected study and choose **Append visit…**. Select the new transcript files and an unused project filename. ThemeForge checks the original files at their recorded locations and keeps the earlier master intact. Each visit needs a distinct filename and distinct extracted text.
+
+The new project opens with the earlier review still active. **Pending visits…** lets you read the unassigned transcripts. Reports and review counts cover the earlier sources until you choose **Analyze** and confirm a new pass for all visits. You can reopen the collection and read its saved transcripts offline. To exchange a working copy with an older version while visits are pending, use the retained earlier master.
+
 ### Review a grouped study with an older version
 
 1. Open the saved master. Under **Rigor tools → By case**, choose **Save older-version copy…** and give the working copy a new name. Keep the master for recovery. The working copy includes the study and review history, with case assignments omitted.

@@ -3,6 +3,11 @@ from collections.abc import Sequence
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, simpledialog, ttk
+from tkinter.scrolledtext import ScrolledText
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .project_io import PendingVisit
 
 
 def source_listbox(parent: tk.Misc, names: Sequence[str], row: int) -> tk.Listbox:
@@ -17,18 +22,55 @@ def source_listbox(parent: tk.Misc, names: Sequence[str], row: int) -> tk.Listbo
     return box
 
 
-def choose_transcript_files(parent: tk.Misc) -> list[Path]:
+def choose_transcript_files(parent: tk.Misc, *, append: bool = False) -> list[Path]:
     selected = filedialog.askopenfilenames(
-        parent=parent, title="Open transcripts",
+        parent=parent, title=("Append unassigned visits and verify the original transcript files"
+                             if append else "Open transcripts"),
         filetypes=[("Transcript files", "*.txt *.md *.csv *.docx *.rtf *.pdf"),
                    ("Text files", "*.txt *.md *.csv"), ("Word documents", "*.docx *.rtf"),
                    ("PDF files", "*.pdf"), ("All files", "*.*")],
     )
     paths = [Path(p) for p in selected]
     if len(paths) != len(set(paths)):
+        if append:
+            raise ValueError("The same path was selected more than once. Select each new visit once.")
         raise ValueError("The file picker returned the same path more than once. "
                          "Use Across folders… and choose files from one folder at a time.")
     return paths
+
+
+class PendingVisits(simpledialog.Dialog):
+    def __init__(self, parent: tk.Misc, visits: Sequence["PendingVisit"]):
+        self.visits = visits
+        super().__init__(parent, "Pending visits")
+
+    def body(self, parent):
+        ttk.Label(parent, text="Unassigned visits pending analysis").pack(anchor="w")
+        self.source = ttk.Combobox(parent, state="readonly", values=[visit.name for visit in self.visits])
+        self.source.pack(fill="x", pady=4)
+        self.location = ttk.Label(parent, wraplength=520)
+        self.location.pack(anchor="w")
+        self.transcript = ScrolledText(parent, width=64, height=12, wrap="word")
+        self.transcript.pack(fill="both", expand=True, pady=4)
+        ttk.Label(parent, text="The current review and reports cover the earlier sources. "
+                  "Choose Analyze in the workspace to start a new pass including these visits.",
+                  wraplength=520).pack(anchor="w")
+        self.source.bind("<<ComboboxSelected>>", self._show_visit)
+        self.source.current(0)
+        self._show_visit()
+        return self.source
+
+    def _show_visit(self, _event=None):
+        visit = self.visits[self.source.current()]
+        self.location.configure(text=str(visit.path))
+        self.transcript.configure(state="normal")
+        self.transcript.delete("1.0", "end")
+        self.transcript.insert("1.0", visit.text)
+        self.transcript.configure(state="disabled")
+
+    def buttonbox(self):
+        ttk.Button(self, text="Close", command=self.cancel).pack(pady=6)
+        self.bind("<Escape>", self.cancel)
 
 
 class TranscriptFolders(simpledialog.Dialog):

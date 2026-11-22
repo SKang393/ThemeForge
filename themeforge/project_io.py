@@ -6,7 +6,7 @@ from hashlib import sha256
 import json
 import math
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import tempfile
 from typing import BinaryIO
 import zipfile
@@ -30,6 +30,19 @@ NULLABLE_MEMBER = "project-nullable-scores.json"
 CASE_MEMBER = "project-case-master.json"
 CASE_PROFILE = "3-case-master"
 CASE_NULLABLE_PROFILE = "3-case-master-nullable-scores"
+STAGED_PROFILE = "4-case-master-pending"
+STAGED_NULLABLE_PROFILE = "4-case-master-pending-nullable-scores"
+
+
+@dataclass(frozen=True, slots=True)
+class PendingVisit:
+    path: Path
+    text: str
+
+    @property
+    def name(self) -> str:
+        # Preserve the original filename when opening a Windows study on another OS.
+        return self.path.name if self.path.is_absolute() else PureWindowsPath(self.path).name
 
 
 class ProjectCopyRequired(ValueError):
@@ -69,10 +82,31 @@ class ProjectState:
     # Identifies the disk snapshot. It is neither study content nor part of the project format.
     file_revision: bytes | None = field(default=None, compare=False, repr=False)
     is_case_master: bool = field(default=False, compare=False)
+    pending_visits: tuple[PendingVisit, ...] = ()
 
     @property
     def needs_case_master(self) -> bool:
-        return self.is_case_master or any(doc.case_label.strip() for doc in self.documents)
+        return self.is_case_master or bool(self.pending_visits) or any(doc.case_label.strip() for doc in self.documents)
+
+    def collection_sources(self) -> tuple[PendingVisit, ...]:
+        """Validate the embedded source identities without consulting the original files."""
+        if not self.documents or len(self.transcript_paths) != len(self.documents):
+            raise ValueError("Every earlier transcript needs its recorded source path before appending visits.")
+        previous = tuple(PendingVisit(path, doc.text) for path, doc in zip(self.transcript_paths, self.documents))
+        if any(source.name != doc.name for source, doc in zip(previous, self.documents)):
+            raise ValueError("A recorded path and transcript name differ or a filename is ambiguous.")
+        sources = previous + self.pending_visits
+        if any(not (v.path.is_absolute() or PureWindowsPath(v.path).is_absolute()) or not v.name.strip()
+               or not v.text.strip() for v in sources):
+            raise ValueError("Each visit needs an absolute source path, filename and nonempty transcript.")
+        if len({v.name.casefold() for v in sources}) != len(sources):
+            raise ValueError("A transcript filename is already present or ambiguous. Choose a distinct visit.")
+        if len({v.text for v in sources}) != len(sources):
+            raise ValueError("Two sources have identical transcript text. Choose a distinct visit.")
+        pending_names = {v.name for v in self.pending_visits}
+        if self.result and any(q.source_name in pending_names for t in self.result.themes for q in t.quotes):
+            raise ValueError("A pending visit appears in the earlier analysis.")
+        return sources
 
     @property
     def needs_nullable_profile(self) -> bool:
@@ -94,6 +128,10 @@ def _project_profile(member: str, payload: dict) -> tuple[bool, bool]:
     if not isinstance(payload, dict):
         raise ValueError("Expected a project data object.")
     version = payload.get("format_version", 1)
+    if member == CASE_MEMBER and version in (STAGED_PROFILE, STAGED_NULLABLE_PROFILE):
+        return True, version == STAGED_NULLABLE_PROFILE
+    if "pending_visits" in payload:
+        raise ValueError("Pending visits require a staged case master.")
     if member == CASE_MEMBER and version in (CASE_PROFILE, CASE_NULLABLE_PROFILE):
         return True, version == CASE_NULLABLE_PROFILE
     if member == NULLABLE_MEMBER and version == NULLABLE_PROFILE:
@@ -111,7 +149,7 @@ def _revision(stream: BinaryIO) -> bytes:
     return digest.digest()
 
 
-def _disk_revision(path: Path) -> bytes | None:
+def file_revision(path: Path) -> bytes | None:
     try:
         with path.open("rb") as stream:
             return _revision(stream)
@@ -121,7 +159,7 @@ def _disk_revision(path: Path) -> bytes | None:
 
 def ensure_project_revision(path: Path, expected_bytes: bytes) -> None:
     """Require the same complete archive bytes that were checked when the project was opened."""
-    if expected_bytes is None or _disk_revision(Path(path)) != expected_bytes:
+    if expected_bytes is None or file_revision(Path(path)) != expected_bytes:
         raise ProjectChanged()
 
 
@@ -151,6 +189,7 @@ def save_project(path: Path, state: ProjectState, *, new_only: bool = False,
     path = Path(path)
     case_master = state.needs_case_master
     nullable = state.needs_nullable_profile
+    staged_paths = {v.path for v in state.collection_sources()} if state.pending_visits else set()
     previous = None
     if not new_only:
         try:
@@ -160,7 +199,21 @@ def save_project(path: Path, state: ProjectState, *, new_only: bool = False,
                     raise ProjectChanged()
                 with zipfile.ZipFile(stream) as existing:
                     old_member = _data_member(existing)
-                    old_case, old_nullable = _project_profile(old_member, json.loads(existing.read(old_member)))
+                    old_payload = json.loads(existing.read(old_member))
+                    old_case, old_nullable = _project_profile(old_member, old_payload)
+                    old_pending = _pending_from_json(old_payload)
+                if state.pending_visits != old_pending:
+                    if state.pending_visits:
+                        raise ProjectCopyRequired("Save the appended visits in a new project file.",
+                                                  suffix="-visits", title="Save a new staged project")
+                    paths = tuple(Path(p) for p in old_payload["transcript_paths"]) + tuple(v.path for v in old_pending)
+                    promoted = tuple(TranscriptDocument(v.name, v.text) for v in old_pending)
+                    if (state.transcript_paths != paths or len(state.documents) != len(paths)
+                            or state.documents[-len(promoted):] != promoted or state.result is None
+                            or state.result.document_count != len(paths)
+                            or not any(e.action == "analysis_run"
+                                       for e in state.audit_events[len(old_payload.get("audit_events", [])):])):
+                        raise ValueError("Pending visits must be retained until included in an explicit analysis.")
                 if old_case and expected_revision is None:
                     if state.file_revision is None:
                         raise ProjectCopyRequired("That filename belongs to a case master. Choose a new filename for this study.",
@@ -180,7 +233,10 @@ def save_project(path: Path, state: ProjectState, *, new_only: bool = False,
             new_only = case_master or nullable
         except zipfile.BadZipFile as exc:
             raise ValueError("The existing project is unreadable; choose a new file instead.") from exc
-    if case_master:
+    if state.pending_visits:
+        member = CASE_MEMBER
+        format_version = STAGED_NULLABLE_PROFILE if nullable else STAGED_PROFILE
+    elif case_master:
         member = CASE_MEMBER
         format_version = CASE_NULLABLE_PROFILE if nullable else CASE_PROFILE
     else:
@@ -196,6 +252,8 @@ def save_project(path: Path, state: ProjectState, *, new_only: bool = False,
         "researcher_name": state.researcher_name,
         "audit_events": [asdict(event) for event in state.audit_events],
     }
+    if state.pending_visits:
+        payload["pending_visits"] = [{"path": str(v.path), "text": v.text} for v in state.pending_visits]
     # Serialize before touching disk, then replace only a complete sibling archive.
     serialized = json.dumps(payload, ensure_ascii=False, indent=2)
     temporary = None
@@ -209,9 +267,13 @@ def save_project(path: Path, state: ProjectState, *, new_only: bool = False,
             written = _revision(stream)
         with _publish_guard(path):
             for source, revision in input_revisions:
-                ensure_project_revision(source, revision)
+                if source in staged_paths:
+                    if file_revision(source) != revision:
+                        raise ValueError(f"The transcript changed or disappeared before saving: {source.name}")
+                else:
+                    ensure_project_revision(source, revision)
             if not new_only:
-                if _disk_revision(path) != previous:
+                if file_revision(path) != previous:
                     raise ProjectChanged()
                 os.replace(temporary, path)
             elif os.name == "nt":
@@ -224,14 +286,25 @@ def save_project(path: Path, state: ProjectState, *, new_only: bool = False,
     return written
 
 
-def load_project(path: Path) -> ProjectState:
-    with Path(path).open("rb") as stream, zipfile.ZipFile(stream) as archive:
-        member = _data_member(archive)
-        payload = json.loads(archive.read(member).decode("utf-8"))
+def load_project(path: Path, *, expected_revision: bytes | None = None) -> ProjectState:
+    try:
+        stream = Path(path).open("rb")
+    except FileNotFoundError:
+        if expected_revision is not None:
+            raise ProjectChanged() from None
+        raise
+    with stream:
+        if expected_revision is not None and _revision(stream) != expected_revision:
+            raise ProjectChanged()
+        with zipfile.ZipFile(stream) as archive:
+            member = _data_member(archive)
+            payload = json.loads(archive.read(member).decode("utf-8"))
         revision = _revision(stream)
+        if expected_revision is not None and revision != expected_revision:
+            raise ProjectChanged()
 
     case_master, nullable = _project_profile(member, payload)
-    return ProjectState(
+    state = ProjectState(
         transcript_paths=tuple(Path(item) for item in payload.get("transcript_paths", [])),
         codebook_path=_optional_path(payload.get("codebook_path")),
         documents=tuple(_document_from_json(item) for item in payload.get("documents", []) if isinstance(item, dict)),
@@ -241,7 +314,33 @@ def load_project(path: Path) -> ProjectState:
         audit_events=tuple(_audit_event_from_json(item) for item in payload.get("audit_events", []) if isinstance(item, dict)),
         file_revision=revision,
         is_case_master=case_master,
+        pending_visits=_pending_from_json(payload),
     )
+    if state.pending_visits:
+        state.collection_sources()
+    return state
+
+
+def _pending_from_json(payload: dict) -> tuple[PendingVisit, ...]:
+    if payload.get("format_version") not in (STAGED_PROFILE, STAGED_NULLABLE_PROFILE):
+        return ()
+    rows = payload.get("pending_visits")
+    if not isinstance(rows, list) or not rows:
+        raise ValueError("The staged case master has no pending visits.")
+    documents = payload.get("documents")
+    paths = payload.get("transcript_paths")
+    if (not isinstance(documents, list) or not isinstance(paths, list) or len(paths) != len(documents)
+            or not all(isinstance(p, str) for p in paths)
+            or not all(isinstance(d, dict) and isinstance(d.get("name"), str)
+                       and isinstance(d.get("text"), str) for d in documents)):
+        raise ValueError("Expected a source path, name and transcript for each earlier visit.")
+    visits = []
+    for row in rows:
+        if (not isinstance(row, dict) or set(row) != {"path", "text"}
+                or not isinstance(row["path"], str) or not isinstance(row["text"], str)):
+            raise ValueError("Invalid pending visit. Expected an unassigned source path and transcript text.")
+        visits.append(PendingVisit(Path(row["path"]), row["text"]))
+    return tuple(visits)
 
 
 def _optional_path(value: str | None) -> Path | None:

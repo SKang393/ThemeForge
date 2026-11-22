@@ -58,13 +58,16 @@ from .match_reviews import (
     HISTORICAL_DEFINITION, HISTORICAL_ENTRY, HISTORICAL_MANUAL, NO_CURRENT_REVIEW, REVIEW_ACTION, REVIEW_LABELS,
     MatchReviews, match_id, match_snapshot,
 )
-from .project_io import ProjectCopyRequired, ProjectState, UnsupportedProjectFormatError, load_project, save_project
+from .project_io import (
+    PendingVisit, ProjectChanged, ProjectCopyRequired, ProjectState, UnsupportedProjectFormatError, load_project, save_project,
+)
 from .quote_units import speaker_stopwords, suggestion_inputs
 from .rigor_dialog import RigorContext, RigorDialog
 from .semantic_suggestions import SimilarPassage, find_similar_passages
 from .source_location import TranscriptIndex
-from .source_selection import FindTextScope, TranscriptFolders, choose_transcript_files
+from .source_selection import FindTextScope, PendingVisits, TranscriptFolders, choose_transcript_files
 from .speaker_review import review_speakers
+from .staged_visits import prepare_staged_visits
 from .ui_model import (
     APP_THEMES,
     about_text,
@@ -121,6 +124,7 @@ class ThemeForgeApp(tk.Tk):
         self.codebook_path: Path | None = None
         self.codebook_entries = ()
         self.documents: list[TranscriptDocument] = []
+        self.pending_visits: tuple[PendingVisit, ...] = ()
         # The shared memo editor follows the transcript tabs in saved document order.
         self._memo_tab: int | None = None
         self._other_memo_drafts: dict[int, str] = {}
@@ -345,6 +349,13 @@ class ThemeForgeApp(tk.Tk):
 
         ttk.Button(file_buttons, text="Speakers for suggestions…", style="Secondary.TButton",
                    command=self.review_suggestion_speakers).grid(row=1, column=0, columnspan=2, sticky="ew", pady=(2, 0))
+        self.visit_actions = ttk.Frame(file_buttons, style="Surface.TFrame")
+        self.visit_actions.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(2, 0))
+        self.visit_actions.columnconfigure((0, 1), weight=1)
+        ttk.Button(self.visit_actions, text="Append visit…", command=self.append_visit).grid(row=0, column=0, sticky="ew")
+        self.pending_button = ttk.Button(self.visit_actions, text="Pending visits…", command=self.open_pending_visits)
+        self.pending_button.grid(row=0, column=1, sticky="ew")
+        self.visit_actions.grid_remove()
         ttk.Separator(parent).grid(row=3, column=0, sticky="ew", pady=4)
 
         ttk.Label(parent, text="Codebook", style="Panel.TLabel").grid(row=4, column=0, sticky="w")
@@ -414,12 +425,13 @@ class ThemeForgeApp(tk.Tk):
             ttk.Button(actions, text=label, style=style, command=command, width=-1, padding=(4, 4)).grid(
                 row=0, column=column, sticky="ew", padx=(0, 4 if column < 2 else 0))
 
-        ttk.Label(
+        self.report_hint = ttk.Label(
             parent,
             text="Full report includes unreviewed suggestions from all sources.",
             style="Muted.TLabel",
             wraplength=220,
-        ).grid(row=16, column=0, sticky="ew", pady=(6, 0))
+        )
+        self.report_hint.grid(row=16, column=0, sticky="ew", pady=(6, 0))
 
     def _build_theme_panel(self, parent: ttk.Frame) -> None:
         header = ttk.Frame(parent, style="Surface.TFrame")
@@ -685,6 +697,53 @@ class ThemeForgeApp(tk.Tk):
         self._render_transcript_tabs()
         self.status_text.set("Files loaded. Check Speakers for suggestions before Analyze to review who is included.")
 
+    def append_visit(self) -> None:
+        try:
+            path, revision = self._saved_case_file()
+            if not self._saved_state.is_case_master:
+                raise ValueError("Open a saved protected case master to append a visit.")
+            paths = choose_transcript_files(self, append=True)
+            if not paths:
+                return
+            master = load_project(path, expected_revision=revision)
+            staged, sources = prepare_staged_visits(master, paths)
+            chosen = filedialog.asksaveasfilename(
+                parent=self, title="Save study with pending visits to an unused filename",
+                initialdir=path.parent, initialfile=f"{path.stem}-visits.tfproj",
+                defaultextension=".tfproj", filetypes=[("ThemeForge project", "*.tfproj")], confirmoverwrite=False)
+            if not chosen:
+                return
+            if self._saved_case_file() != (path, revision):
+                raise ProjectChanged()
+            destination = Path(chosen)
+            written = save_project(destination, staged, new_only=True, input_revisions=((path, revision), *sources))
+        except (OSError, TypeError, KeyError, ValueError, tk.TclError, zipfile.BadZipFile) as exc:
+            detail = "Choose an unused filename for the appended study." if isinstance(exc, FileExistsError) else str(exc)
+            messagebox.showerror("Append visit failed", detail, parent=self)
+            return
+        self.project_path = destination
+        self.pending_visits = staged.pending_visits
+        self._saved_state = replace(self._project_state(), file_revision=written, is_case_master=True)
+        self._refresh_collection_controls()
+        self.status_text.set(f"Saved {destination.name}. New visits are unassigned and pending analysis.")
+
+    def open_pending_visits(self) -> None:
+        if self.pending_visits:
+            PendingVisits(self, self.pending_visits)
+
+    def _refresh_collection_controls(self) -> None:
+        if self.project_path and self._saved_state.is_case_master:
+            self.visit_actions.grid()
+        else:
+            self.visit_actions.grid_remove()
+        self.pending_button.state(["!disabled" if self.pending_visits else "disabled"])
+        if self.pending_visits:
+            self.file_summary.set(f"Current review: {len(self.documents)} source(s) | Pending analysis: {len(self.pending_visits)}")
+            self.report_hint.configure(text="Full report covers the current review sources. Pending visits are excluded.")
+        else:
+            self.file_summary.set(file_selection_summary(self.input_paths))
+            self.report_hint.configure(text="Full report includes unreviewed suggestions from all sources.")
+
     def review_suggestion_speakers(self) -> None:
         if not self.documents:
             self.status_text.set("Choose transcripts to review their speakers.")
@@ -816,14 +875,17 @@ class ThemeForgeApp(tk.Tk):
             messagebox.showinfo("Open transcripts", "Choose one or more transcript files first.")
             return
 
-        if self.match_reviews.has_reviews_since_analysis and not messagebox.askokcancel(
-            "Start a new review pass?",
-            "Analyze starts a fresh pass for all coders. Earlier decisions stay in Rigor tools → Audit log. "
-            "The supported evidence table will be empty until passages are supported again.\n\n"
-            "Choose Cancel to continue this pass in Quote review. Choose OK to run Analyze.",
-            parent=self, default=messagebox.CANCEL, icon=messagebox.WARNING,
-        ):
-            return
+        if self.pending_visits or self.match_reviews.has_reviews_since_analysis:
+            scope = (f"Include {len(self.pending_visits)} pending, unassigned visit(s) together with the "
+                     f"{len(self.documents)} current source(s).\n\n" if self.pending_visits else "")
+            if not messagebox.askokcancel(
+                "Start a new review pass?",
+                scope + "Analyze starts a fresh pass for all coders. Earlier decisions stay in Rigor tools → Audit log. "
+                "The supported evidence table will be empty until passages are supported again.\n\n"
+                "Choose Cancel to continue this pass in Quote review. Choose OK to run Analyze.",
+                parent=self, default=messagebox.CANCEL, icon=messagebox.WARNING,
+            ):
+                return
 
         previous_status = self.status_text.get()
         busy_status = "Analyzing transcripts… Controls respond when this pass finishes."
@@ -840,13 +902,19 @@ class ThemeForgeApp(tk.Tk):
         try:
             settings = self._analysis_settings()
             previous_result = self.result
-            generated, eligible = analyze_documents_with_units(self.documents, settings)
+            documents = self.documents + [TranscriptDocument(v.name, v.text) for v in self.pending_visits]
+            generated, eligible = analyze_documents_with_units(documents, settings)
             self.result = preserve_manual_themes(previous_result, generated)
             self.edit_history = EditHistory()
         except (tk.TclError, ValueError) as exc:
             messagebox.showerror("Analysis failed", str(exc))
             return
 
+        if self.pending_visits:
+            self.documents = documents
+            self.input_paths.extend(v.path for v in self.pending_visits)
+            self.pending_visits = ()
+            self._refresh_collection_controls()
         if self.language_mode.get() != "Auto":
             self.result.notes.append(f"Language review mode selected: {self.language_mode.get()}.")
 
@@ -1676,6 +1744,7 @@ class ThemeForgeApp(tk.Tk):
             return False
         self.project_path = path
         self._saved_state = replace(state, file_revision=revision, is_case_master=state.needs_case_master)
+        self._refresh_collection_controls()
         summary = f"Saved project {path.name}"
         if self._has_pending_source_edits(all_documents=True):
             summary += ". " + (self._other_memo_notice() or "Apply the unfinished editor changes to include them.")
@@ -1730,6 +1799,7 @@ class ThemeForgeApp(tk.Tk):
             researcher_name=self.researcher_name.get(),
             audit_events=tuple(self.audit_events),
             is_case_master=self.project_path is not None and self._saved_state.is_case_master,
+            pending_visits=self.pending_visits,
         )
 
     def _restore_project(self, state: ProjectState, path: Path | None) -> None:
@@ -1742,6 +1812,7 @@ class ThemeForgeApp(tk.Tk):
         self.codebook_entries = state.settings.codebook_entries
         self.speaker_overrides = state.settings.speaker_overrides
         self.documents = list(state.documents)
+        self.pending_visits = state.pending_visits
         self.result = state.result
         self.audit_events = list(state.audit_events)
         self.match_reviews = MatchReviews(self.audit_events)
@@ -1787,6 +1858,7 @@ class ThemeForgeApp(tk.Tk):
         self.researcher_name.set(state.researcher_name)
         self._saved_state = (replace(self._project_state(), file_revision=state.file_revision,
                                      is_case_master=state.is_case_master) if path else self._empty_state)
+        self._refresh_collection_controls()
         self.status_text.set(f"Opened {path.name} using the project's saved transcripts and codebook."
                              if path else "New unsaved project")
 
@@ -2539,7 +2611,8 @@ class ThemeForgeApp(tk.Tk):
             return
 
         path = filedialog.asksaveasfilename(
-            title="Save full report for all themes and sources",
+            title=("Save full report for current review sources" if self.pending_visits
+                   else "Save full report for all themes and sources"),
             defaultextension=".md",
             filetypes=[
                 ("Markdown report", "*.md"),

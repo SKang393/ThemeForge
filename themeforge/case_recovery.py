@@ -10,6 +10,8 @@ from .source_location import TranscriptIndex
 
 
 def _without_cases(master: ProjectState) -> ProjectState:
+    if master.pending_visits:
+        raise ValueError("Older versions cannot retain pending visits. Use the original protected master for recovery.")
     names = {d.name for d in master.documents}
     if len(names) != len(master.documents) or any(not name.strip() for name in names):
         raise ValueError("Each transcript needs a unique, nonempty name to match a returned copy.")
