@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator, Sequence
 import re
+from unicodedata import normalize
 
 from .analysis_constants import (
     BACKCHANNEL_RE,
@@ -130,7 +131,7 @@ def _is_excluded_interview_sentence(text: str, speaker: str) -> bool:
 
 
 def _is_backchannel_text(text: str) -> bool:
-    normalized = re.sub("[^a-z\uac00-\ud7a3']+", " ", text.lower()).strip()
+    normalized = re.sub("[^a-z\uac00-\ud7a3']+", " ", normalize("NFC", text).lower()).strip()
     return bool(BACKCHANNEL_RE.match(normalized))
 
 

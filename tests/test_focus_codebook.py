@@ -1,4 +1,5 @@
 import unittest
+from unicodedata import normalize
 
 from themeforge.analysis import AnalysisSettings, CodebookEntry, analyze_transcript
 
@@ -97,6 +98,21 @@ class FocusAndCodebookTests(unittest.TestCase):
         self.assertIn("Training gave teachers", by_name["Training Needs"].quotes[0].text)
         self.assertIn("Scheduling support", by_name["Administrative Support"].quotes[0].text)
         self.assertEqual(by_name["Training Needs"].validation["review_status"], "Codebook match requires researcher review")
+
+    def test_canonically_equivalent_hangul_matches_at_original_source_offsets(self):
+        positive = "OK 🫧 꽃무늬 표시를 다시 확인했어요."
+        negative = "지붕색 견본을 골라 벽에 붙였어요."
+        for source_form, entry_form in (("NFD", "NFC"), ("NFC", "NFD")):
+            with self.subTest(source_form=source_form):
+                words = normalize(source_form, positive)
+                prefix = f"Sol: {normalize(source_form, negative)}\nSol: "
+                entry = CodebookEntry("Check", normalize(entry_form, "Include: 꽃무늬. Exclude: 지붕색."))
+                result = analyze_transcript(prefix + words, AnalysisSettings(codebook_entries=(entry,)))
+                theme, = result.themes
+                self.assertEqual(theme.validation["generated_from_codebook_entry"], entry.snapshot())
+                quote, = theme.quotes
+                self.assertEqual((quote.text, quote.source_line, quote.source_start, quote.source_end),
+                                 (words, 2, len(prefix), len(prefix) + len(words)))
 
     def test_exclusion_guidance_is_preserved_but_does_not_supply_search_terms(self):
         entry = CodebookEntry(

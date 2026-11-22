@@ -244,6 +244,24 @@ class ManualEditingTests(unittest.TestCase):
         self.assertEqual(updated.themes[0].quotes[0].source_end, 46)
         self.assertEqual(updated.themes[0].validation["review_status"], "Researcher edited")
 
+    def test_boundary_edit_keeps_original_turn_and_drops_previous_score(self):
+        words = "🧭 매듭을 만졌어요."
+        text = f"빛: {words}\n솔: {words}"
+        doc = TranscriptDocument("woven.txt", text)
+        start = text.index(words)
+        first = replace(quote("Q1", words), speaker="빛", source_name=doc.name,
+                        source_start=start, source_end=start + len(words))
+        result = AnalysisResult("1.5.0", 1, 1, [theme("T01", "Checking knots", [first])], [])
+        for left, right in ((start, len(text)), (text.rindex(words), len(text))):
+            selection = ManualSelection(doc.name, text[left:right], 1 + text[:left].count("\n"), left, right)
+            with self.assertRaisesRegex(ValueError, "original speaker turn"):
+                update_quote_boundary(result, "T01", "Q1", selection, document=doc)
+        selection = ManualSelection(doc.name, words[2:], 1, start + 2, start + len(words))
+        updated = update_quote_boundary(result, "T01", "Q1", selection, document=doc)
+        revised, = updated.themes[0].quotes
+        self.assertEqual((revised.speaker, revised.text, revised.reported_relevance), ("빛", words[2:], None))
+        self.assertEqual(result.themes[0].quotes[0], first)
+
     def test_update_theme_memo_stores_researcher_note(self):
         result = AnalysisResult("1.3.0", 1, 1, [
             theme("T01", "Curriculum", [quote("Q1", "Evidence")]),

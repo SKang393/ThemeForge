@@ -11,6 +11,7 @@ from unittest.mock import patch
 from test_cross_case_reviews import CASES
 from test_evidence_handoff import export, open_audit, press
 from themeforge.app import ThemeForgeApp
+from themeforge.codebook import load_codebook_entries
 from themeforge.match_reviews import REVIEW_LABELS
 
 
@@ -102,6 +103,52 @@ class SynthesisHandoffTests(unittest.TestCase):
                 press(dialog, action)
                 destination.assert_not_called()
             self.assertIn("one exact match", dialog.audit_status.get())
+        self.assertEqual(self.project.read_bytes(), saved)
+
+    def test_supported_links_refuse_separate_rules_only_on_selected_entries(self):
+        saved = self.project.read_bytes()
+        dialog = open_audit(self.app, self.project)
+        sources = dialog.supported_sources
+        sources.selection_set(sources.get(0, "end").index("cove.txt"))
+        bell, art = self.app.codebook_entries
+        action = "Export supported CSV with codebook links…"
+        shared = self.root / "shared.csv"
+        evidence = self.root / "evidence.csv"
+        ordinary = export(dialog, "Export supported matches CSV", evidence)
+        prior_evidence = evidence.read_bytes()
+
+        for headers, rules in (
+            (("include", "exclude"), ("Gate closes", "Gate stays open")),
+            (("inclusion", "exclusion"), ("Gate stays open", "Gate closes")),
+            ((" Inclusion Criteria ", "EXCLUSION_RULES"), ("", "Gate closes")),
+            (("include", "include"), ("Gate stays open", "")),
+        ):
+            with self.subTest(headers=headers):
+                with shared.open("w", encoding="utf-8-sig", newline="") as stream:
+                    writer = csv.writer(stream)
+                    writer.writerow(("code", "definition", *headers))
+                    writer.writerow((bell.name, bell.description, *rules))
+                    writer.writerow((art.name, art.description, "  "))
+                self.assertEqual(load_codebook_entries(shared), (bell, art))
+                with patch("themeforge.rigor_dialog.filedialog.askopenfilename", return_value=str(shared)), \
+                        patch("themeforge.rigor_dialog.filedialog.asksaveasfilename", return_value=str(evidence)) as save:
+                    press(dialog, action)
+                    save.assert_not_called()
+                status = dialog.audit_status.get()
+                self.assertIn("entry 1", status)
+                self.assertIn("separate inclusion or exclusion rules", status)
+                self.assertIn("without links", status)
+                self.assertEqual(evidence.read_bytes(), prior_evidence)
+
+        scope = dialog.supported_theme
+        theme = next(t for t in self.app.result.themes if t.name == art.name)
+        scope.current(scope["values"].index(f"{theme.name} ({theme.id})"))
+        with patch("themeforge.rigor_dialog.filedialog.askopenfilename", return_value=str(shared)):
+            row, = export(dialog, action, self.root / "valid-link.csv")
+        original, = [r for r in ordinary if r["theme_name"] == art.name]
+        self.assertEqual({k: row[k] for k in original}, original)
+        self.assertEqual(row["shared_codebook_entry_number"], "2")
+        self.assertEqual(row["shared_codebook_file_sha256"], sha256(shared.read_bytes()).hexdigest())
         self.assertEqual(self.project.read_bytes(), saved)
 
     def test_one_theme_traces_support_and_a_reviewed_exception(self):

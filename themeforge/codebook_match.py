@@ -23,6 +23,7 @@ from .analysis import (
     _theme_color,
     _weighted_bm25_score,
 )
+from .korean_tokenizer import add_particle_terms
 from .text_utils import normalize_space
 
 
@@ -65,6 +66,11 @@ def build_codebook_themes(
     speaker_stopwords: set[str],
 ) -> list[Theme]:
     term_documents = [_terms_for_vector(quote.text, speaker_stopwords) for quote in quotes]
+    search_entries = [_search_entry(entry) for entry in settings.codebook_entries]
+    queries = [_terms_for_vector(" ".join((e.name, e.description, *e.examples)), speaker_stopwords)
+               for e in search_entries]
+    documents = term_documents + queries
+    add_particle_terms(documents, documents)
     document_frequency: Counter[str] = Counter()
     for terms in term_documents:
         document_frequency.update(set(terms))
@@ -77,11 +83,9 @@ def build_codebook_themes(
         average_document_length=max(1.0, mean(len(terms) for terms in term_documents) if term_documents else 1.0),
     )
     themes: list[Theme] = []
-    for index, entry in enumerate(settings.codebook_entries, start=1):
-        search_entry = _search_entry(entry)
-        query_terms = _terms_for_vector(
-            " ".join([search_entry.name, search_entry.description, *search_entry.examples]), speaker_stopwords,
-        )
+    for index, (entry, search_entry, query_terms) in enumerate(
+        zip(settings.codebook_entries, search_entries, queries, strict=True), start=1
+    ):
         query_weights = {term: 1.4 if "_" in term else 1.0 for term in query_terms if not _is_low_value_term(term)}
         ranked_quotes = _rank_codebook_quotes(quotes, term_documents, profile, query_weights, search_entry, settings)
         if not ranked_quotes:

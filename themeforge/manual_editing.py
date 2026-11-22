@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from .analysis_types import AnalysisResult, CodebookEntry, Theme, ThemeQuote, TranscriptDocument, ValidationValue
 from .audit import AuditEvent
+from .transcript_parser import parse_transcript
 
 MANUAL_ONLY_NOTE = "No automated analysis has been run. Unselected passages have not been assessed."
 
@@ -385,6 +386,8 @@ def update_quote_boundary(
     theme_id: str,
     quote_id: str,
     selection: ManualSelection,
+    *,
+    document: TranscriptDocument | None = None,
 ) -> AnalysisResult:
     text = selection.text.strip()
     original = _find_quote(result, theme_id, quote_id)
@@ -392,12 +395,33 @@ def update_quote_boundary(
         return result
     if original.manual_definition_assignment:
         raise ValueError("Review the recorded definition to replace a manual codebook assignment.")
+    start, end = selection.source_start, selection.source_end
+    if (selection.source_name, start, end, text, selection.source_line) == (
+        original.source_name, original.source_start, original.source_end, original.text, original.source_line
+    ):
+        return result
+    speaker = "Not attributed (manual selection)"
+    if document is not None:
+        if selection.source_name != original.source_name:
+            raise ValueError("Select text in the original transcript to update this boundary.")
+        if not (document.name == original.source_name and 0 <= start < end <= len(document.text)
+                and document.text[start:end] == text and document.text.count("\n", 0, start) + 1 == selection.source_line):
+            raise ValueError("Select the exact replacement passage in its source transcript.")
+        if original.speaker not in (speaker, "Researcher selection"):
+            turns = parse_transcript(document.text, document.name)
+            if (document.text[original.source_start:original.source_end] != original.text
+                    or not any(turn.speaker == original.speaker
+                               and turn.source_start <= min(start, original.source_start)
+                               and max(end, original.source_end) <= turn.source_end for turn in turns)):
+                raise ValueError("Keep the boundary inside the original speaker turn, or code the new selection separately.")
+            speaker = original.speaker
+    revised = _replace_quote_boundary(original, selection, text, speaker)
     themes = [
         _refresh_theme(
             replace(
                 theme,
                 quotes=[
-                    _replace_quote_boundary(quote, selection, text) if quote.quote_id == quote_id else quote
+                    revised if quote.quote_id == quote_id else quote
                     for quote in theme.quotes
                 ],
             )
@@ -623,7 +647,7 @@ def _add_manual_theme(result: AnalysisResult, quote: ThemeQuote, name: str) -> A
     return replace(result, themes=[*result.themes, _refresh_theme(theme)])
 
 
-def _replace_quote_boundary(quote: ThemeQuote, selection: ManualSelection, text: str) -> ThemeQuote:
+def _replace_quote_boundary(quote: ThemeQuote, selection: ManualSelection, text: str, speaker: str) -> ThemeQuote:
     boundary_note = "Researcher updated this quote boundary from selected transcript text."
     rationale = boundary_note
     if quote.reported_relevance is None:
@@ -631,6 +655,8 @@ def _replace_quote_boundary(quote: ThemeQuote, selection: ManualSelection, text:
     return replace(
         quote,
         text=text,
+        speaker=speaker,
+        relevance=None,
         source_name=selection.source_name,
         source_line=selection.source_line,
         source_start=selection.source_start,

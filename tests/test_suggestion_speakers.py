@@ -120,6 +120,7 @@ class SpeakerSelectionTests(unittest.TestCase):
                 print(f"Tk {tk_version}, workspace {app.winfo_width()}x{app.winfo_height()}, "
                       f"speaker dialog {dialog.winfo_width()}x{dialog.winfo_height()}", flush=True)
                 table = dialog.table
+                self.assertEqual(table.focus(), table.selection()[0])
                 item, = [i for i in table.get_children()
                          if (table.set(i, "transcript"), table.set(i, "speaker")) == ("workshop.txt", "Host")]
                 table.selection_set(item)

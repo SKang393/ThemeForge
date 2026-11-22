@@ -5,7 +5,10 @@ import math
 from typing import Iterable
 
 from .analysis_constants import STOPWORDS
+from .korean_tokenizer import add_particle_terms
 from .text_utils import tokenize
+
+
 def cluster_quotes(
     vectors: list[dict[str, float]],
     requested_count: int,
@@ -146,6 +149,7 @@ def tfidf_vectors(texts: list[str], extra_stopwords: set[str] | None = None, *,
     """Fit IDF on the reference prefix and apply those weights to every text."""
     documents = [terms_for_vector(text, extra_stopwords) for text in texts]
     reference = documents if reference_count is None else documents[:reference_count]
+    add_particle_terms(documents, reference)
     document_frequency: Counter[str] = Counter()
     for document in reference:
         document_frequency.update(set(document))

@@ -14,6 +14,9 @@ from test_paired_match_reviews import answer_paired_scope
 from themeforge.analysis import analyze_documents
 from themeforge.analysis_types import AnalysisSettings, CodebookEntry, TranscriptDocument
 from themeforge.app import ThemeForgeApp
+from themeforge.audit import create_audit_event
+from themeforge.match_reviews import REVIEW_ACTION, match_id, match_snapshot
+from themeforge.source_location import TranscriptIndex
 from themeforge.paired_reviews import compare_match_reviews
 from themeforge.project_io import load_project
 from themeforge.rigor import CodedProject, CoderLabels
@@ -64,6 +67,55 @@ class PairedDefinitionTests(unittest.TestCase):
         self.assertEqual((report.current_excluded, report.comparison_excluded), (1, 2))
         with self.assertRaisesRegex(ValueError, "no verified shared matches"):
             compare_match_reviews(left, ambiguous, readers, source_names=bench)
+
+    def test_reordering_only_pairs_unique_verified_unchanged_matches(self):
+        docs = (TranscriptDocument("bench.txt", TEXT.splitlines()[0]),
+                TranscriptDocument("bells.txt", TEXT.splitlines()[3]))
+        spindle, bell = CodebookEntry(*ORIGINAL[0]), CodebookEntry(*ORIGINAL[2])
+        reviewers = CoderLabels("Flint", "Ochre")
+
+        def project(entries):
+            result = analyze_documents(docs, AnalysisSettings(codebook_entries=entries))
+            return CodedProject(docs, result, codebook_entries=entries)
+
+        left, right = project((spindle, bell)), project((bell, spindle))
+        report = compare_match_reviews(left, right, reviewers)
+        self.assertEqual(report.outcome_counts, {"neither_reviewed": 2})
+        self.assertTrue(all(not row.shared_id for row in report.matches))
+        self.assertEqual((report.current_excluded, report.comparison_excluded), (0, 0))
+
+        def reviewed(project, actor, decision, reason):
+            group = next(t for t in project.result.themes if t.name == spindle.name)
+            quote, = group.quotes
+            snapshot = match_snapshot(group, quote, TranscriptIndex(docs))
+            event = create_audit_event(actor=actor, action=REVIEW_ACTION, target_type="theme_quote_match",
+                                       target_id=match_id(snapshot),
+                                       details=json.dumps({"match": snapshot, "disposition": decision, "reason": reason}))
+            return replace(project, audit_events=(event,))
+
+        left = reviewed(left, "Flint", "supported", "The hum was an inspection cue.")
+        right = reviewed(right, "Ochre", "declined", "A sound alone does not establish an inspection.")
+        report = compare_match_reviews(left, right, reviewers)
+        dispute, = [row for row in report.matches if row.outcome == "disagreement"]
+        self.assertEqual((dispute.current.audit_target_id, dispute.comparison.audit_target_id),
+                         (left.audit_events[0].target_id, right.audit_events[0].target_id))
+        self.assertNotEqual(dispute.current.audit_target_id, dispute.comparison.audit_target_id)
+
+        group = right.result.themes[1]
+        quote, = group.quotes
+        for other in (replace(group, quotes=[replace(quote, rationale="Different match rationale.")]),
+                      replace(group, parent_theme_id=right.result.themes[0].id),
+                      replace(group, id="C02-r2")):
+            with self.subTest(group=other):
+                result = replace(right.result, themes=[right.result.themes[0], other])
+                report = compare_match_reviews(left, replace(right, result=result), reviewers)
+                self.assertEqual([row.theme.name for row in report.matches], [bell.name])
+                self.assertEqual((report.current_excluded, report.comparison_excluded), (1, 1))
+
+        ambiguous = project((bell, spindle, spindle))
+        report = compare_match_reviews(left, ambiguous, reviewers)
+        self.assertEqual([row.theme.name for row in report.matches], [bell.name])
+        self.assertEqual((report.current_excluded, report.comparison_excluded), (1, 2))
 
     def test_line_break_that_activates_example_guidance_is_not_cosmetic(self):
         docs = (TranscriptDocument("bench.txt", TEXT.splitlines()[0]),)

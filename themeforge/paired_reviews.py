@@ -90,11 +90,13 @@ class _Candidate:
     target_id: str
     definition: str | None
     entry_span: tuple | None
+    match_without_position: str | None
 
 
 def _matches(project: CodedProject, reviews: MatchReviews,
              source_names: frozenset[str] | None) -> tuple[dict[str, _Candidate], int]:
     sources = TranscriptIndex(doc for doc in project.documents if source_names is None or doc.name in source_names)
+    entries_by_position = {f"C{i:02d}": entry for i, entry in enumerate(project.codebook_entries, start=1)}
     matches = {}
     total = 0
     for theme in project.result.themes:
@@ -112,13 +114,19 @@ def _matches(project: CodedProject, reviews: MatchReviews,
                 note_key = review_key(snapshot, target_id)
                 pair_key = note_key
                 entry_span = None
+                match_without_position = None
                 if entry is not None:
                     # Keep audit lookup exact even when only the definition's spacing differs.
+                    comparison_snapshot = {**snapshot, "generated_from_codebook_entry": definition}
                     if definition != snapshot["generated_from_codebook_entry"]:
-                        pair_key = review_key({**snapshot, "generated_from_codebook_entry": definition})
+                        pair_key = review_key(comparison_snapshot)
+                    if not theme.parent_theme_id and entries_by_position.get(theme.id) == entry:
+                        # The saved codebook verifies that this group ID denotes a row position.
+                        match_without_position = review_key({**comparison_snapshot, "theme_id": ""})
                     entry_span = (entry.name, normalize_space(theme.name), quote.source_name, snapshot["source_sha256"],
                                   quote.source_start, quote.source_end, quote.speaker)
-                matches[pair_key] = _Candidate(theme, quote, note_key, target_id, definition, entry_span)
+                matches[pair_key] = _Candidate(theme, quote, note_key, target_id, definition, entry_span,
+                                               match_without_position)
     return matches, total
 
 
@@ -160,13 +168,17 @@ def compare_match_reviews(current: CodedProject, comparison: CodedProject, revie
     left, left_total = _matches(current, current_notes, source_names)
     right, right_total = _matches(comparison, comparison_notes, source_names)
     pairs = {key: key for key in left.keys() & right.keys()}
-    # Changed entries can also change ranks, rationales and generated IDs. Align
-    # them only to disclose the exclusion, and only at a unique verified occurrence.
+    # At a unique source occurrence, a reordered entry may differ only in its position.
+    # A changed definition may also change the match itself; align it only to report the exclusion.
     left_spans, right_spans = _unique_entry_spans(left), _unique_entry_spans(right)
     for span in left_spans.keys() & right_spans.keys():
         a_key, b_key = left_spans[span], right_spans[span]
-        if a_key and b_key and left[a_key].definition != right[b_key].definition:
-            pairs[a_key] = b_key
+        if a_key and b_key and a_key not in pairs:
+            first, second = left[a_key], right[b_key]
+            reordered_match = (first.match_without_position is not None
+                               and first.match_without_position == second.match_without_position)
+            if first.definition != second.definition or reordered_match:
+                pairs[a_key] = b_key
     if source_names is not None and source_names != {left[key].quote.source_name for key in pairs}:
         raise ValueError("A selected source has no verified shared matches. Choose sources again.")
     if not pairs:
@@ -185,7 +197,8 @@ def compare_match_reviews(current: CodedProject, comparison: CodedProject, revie
         comparison_note = comparison_notes.by_key(second.note_key)
         current_id = current_note.audit_target_id if current_note else first.target_id
         comparison_id = comparison_note.audit_target_id if comparison_note else second.target_id
-        outcome = _outcome(current_note, comparison_note) if key == pairs[key] else "different_definitions"
+        outcome = (_outcome(current_note, comparison_note) if first.definition == second.definition
+                   else "different_definitions")
         shared_id = current_id if current_id == comparison_id else ""
         matches.append(PairedMatch(first.theme, first.quote, first.note_key, outcome,
                                    current_note, comparison_note, shared_id, second.note_key))

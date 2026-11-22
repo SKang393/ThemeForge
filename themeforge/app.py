@@ -6,6 +6,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import asdict, dataclass, replace
 import json
 from pathlib import Path
+import sys
 from textwrap import shorten
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
@@ -26,6 +27,7 @@ from .codebook import load_codebook_entries
 from .codebook_match import build_codebook_themes
 from .definition_review import CodebookReuseDialog, MatchReviewReason, entry_label, review_definition
 from .exports import export_json, export_markdown, export_quotes_csv
+from .handoff_dialog import HandoffDialog
 from .io import load_transcript_text
 from .manual_editing import (
     EditHistory,
@@ -164,6 +166,18 @@ class ThemeForgeApp(tk.Tk):
         self.semantic_mode = tk.StringVar(value="TF-IDF")
         self.language_mode = tk.StringVar(value="Auto")
 
+        self._coding_review_open = False
+        if sys.platform == "win32":
+            menu = tk.Menu(self)
+            coding = tk.Menu(menu, tearoff=False)
+            coding.add_command(label="Coding review…", underline=7, accelerator="Ctrl+Shift+R", command=self.open_coding_review)
+            menu.add_cascade(label="Coding", underline=0, menu=coding)
+            self.bind("<Control-Shift-KeyPress-R>", lambda _event: self.open_coding_review())
+            handoff = tk.Menu(menu, tearoff=False)
+            handoff.add_command(label="Verify handoff…", underline=0, command=self.open_handoff)
+            menu.add_cascade(label="Handoff", underline=0, menu=handoff)
+            self.configure(menu=menu)
+
         self._configure_styles()
         self._build_layout()
         self._render_transcript_tabs()
@@ -262,7 +276,16 @@ class ThemeForgeApp(tk.Tk):
         ttk.Button(header_actions, text="Save as…", style="Secondary.TButton", width=-1,
                    command=lambda: self.save_project(save_as=True)).grid(row=0, column=4, padx=(0, 8))
         ttk.Button(header_actions, text="Rigor tools", style="Secondary.TButton", command=self.open_rigor_tools).grid(row=0, column=5, padx=(0, 8))
-        ttk.Button(header_actions, text="About", style="Secondary.TButton", width=-1, command=self.show_about).grid(row=0, column=6)
+        if sys.platform == "win32":
+            from .windows_handoff import mount_handoff_button
+
+            handoff = ttk.Frame(header_actions, style="Header.TFrame", takefocus=True)
+            mount_handoff_button(handoff, self.open_handoff)
+        else:
+            handoff = ttk.Button(header_actions, text="Verify handoff…", style="Secondary.TButton", width=-1,
+                                 command=self.open_handoff)
+        handoff.grid(row=0, column=6, padx=(0, 8))
+        ttk.Button(header_actions, text="About", style="Secondary.TButton", width=-1, command=self.show_about).grid(row=0, column=7)
 
         workspace = ttk.Frame(self, style="App.TFrame", padding=(18, 18, 18, 12))
         workspace.grid(row=1, column=0, sticky="nsew")
@@ -334,6 +357,12 @@ class ThemeForgeApp(tk.Tk):
         ttk.Separator(parent).grid(row=7, column=0, sticky="ew", pady=5)
 
         ttk.Label(parent, text="Coder name", style="Panel.TLabel").grid(row=8, column=0, sticky="w")
+        if sys.platform == "win32":
+            from .windows_handoff import mount_workspace_button
+
+            review = ttk.Frame(parent, style="Surface.TFrame", takefocus=True)
+            mount_workspace_button(review, self.open_coding_review, "Coding review…", 141)
+            review.grid(row=8, column=0, sticky="e")
         ttk.Entry(parent, textvariable=self.researcher_name).grid(row=9, column=0, sticky="ew", pady=(2, 5))
 
         ttk.Separator(parent).grid(row=10, column=0, sticky="ew", pady=(0, 5))
@@ -1357,36 +1386,41 @@ class ThemeForgeApp(tk.Tk):
             return match
         return None
 
-    def review_current_match(self, disposition: str) -> None:
+    def review_current_match(self, disposition: str, *, reason: str | None = None) -> bool:
         theme, match = self._current_theme(), self._visible_review_match()
         if not theme or not match or disposition not in REVIEW_LABELS:
             self.status_text.set("Use Previous quote or Next quote to show the verified passage in its transcript before reviewing.")
-            return
+            return False
         if not self.match_reviews.definition_is_current(theme):
             self.status_text.set(HISTORICAL_MANUAL if match.quote.manual_definition_assignment else HISTORICAL_DEFINITION)
-            return
+            return False
         actor = self.researcher_name.get().strip()
         if not actor:
             self.status_text.set("Enter a reviewer name or pseudonym before recording a match review.")
-            return
+            return False
         before, sources = self.result, self._display_sources
         q = match.quote
-        citation = (f"{theme.name} ({theme.id}) | {actor}\n{q.source_name}, line {q.source_line}, "
-                    f"characters [{q.source_start}, {q.source_end})\n\n")
-        entry = self.match_reviews.codebook_entry(theme)
-        reason = MatchReviewReason(self, REVIEW_LABELS[disposition], citation, q.text,
-                                   sources.neighboring_turn_text(q), entry).result
+        if reason is None:
+            citation = (f"{theme.name} ({theme.id}) | {actor}\n{q.source_name}, line {q.source_line}, "
+                        f"characters [{q.source_start}, {q.source_end})\n\n")
+            entry = self.match_reviews.codebook_entry(theme)
+            reason = MatchReviewReason(self, REVIEW_LABELS[disposition], citation, q.text,
+                                       sources.neighboring_turn_text(q), entry).result
+        elif not reason.strip():
+            self.status_text.set("Enter a reason before recording a match review.")
+            return False
         if not reason or not reason.strip():
-            return
+            return False
         if (self.result is not before or self._display_sources is not sources or self._visible_review_match() != match
                 or self.researcher_name.get().strip() != actor or not self.match_reviews.definition_is_current(theme)):
             self.status_text.set("The match, source or reviewer changed. Review the visible passage again.")
-            return
+            return False
         snapshot = match_snapshot(theme, q, sources)
         details = json.dumps({"disposition": disposition, "reason": reason.strip(), "match": snapshot}, ensure_ascii=False)
         self._record_audit_event(REVIEW_ACTION, "theme_quote_match", match_id(snapshot), details)
         self._show_match_review()
         self._set_manual_status("Review note recorded. No coding assignment changed")
+        return True
 
     def _on_reviewer_changed(self, *_trace_args: str) -> None:
         if self.find_reviewer is not None and self.find_reviewer != self.researcher_name.get().strip():
@@ -1454,7 +1488,15 @@ class ThemeForgeApp(tk.Tk):
             self._revise_codebook_boundary(match, selection)
             return
         theme_id = self.result.themes[self.current_theme_index].id
-        updated = update_quote_boundary(self.result, theme_id, match.quote.quote_id, selection)
+        documents = [d for d in self.documents if d.name == match.quote.source_name]
+        if len(documents) != 1:
+            self.status_text.set("A unique source transcript is required to update this boundary.")
+            return
+        try:
+            updated = update_quote_boundary(self.result, theme_id, match.quote.quote_id, selection, document=documents[0])
+        except ValueError as exc:
+            self.status_text.set(str(exc))
+            return
         if updated == self.result:
             return
         self.edit_history = self.edit_history.record(self.result)
@@ -2466,6 +2508,26 @@ class ThemeForgeApp(tk.Tk):
             codebook_entries=self.codebook_entries,
         )
 
+    def open_coding_review(self) -> None:
+        if self._coding_review_open:
+            return
+        from .authoring_review import CodingReview
+        from .windows_authoring import show_windows_authoring
+
+        self._coding_review_open = True
+        try:
+            show_windows_authoring(int(self.wm_frame(), 0), CodingReview(self))
+        finally:
+            self._coding_review_open = False
+
+    def open_handoff(self) -> None:
+        if sys.platform == "win32":
+            from .windows_handoff import show_windows_handoff
+
+            show_windows_handoff(int(self.wm_frame(), 0))
+        else:
+            HandoffDialog(self)
+
     def open_rigor_tools(self, *, supported_evidence: bool = False) -> None:
         if not self.documents or self.result is None:
             messagebox.showinfo("Rigor tools", "Open transcripts and run analysis before using rigor tools.")
@@ -2802,6 +2864,11 @@ def _hex_to_rgb(color: str) -> tuple[int, int, int]:
 
 
 def main() -> int:
+    if sys.platform == "win32" and sys.argv[1:] == ["--verify-handoff"]:
+        from .windows_handoff import show_windows_handoff
+
+        show_windows_handoff(0)
+        return 0
     app = ThemeForgeApp()
     app.mainloop()
     return 0

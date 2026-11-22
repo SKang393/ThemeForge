@@ -2,7 +2,7 @@ import unittest
 from dataclasses import dataclass
 from unittest.mock import patch
 
-from themeforge.korean_tokenizer import _terms_from_tokens, korean_terms
+from themeforge.korean_tokenizer import _terms_from_tokens, add_particle_terms, korean_terms
 from themeforge.text_utils import tokenize
 
 
@@ -27,6 +27,13 @@ class KoreanTokenizerTests(unittest.TestCase):
         terms = _terms_from_tokens(tokens)
 
         self.assertEqual(terms, ["교육과정", "개발", "협력"])
+
+    def test_particle_features_require_an_attested_base_and_preserve_surface_terms(self):
+        reference = [["종이컵", "주사위", "서울길", "잔"]]
+        source = ["종이컵에서는", "주사위를", "서울길로", "종이컵를", "주사위으로", "종이컵받침", "사진틀을", "잔을"]
+        docs = [source.copy()]
+        add_particle_terms(docs, reference)
+        self.assertEqual(docs[0], source + ["종이컵", "주사위", "서울길"])
 
     def test_korean_terms_returns_empty_fallback_when_kiwipiepy_is_unavailable(self):
         with patch("themeforge.korean_tokenizer._kiwi_tokenize", return_value=None):

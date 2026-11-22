@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import codecs
 import logging
 from pathlib import Path
 import re
@@ -32,8 +33,24 @@ def _load_plain_text(path: Path) -> str:
         return _load_pdf(path)
     try:
         return path.read_text(encoding="utf-8-sig")
-    except UnicodeDecodeError:
+    except UnicodeDecodeError as exc:
+        with path.open("rb") as source:
+            header = source.read(4)
+        if header.startswith(codecs.BOM_UTF8):
+            raise ValueError(f"{path.name} contains invalid UTF-8 text.") from exc
+
+    # The UTF-32 little-endian mark starts with the UTF-16 mark.
+    if header.startswith((codecs.BOM_UTF32_LE, codecs.BOM_UTF32_BE)):
+        encoding = "utf-32"
+    elif header.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        encoding = "utf-16"
+    else:
         return path.read_text(encoding="cp1252", errors="replace")
+    try:
+        return path.read_text(encoding=encoding)
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"{path.name} contains invalid {encoding} text. "
+                         "Re-export the transcript as UTF-8 and try again.") from exc
 
 
 def _has_pdf_header(path: Path) -> bool:

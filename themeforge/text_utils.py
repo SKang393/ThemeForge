@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from unicodedata import normalize
 
 from .analysis_constants import STOPWORDS, TOKEN_NOISE_RE, TOKEN_RE
 from .korean_tokenizer import has_hangul, korean_terms
@@ -13,6 +14,8 @@ def split_sentences(text: str) -> list[str]:
 
 
 def tokenize(text: str, keep_stopwords: bool = False, extra_stopwords: set[str] | None = None) -> list[str]:
+    # Tokenize a canonical copy. Source text and its citation offsets stay in the imported form.
+    text = normalize("NFC", text)
     extra = extra_stopwords or set()
     tokens = []
     korean = korean_terms(text) if has_hangul(text) else []
@@ -34,6 +37,6 @@ def normalize_space(text: str) -> str:
 
 
 def normalize_for_match(text: str) -> str:
-    text = text.lower().replace("-", " ")
+    text = normalize("NFC", text).lower().replace("-", " ")
     text = re.sub("[^a-z0-9\\uac00-\\ud7a3-]+", " ", text)
     return normalize_space(text)

@@ -74,6 +74,7 @@ class SpeakerReview(tk.Toplevel):
         self.table.bind("<<TreeviewSelect>>", self._show_example)
         if self.keys:
             self.table.selection_set("0")
+            self.table.focus("0")
             self._show_example()
         buttons = ttk.Frame(body)
         buttons.grid(row=5, column=0, columnspan=2, sticky="ew")

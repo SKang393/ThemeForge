@@ -180,6 +180,10 @@ def export_quotes_csv(result: AnalysisResult, documents: Iterable[TranscriptDocu
                     if number is None:
                         raise ValueError(f"{theme.name} ({theme.id}) needs one exact match for its active codebook "
                                          "entry, including examples. Check the shared CSV or export without links.")
+                    if number in shared_codebook.entries_with_separate_criteria:
+                        raise ValueError(f"Shared codebook entry {number} has separate inclusion or exclusion rules "
+                                         "that ThemeForge ignores. Move them into the definition or example and review the entry, "
+                                         "or export supported matches without links.")
                     row["shared_codebook_entry_number"] = number
                     row["shared_codebook_file_sha256"] = shared_codebook.file_sha256
             else:

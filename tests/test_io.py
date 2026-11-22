@@ -1,3 +1,4 @@
+import codecs
 import tempfile
 import types
 import unittest
@@ -9,6 +10,35 @@ from themeforge.io import load_transcript_text
 
 
 class TranscriptInputTests(unittest.TestCase):
+    def test_text_byte_order_marks_preserve_source_characters_and_lines(self):
+        expected = "미루: 🔔 도장을 찍었다.\nVale: Café."
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "transcript.txt"
+            for mark, encoding in (
+                (codecs.BOM_UTF16_LE, "utf-16-le"), (codecs.BOM_UTF16_BE, "utf-16-be"),
+                (codecs.BOM_UTF32_LE, "utf-32-le"), (codecs.BOM_UTF32_BE, "utf-32-be"),
+                (codecs.BOM_UTF8, "utf-8"), (b"", "utf-8"),
+            ):
+                with self.subTest(encoding=encoding, mark=mark):
+                    path.write_bytes(mark + expected.replace("\n", "\r\n").encode(encoding))
+                    self.assertEqual(load_transcript_text(path), expected)
+
+            path.write_bytes(b"Vale: Caf\xe9.")
+            self.assertEqual(load_transcript_text(path), "Vale: Café.")
+
+    def test_invalid_bom_marked_text_reports_the_source(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "interview.txt"
+            for data, encoding in (
+                (codecs.BOM_UTF16_LE + b"\x41", "utf-16"),
+                (codecs.BOM_UTF32_BE + b"\x00", "utf-32"),
+                (codecs.BOM_UTF8 + b"\xff", "UTF-8"),
+            ):
+                with self.subTest(encoding=encoding):
+                    path.write_bytes(data)
+                    with self.assertRaisesRegex(ValueError, rf"interview\.txt contains invalid {encoding}"):
+                        load_transcript_text(path)
+
     def test_load_docx_extracts_paragraph_text(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "transcript.docx"
