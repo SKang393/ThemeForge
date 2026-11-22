@@ -25,6 +25,7 @@ from .analysis_types import CodebookEntry, QuoteUnit, SpeakerOverride
 from .audit import AuditEvent, create_audit_event
 from .codebook import load_codebook_entries
 from .codebook_match import build_codebook_themes
+from .coverage_review import CodeCoverage, CoverageReview
 from .definition_review import CodebookReuseDialog, MatchReviewReason, entry_label, review_definition
 from .exports import export_json, export_markdown, export_quotes_csv
 from .handoff_dialog import HandoffDialog
@@ -141,6 +142,7 @@ class ThemeForgeApp(tk.Tk):
         self.similar_passages: list[SimilarPassage] = []
         # An empty coverage result has zero omissions. None means coverage is unavailable.
         self.unsuggested_passages: list[QuoteUnit] | None = None
+        self.code_coverage: CodeCoverage | None = None
         self.unsuggested_index = -1
         self.coverage_is_preview = False
 
@@ -420,8 +422,13 @@ class ThemeForgeApp(tk.Tk):
         ).grid(row=16, column=0, sticky="ew", pady=(6, 0))
 
     def _build_theme_panel(self, parent: ttk.Frame) -> None:
+        header = ttk.Frame(parent, style="Surface.TFrame")
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         self.theme_summary = tk.StringVar(value="No analysis yet")
-        ttk.Label(parent, textvariable=self.theme_summary, style="Muted.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 8))
+        ttk.Label(header, textvariable=self.theme_summary, style="Muted.TLabel").grid(row=0, column=0, sticky="w")
+        self.coverage_button = ttk.Button(header, command=self.open_coverage_review)
+        self.coverage_button.grid(row=1, column=0, sticky="w", pady=(4, 0))
+        self.coverage_button.grid_remove()
 
         list_frame = ttk.Frame(parent, style="Surface.TFrame")
         list_frame.grid(row=1, column=0, sticky="nsew")
@@ -868,8 +875,11 @@ class ThemeForgeApp(tk.Tk):
         self.theme_summary.set(status)
         autosave_status = self._autosave_project()
         self._clear_suggestion_coverage()
-        if settings.codebook_entries and generated.quote_count:
-            status = self._show_suggestion_coverage(eligible, generated.themes, preview=False)
+        if settings.codebook_entries:
+            if generated.document_count:
+                status = self._show_suggestion_coverage(eligible, generated.themes, preview=False)
+            else:
+                status = "Coverage unavailable. No transcript text is available to assess the codebook."
             if autosave_status:
                 status = f"{autosave_status}. {status}"
         elif autosave_status:
@@ -2150,6 +2160,8 @@ class ThemeForgeApp(tk.Tk):
     def _clear_suggestion_coverage(self) -> None:
         self._reset_omission_position()
         self.unsuggested_passages = None
+        self.code_coverage = None
+        self.coverage_button.grid_remove()
         self.coverage_is_preview = False
         self.unsuggested_button.grid_remove()
 
@@ -2160,11 +2172,16 @@ class ThemeForgeApp(tk.Tk):
 
     def _show_suggestion_coverage(self, eligible: list[QuoteUnit], themes: list[Theme], *, preview: bool) -> str:
         # Only count the matcher output, before any manual or retained themes are added.
-        suggested = {q.quote_id for t in themes if "generated_from_codebook_entry" in t.validation for q in t.quotes}
+        self.code_coverage = CodeCoverage(self.codebook_entries, eligible, themes)
+        suggested = self.code_coverage.suggested_ids
+        self.coverage_button.configure(text=self.code_coverage.button_text(self._coverage_source()))
+        self.coverage_button.grid()
         self.unsuggested_passages = [unit for unit in eligible if unit.id not in suggested]
         self.coverage_is_preview = preview
         if self.unsuggested_passages:
             self.unsuggested_button.grid()
+        if not eligible:
+            return "No eligible passages for these settings. Read the transcripts before assessing code coverage."
         if self.review_source_box.current() > 0:
             return self._omission_count_text(len(self._scoped_omissions()))
         count = f"{len(suggested)}/{len(eligible)} eligible passages"
@@ -2173,10 +2190,46 @@ class ThemeForgeApp(tk.Tk):
         fallback = " Showing automatic themes." if not suggested and themes else ""
         return f"All sources · Suggestions on {count}.{fallback} Passages may need other codes."
 
+    def open_coverage_review(self) -> None:
+        coverage = self.code_coverage
+        if coverage is None:
+            return
+        names = tuple(doc.name for doc in self.documents)
+        dialog = CoverageReview(self, coverage, names, self._coverage_source(), preview=self.coverage_is_preview)
+        if self.winfo_viewable():
+            dialog.wait_visibility()
+            dialog.grab_set()
+            dialog.source_box.focus_set()
+        self.wait_window(dialog)
+        source = dialog.result
+        if source is None or self.code_coverage is not coverage:
+            return
+        if self._has_pending_source_edits() or (self._current_theme() is None and self.theme_name.get().strip()):
+            self.status_text.set("Apply unfinished theme or memo edits before reading another transcript.")
+            return
+        if not self._display_sources.has_unique_source(source) or not self._display_sources.matches_documents(self.documents):
+            self._clear_suggestion_coverage()
+            self.status_text.set("Coverage unavailable. The source text has changed or is ambiguous.")
+            return
+        widget = self.transcript_widgets[source]
+        self._clear_literal_search()
+        self._select_for_reading(source, widget, "1.0", "1.0", "coverage_selection")
+        self.unsuggested_index = -1
+        widget.mark_set("insert", "1.0")
+        widget.focus_set()
+        self.detail_title.set("Manual transcript review")
+        self.quote_meta.set(source)
+        self.quote_status.set("")
+        self.quote_reason.set("Read the original text. Select a passage and choose Apply codebook entry… to code it.")
+        self.status_text.set("Reading the full transcript, including passages outside suggestion eligibility.")
+
     def preview_coverage(self) -> None:
         self._clear_suggestion_coverage()
         if not self.codebook_entries:
             self.status_text.set("Choose a codebook to preview suggestion coverage.")
+            return
+        if not self.documents:
+            self.status_text.set("Coverage preview unavailable. Open transcript text to assess code coverage.")
             return
         try:
             self._check_coverage_sources()
@@ -2217,6 +2270,10 @@ class ThemeForgeApp(tk.Tk):
             return {self.documents[choice - 1].name}
         return set()
 
+    def _coverage_source(self) -> str | None:
+        index = self.review_source_box.current()
+        return self.documents[index - 1].name if 0 < index <= len(self.documents) else None
+
     def _scoped_omissions(self) -> list[QuoteUnit]:
         passages = self.unsuggested_passages or []
         if self.review_source_box.current() == 0:
@@ -2226,11 +2283,15 @@ class ThemeForgeApp(tk.Tk):
 
     def _omission_count_text(self, count: int) -> str:
         origin = "Preview (current settings)" if self.coverage_is_preview else "Last Analyze"
+        if self.code_coverage and not self.code_coverage.counts(self._coverage_source())[0]:
+            return f"{origin} · {self.review_source_box.get()} · No eligible passages to assess code coverage."
         noun = "passage" if count == 1 else "passages"
         return f"{origin} · {self.review_source_box.get()} · {count} eligible {noun} without a suggestion."
 
     def _change_navigation_scope(self, _event: tk.Event) -> None:
         self._clear_similar_passages()
+        if self.code_coverage:
+            self.coverage_button.configure(text=self.code_coverage.button_text(self._coverage_source()))
         if self.unsuggested_passages is not None:
             self._reset_omission_position()
             self.status_text.set(self._omission_count_text(len(self._scoped_omissions())))

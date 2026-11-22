@@ -57,6 +57,8 @@ To explore without a codebook, select an excerpt, enter a theme name and choose 
 
 Korean lexical matching recognizes composed and decomposed Hangul. It also compares common particle-marked words with a separately occurring base of at least three Hangul syllables. Short terms, paraphrases and translations may still be missed. Use **Preview coverage** and **Next without suggestion** to inspect omitted passages, or select text directly and choose **Apply codebook entry…**. A manual selection remains unattributed. **Update boundary** keeps an attributed excerpt inside its original speaker turn and clears its old retrieval score. Code a multi-speaker excerpt separately if you need the exchange as a unit.
 
+After **Analyze** or **Preview coverage**, open **Coverage** in the Themes panel to see displayed leads for every codebook entry. Choose a source to see its eligible passage count. A passage can have a lead for one entry while another entry has none. If no passages are eligible, the table marks coverage as unavailable. **Read transcript** opens the full source for manual review, including short turns and text excluded from suggestions.
+
 If a save fails, keep the study open and use **Save as…** with a new filename in a writable folder. Reopen that copy and check the pending decision. A saved project retains its imported transcript text even if the external file later changes.
 
 ## Check a quotation

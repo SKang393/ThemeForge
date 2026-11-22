@@ -14,6 +14,65 @@ from themeforge.rigor_dialog import RigorDialog
 
 
 class SuggestionCoverageTests(unittest.TestCase):
+    def test_code_counts_when_every_passage_has_another_lead(self):
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            book = root / "codes.csv"
+            book.write_text("code,definition\nAction,Cobalt spool\nAction,Lantern wick\nAction,Spool\n", encoding="utf-8")
+            main = root / "spools.txt"
+            main.write_text("Fin: The cobalt spool rolled beneath the wooden table.\n"
+                            "Fin: A metal spindle held the heavy spool upright.", encoding="utf-8")
+            short = root / "quiet.txt"
+            short.write_text("Fin: Oh.", encoding="utf-8")
+            app = ThemeForgeApp()
+            self.addCleanup(app.destroy)
+            with patch("themeforge.app.filedialog.askopenfilename", return_value=str(book)):
+                press(app, "Choose codebook")
+            press(app, "Preview coverage")
+            self.assertIn("Coverage preview unavailable", app.status_text.get())
+            self.assertIsNone(app.code_coverage)
+            with patch("themeforge.app.filedialog.askopenfilenames", return_value=(str(main), str(short))):
+                press(app, "Choose files")
+            press(app, "Analyze")
+            self.assertEqual(app.code_coverage.counts(), (2, (2, 0, 2)))
+            self.assertIn("2/2 eligible passages", app.status_text.get())
+            self.assertIn("1/3 codes without leads", app.coverage_button.cget("text"))
+            self.assertFalse(app.unsuggested_button.grid_info())
+
+            def inspect(dialog):
+                def rows():
+                    return [tuple(dialog.table.set(i, col) for col in ("entry", "leads", "eligible"))
+                            for i in dialog.table.get_children()]
+
+                self.assertEqual(rows(), [("1. Action", "2", "2"), ("2. Action", "0", "2"), ("3. Action", "2", "2")])
+                dialog.source_box.current(dialog.source_box["values"].index(short.name))
+                dialog.source_box.event_generate("<<ComboboxSelected>>")
+                dialog.update()
+                self.assertIn("cannot be assessed", dialog.summary.get())
+                self.assertTrue(all(row[1:] == ("N/A", "0") for row in rows()))
+                dialog.read_button.invoke()
+
+            before = app._project_state()
+            with patch.object(app, "wait_window", side_effect=inspect):
+                app.coverage_button.invoke()
+            self.assertEqual(app._current_document_name(), short.name)
+            self.assertIsNone(app._visible_review_match())
+            self.assertEqual(app._project_state(), before)
+            app.quotes_per_theme.set(1)
+            press(app, "Preview coverage")
+            self.assertEqual(app.code_coverage.counts(), (2, (1, 0, 1)))
+            app.quotes_per_theme.set(0)
+            self.assertIsNone(app.code_coverage)
+            self.assertFalse(app.coverage_button.grid_info())
+
+            book.write_text("code,definition\nGlow,Lantern wick\n", encoding="utf-8")
+            with patch("themeforge.app.filedialog.askopenfilename", return_value=str(book)):
+                press(app, "Choose codebook")
+            press(app, "Analyze")
+            self.assertTrue(app.result.themes)  # Automatic discovery fallback.
+            self.assertEqual(app.code_coverage.counts(), (2, (0,)))
+            self.assertEqual(app.code_coverage.covered_passages(None), 0)
+
     def compact_layout(self, app):
         screen = app.winfo_screenwidth(), app.winfo_screenheight()
         if app.tk.call("tk", "windowingsystem") == "win32" and screen == (1024, 768):
