@@ -79,6 +79,8 @@ To collect another interview after review, save the protected study and choose *
 
 The new project opens with the earlier review still active. **Pending visits…** lets you read the unassigned transcripts. Reports and review counts cover the earlier sources until you choose **Analyze** and confirm a new pass for all visits. You can reopen the collection and read its saved transcripts offline. To exchange a working copy with an older version while visits are pending, use the retained earlier master.
 
+If you appended the wrong transcript, open **Pending visits…**, select it and choose **Withdraw visit…**. Check which visits will remain, then choose **Save copy…** and give the copy an unused filename in the same folder. ThemeForge checks the selected source against its saved text and opens the new copy with the earlier review intact. To undo a lone pending visit, reopen the reviewed project you saved before appending it.
+
 ### Review a grouped study with an older version
 
 1. Open the saved master. Under **Rigor tools → By case**, choose **Save older-version copy…** and give the working copy a new name. Keep the master for recovery. The working copy includes the study and review history, with case assignments omitted.

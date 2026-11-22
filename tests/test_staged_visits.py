@@ -1,3 +1,4 @@
+from copy import deepcopy
 from dataclasses import replace
 import json
 import os
@@ -14,7 +15,7 @@ from themeforge.project_io import (
     CASE_MEMBER, CASE_NULLABLE_PROFILE, STAGED_NULLABLE_PROFILE, ProjectChanged,
     ProjectCopyRequired, ProjectState, load_project, save_project,
 )
-from themeforge.staged_visits import prepare_staged_visits
+from themeforge.staged_visits import prepare_pending_withdrawal, prepare_staged_visits
 
 
 class StagedVisitTests(unittest.TestCase):
@@ -47,6 +48,125 @@ class StagedVisitTests(unittest.TestCase):
         with zipfile.ZipFile(path) as archive:
             self.assertEqual(archive.namelist(), [CASE_MEMBER])
             return json.loads(archive.read(CASE_MEMBER))
+
+    def withdrawal_input(self):
+        morning, evening = self.root / "morning.txt", self.root / "evening.txt"
+        morning.write_text("Bird: I folded the reed mat.")
+        evening.write_text("Bird: I placed it on the shelf.")
+        staged, _ = prepare_staged_visits(self.master, [morning, self.two, evening])
+        event = create_audit_event(actor="Finch", action="theme_memo_edited", target_type="theme",
+                                   target_id="M01", details="Earlier review memo.")
+        save_project(self.output, replace(staged, researcher_name="Finch", audit_events=(event,)), new_only=True)
+        return load_project(self.output)
+
+    def test_withdrawal_preserves_the_previous_pass_and_remaining_snapshots_in_order(self):
+        prior = self.withdrawal_input()
+        first, selected, last = prior.pending_visits
+        archive = self.output.read_bytes()
+        payload = self.payload(self.output)
+        before = selected.path.read_bytes()
+        # Original files outside the selected visit can be offline.
+        first.path.unlink()
+        self.one.unlink()
+        prepared, guards = prepare_pending_withdrawal(self.output, prior.file_revision, selected)
+        self.assertEqual(prepared.pending_visits, (first, last))
+        self.assertEqual(prepared.audit_events, prior.audit_events)
+        self.assertEqual(guards[0], (self.output, prior.file_revision))
+        self.assertEqual(guards[1][0], selected.path)
+        destination = self.root / "retained.tfproj"
+        self.assertFalse(destination.exists())
+        with patch("themeforge.project_io.tempfile.NamedTemporaryFile") as temporary:
+            with self.assertRaises(FileExistsError):
+                save_project(self.output, prepared, new_only=True, input_revisions=guards, transcript_inputs=(selected.path,))
+            temporary.assert_not_called()
+        save_project(destination, prepared, new_only=True, input_revisions=guards, transcript_inputs=(selected.path,))
+        del payload["pending_visits"][1]
+        self.assertEqual(self.payload(destination), payload)
+        self.assertTrue(load_project(destination).is_case_master)
+        self.assertEqual(load_project(destination).pending_visits, (first, last))
+        self.assertEqual(self.output.read_bytes(), archive)
+        self.assertEqual(selected.path.read_bytes(), before)
+
+    def test_withdrawal_requires_a_current_pending_snapshot_and_source(self):
+        prior = self.withdrawal_input()
+        selected = prior.pending_visits[1]
+        for wrong in (replace(selected, text="Different saved text"), replace(selected, path=self.one)):
+            with self.subTest(wrong=wrong), self.assertRaisesRegex(ValueError, "saved pending snapshot"):
+                prepare_pending_withdrawal(self.output, prior.file_revision, wrong)
+        self.two.write_text("A different visit.")
+        with self.assertRaisesRegex(ValueError, "differs from the saved transcript"):
+            prepare_pending_withdrawal(self.output, prior.file_revision, selected)
+        self.two.unlink()
+        with self.assertRaisesRegex(ValueError, "Could not verify transcript"):
+            prepare_pending_withdrawal(self.output, prior.file_revision, selected)
+        with self.assertRaises(ProjectChanged):
+            prepare_pending_withdrawal(self.output, b"stale", selected)
+
+    def test_withdrawal_refuses_the_last_pending_visit_and_changes_during_confirmation(self):
+        prior = self.publish()
+        with self.assertRaisesRegex(ValueError, "last pending visit.*before staging"):
+            prepare_pending_withdrawal(self.output, prior.file_revision, prior.pending_visits[0])
+        self.output.unlink()
+        prior = self.withdrawal_input()
+        selected = prior.pending_visits[1]
+        prepared, guards = prepare_pending_withdrawal(self.output, prior.file_revision, selected)
+        destination = self.root / "retained.tfproj"
+        raw = selected.path.read_bytes()
+        selected.path.write_bytes(selected.text.encode("utf-8"))
+        with patch("themeforge.project_io.tempfile.NamedTemporaryFile") as temporary:
+            with self.assertRaisesRegex(ValueError, "transcript changed.*" + selected.name):
+                save_project(destination, prepared, new_only=True, input_revisions=guards, transcript_inputs=(selected.path,))
+            temporary.assert_not_called()
+        self.assertFalse(destination.exists())
+        selected.path.write_bytes(raw)
+        self.output.write_bytes(b"Different project")
+        with self.assertRaises(ProjectChanged):
+            save_project(destination, prepared, new_only=True, input_revisions=guards, transcript_inputs=(selected.path,))
+        self.assertFalse(destination.exists())
+        self.assertEqual(self.output.read_bytes(), b"Different project")
+
+    def test_withdrawal_preserves_a_destination_created_during_save(self):
+        prior = self.withdrawal_input()
+        selected = prior.pending_visits[1]
+        prepared, guards = prepare_pending_withdrawal(self.output, prior.file_revision, selected)
+        destination = self.root / "retained.tfproj"
+        other = b"A project saved by someone else."
+        with patch("themeforge.project_io.os.fsync", side_effect=lambda _: destination.write_bytes(other)):
+            with self.assertRaises(FileExistsError):
+                save_project(destination, prepared, new_only=True, input_revisions=guards, transcript_inputs=(selected.path,))
+        self.assertEqual(destination.read_bytes(), other)
+        self.assertEqual(load_project(self.output), prior)
+        self.assertFalse(list(self.root.glob("*.tmp")))
+
+    def test_withdrawal_refuses_to_drop_unknown_archive_content_or_nested_metadata(self):
+        self.withdrawal_input()
+        original = self.payload(self.output)
+        for extra in ("member", "field", "changed_type"):
+            with self.subTest(extra=extra):
+                payload = deepcopy(original)
+                with zipfile.ZipFile(self.output, "w") as archive:
+                    if extra == "member":
+                        archive.writestr("annotation.txt", "Earlier note")
+                    elif extra == "field":
+                        payload["documents"][0]["annotation"] = "Earlier note"
+                    else:
+                        payload["settings"]["min_theme_size"] = True
+                    archive.writestr(CASE_MEMBER, json.dumps(payload))
+                prior = load_project(self.output)
+                before = self.output.read_bytes()
+                with self.assertRaisesRegex(ValueError, "cannot be preserved"):
+                    prepare_pending_withdrawal(self.output, prior.file_revision, prior.pending_visits[1])
+                self.assertEqual(self.output.read_bytes(), before)
+
+    def test_withdrawal_accepts_an_omitted_default_from_an_earlier_staged_project(self):
+        self.withdrawal_input()
+        payload = self.payload(self.output)
+        del payload["settings"]["language_mode"]
+        with zipfile.ZipFile(self.output, "w") as archive:
+            archive.writestr(CASE_MEMBER, json.dumps(payload))
+        prior = load_project(self.output)
+        prepared, _ = prepare_pending_withdrawal(self.output, prior.file_revision, prior.pending_visits[1])
+        self.assertEqual(prepared.settings.language_mode, "Auto")
 
     def test_pending_uses_separate_profile_and_preserves_every_prior_payload_field(self):
         staged = self.publish()

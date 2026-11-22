@@ -163,6 +163,15 @@ def ensure_project_revision(path: Path, expected_bytes: bytes) -> None:
         raise ProjectChanged()
 
 
+def _check_input_revisions(revisions: tuple[tuple[Path, bytes], ...], transcripts: set[Path]) -> None:
+    for source, revision in revisions:
+        if source in transcripts:
+            if file_revision(source) != revision:
+                raise ValueError(f"The transcript changed or disappeared before saving: {source.name}")
+        else:
+            ensure_project_revision(source, revision)
+
+
 @contextmanager
 def _publish_guard(path: Path):
     # Hold a kernel-released guard only for the final destination check and install.
@@ -185,11 +194,13 @@ def _publish_guard(path: Path):
 
 
 def save_project(path: Path, state: ProjectState, *, new_only: bool = False,
-                 expected_revision: bytes | None = None, input_revisions: tuple[tuple[Path, bytes], ...] = ()) -> bytes:
+                 expected_revision: bytes | None = None, input_revisions: tuple[tuple[Path, bytes], ...] = (),
+                 transcript_inputs: tuple[Path, ...] = ()) -> bytes:
     path = Path(path)
     case_master = state.needs_case_master
     nullable = state.needs_nullable_profile
     staged_paths = {v.path for v in state.collection_sources()} if state.pending_visits else set()
+    staged_paths.update(transcript_inputs)
     previous = None
     if not new_only:
         try:
@@ -242,20 +253,13 @@ def save_project(path: Path, state: ProjectState, *, new_only: bool = False,
     else:
         member = NULLABLE_MEMBER if nullable else PROJECT_JSON
         format_version = NULLABLE_PROFILE if nullable else PROJECT_FORMAT_VERSION
-    payload = {
-        "format_version": format_version,
-        "transcript_paths": [str(item) for item in state.transcript_paths],
-        "codebook_path": str(state.codebook_path) if state.codebook_path is not None else None,
-        "documents": [_document_to_json(document) for document in state.documents],
-        "settings": _settings_to_json(state.settings),
-        "result": _result_to_json(state.result),
-        "researcher_name": state.researcher_name,
-        "audit_events": [asdict(event) for event in state.audit_events],
-    }
-    if state.pending_visits:
-        payload["pending_visits"] = [{"path": str(v.path), "text": v.text} for v in state.pending_visits]
+    if new_only and os.path.lexists(path):
+        raise FileExistsError(path)
+    if transcript_inputs:
+        # Withdrawal may have been left open in the save picker.
+        _check_input_revisions(input_revisions, staged_paths)
     # Serialize before touching disk, then replace only a complete sibling archive.
-    serialized = json.dumps(payload, ensure_ascii=False, indent=2)
+    serialized = json.dumps(_project_payload(state, format_version), ensure_ascii=False, indent=2)
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(mode="w+b", prefix=f".{path.name}.", suffix=".tmp", dir=path.parent, delete=False) as stream:
@@ -266,12 +270,7 @@ def save_project(path: Path, state: ProjectState, *, new_only: bool = False,
             os.fsync(stream.fileno())
             written = _revision(stream)
         with _publish_guard(path):
-            for source, revision in input_revisions:
-                if source in staged_paths:
-                    if file_revision(source) != revision:
-                        raise ValueError(f"The transcript changed or disappeared before saving: {source.name}")
-                else:
-                    ensure_project_revision(source, revision)
+            _check_input_revisions(input_revisions, staged_paths)
             if not new_only:
                 if file_revision(path) != previous:
                     raise ProjectChanged()
@@ -286,7 +285,45 @@ def save_project(path: Path, state: ProjectState, *, new_only: bool = False,
     return written
 
 
-def load_project(path: Path, *, expected_revision: bytes | None = None) -> ProjectState:
+def _project_payload(state: ProjectState, format_version: int | str) -> dict:
+    payload = {
+        "format_version": format_version,
+        "transcript_paths": [str(item) for item in state.transcript_paths],
+        "codebook_path": str(state.codebook_path) if state.codebook_path is not None else None,
+        "documents": [_document_to_json(document) for document in state.documents],
+        "settings": _settings_to_json(state.settings),
+        "result": _result_to_json(state.result),
+        "researcher_name": state.researcher_name,
+        "audit_events": [asdict(event) for event in state.audit_events],
+    }
+    if state.pending_visits:
+        payload["pending_visits"] = [{"path": str(v.path), "text": v.text} for v in state.pending_visits]
+    return payload
+
+
+def _unique_fields(pairs: list[tuple]) -> dict:
+    fields = dict(pairs)
+    if len(fields) != len(pairs):
+        raise ValueError("This project contains duplicate metadata fields. Keep the original project.")
+    return fields
+
+
+def _preserves_json_values(original, copy) -> bool:
+    """Allow newly explicit defaults, but preserve each recorded JSON value and its type."""
+    if isinstance(original, dict):
+        return isinstance(copy, dict) and all(
+            key in copy and _preserves_json_values(value, copy[key]) for key, value in original.items()
+        )
+    if isinstance(original, list):
+        return isinstance(copy, list) and len(original) == len(copy) and all(
+            _preserves_json_values(a, b) for a, b in zip(original, copy)
+        )
+    # JSON numbers may load as int or float. True and 1 are different JSON values.
+    return isinstance(original, bool) == isinstance(copy, bool) and original == copy
+
+
+def load_project(path: Path, *, expected_revision: bytes | None = None,
+                 require_lossless_staged_copy: bool = False) -> ProjectState:
     try:
         stream = Path(path).open("rb")
     except FileNotFoundError:
@@ -298,7 +335,11 @@ def load_project(path: Path, *, expected_revision: bytes | None = None) -> Proje
             raise ProjectChanged()
         with zipfile.ZipFile(stream) as archive:
             member = _data_member(archive)
-            payload = json.loads(archive.read(member).decode("utf-8"))
+            if require_lossless_staged_copy and (len(archive.infolist()) != 1 or archive.comment
+                                                  or archive.getinfo(member).comment or archive.getinfo(member).extra):
+                raise ValueError("This project has additional archive content that cannot be preserved in a staged copy.")
+            payload = json.loads(archive.read(member).decode("utf-8"),
+                                 object_pairs_hook=_unique_fields if require_lossless_staged_copy else None)
         revision = _revision(stream)
         if expected_revision is not None and revision != expected_revision:
             raise ProjectChanged()
@@ -318,6 +359,10 @@ def load_project(path: Path, *, expected_revision: bytes | None = None) -> Proje
     )
     if state.pending_visits:
         state.collection_sources()
+        if require_lossless_staged_copy:
+            profile = STAGED_NULLABLE_PROFILE if state.needs_nullable_profile else STAGED_PROFILE
+            if not _preserves_json_values(payload, _project_payload(state, profile)):
+                raise ValueError("This project contains metadata that cannot be preserved in a staged copy.")
     return state
 
 

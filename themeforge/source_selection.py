@@ -52,12 +52,13 @@ class PendingVisits(simpledialog.Dialog):
         self.location.pack(anchor="w")
         self.transcript = ScrolledText(parent, width=64, height=12, wrap="word")
         self.transcript.pack(fill="both", expand=True, pady=4)
-        ttk.Label(parent, text="The current review and reports cover the earlier sources. "
-                  "Choose Analyze in the workspace to start a new pass including these visits.",
+        guidance = ("To leave out the last pending visit, reopen the project saved before it was appended."
+                    if len(self.visits) == 1 else
+                    "Select a visit to inspect it. Analyze includes all pending visits in the next pass.")
+        ttk.Label(parent, text=guidance,
                   wraplength=520).pack(anchor="w")
         self.source.bind("<<ComboboxSelected>>", self._show_visit)
-        self.source.current(0)
-        self._show_visit()
+        self.transcript.configure(state="disabled")
         return self.source
 
     def _show_visit(self, _event=None):
@@ -67,10 +68,51 @@ class PendingVisits(simpledialog.Dialog):
         self.transcript.delete("1.0", "end")
         self.transcript.insert("1.0", visit.text)
         self.transcript.configure(state="disabled")
+        if len(self.visits) > 1:
+            self.withdraw_button.state(["!disabled"])
 
     def buttonbox(self):
-        ttk.Button(self, text="Close", command=self.cancel).pack(pady=6)
+        buttons = ttk.Frame(self)
+        buttons.pack(pady=6)
+        self.withdraw_button = ttk.Button(buttons, text="Withdraw visit…", command=self.ok)
+        self.withdraw_button.pack(side="left", padx=4)
+        self.withdraw_button.state(["disabled"])
+        ttk.Button(buttons, text="Close", command=self.cancel).pack(side="left", padx=4)
+        if len(self.visits) == 1:
+            self.source.current(0)
+            self._show_visit()
         self.bind("<Escape>", self.cancel)
+
+    def apply(self):
+        self.result = self.visits[self.source.current()]
+
+
+class PendingWithdrawal(simpledialog.Dialog):
+    def __init__(self, parent: tk.Misc, selected: "PendingVisit", remaining: Sequence["PendingVisit"]):
+        self.selected = selected
+        self.remaining = remaining
+        super().__init__(parent, "Withdraw pending visit")
+
+    def body(self, parent):
+        ttk.Label(parent, text=f"Withdraw {self.selected.name} from a new project copy?",
+                  wraplength=500).pack(anchor="w")
+        ttk.Label(parent, text=f"Still pending for analysis ({len(self.remaining)})").pack(anchor="w", pady=(8, 0))
+        preview = ScrolledText(parent, width=58, height=min(8, len(self.remaining)), wrap="word")
+        preview.insert("1.0", "\n".join(visit.name for visit in self.remaining))
+        preview.configure(state="disabled")
+        preview.pack(fill="both", expand=True)
+
+    def buttonbox(self):
+        buttons = ttk.Frame(self)
+        buttons.pack(pady=6)
+        cancel = ttk.Button(buttons, text="Cancel", command=self.cancel)
+        cancel.pack(side="left", padx=4)
+        ttk.Button(buttons, text="Save copy…", command=self.ok).pack(side="left", padx=4)
+        self.initial_focus = cancel
+        self.bind("<Escape>", self.cancel)
+
+    def apply(self):
+        self.result = True
 
 
 class TranscriptFolders(simpledialog.Dialog):

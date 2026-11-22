@@ -65,9 +65,9 @@ from .quote_units import speaker_stopwords, suggestion_inputs
 from .rigor_dialog import RigorContext, RigorDialog
 from .semantic_suggestions import SimilarPassage, find_similar_passages
 from .source_location import TranscriptIndex
-from .source_selection import FindTextScope, PendingVisits, TranscriptFolders, choose_transcript_files
+from .source_selection import FindTextScope, PendingVisits, PendingWithdrawal, TranscriptFolders, choose_transcript_files
 from .speaker_review import review_speakers
-from .staged_visits import prepare_staged_visits
+from .staged_visits import prepare_pending_withdrawal, prepare_staged_visits
 from .ui_model import (
     APP_THEMES,
     about_text,
@@ -721,15 +721,49 @@ class ThemeForgeApp(tk.Tk):
             detail = "Choose an unused filename for the appended study." if isinstance(exc, FileExistsError) else str(exc)
             messagebox.showerror("Append visit failed", detail, parent=self)
             return
-        self.project_path = destination
-        self.pending_visits = staged.pending_visits
-        self._saved_state = replace(self._project_state(), file_revision=written, is_case_master=True)
-        self._refresh_collection_controls()
+        self._use_staged_copy(destination, staged, written)
         self.status_text.set(f"Saved {destination.name}. New visits are unassigned and pending analysis.")
 
     def open_pending_visits(self) -> None:
-        if self.pending_visits:
-            PendingVisits(self, self.pending_visits)
+        if not self.pending_visits:
+            return
+        opened = (self.project_path, self._saved_state.file_revision)
+        selected = PendingVisits(self, self.pending_visits).result
+        if selected is None:
+            return
+        try:
+            path, revision = self._saved_case_file()
+            if (path, revision) != opened:
+                raise ProjectChanged()
+            prepared, guards = prepare_pending_withdrawal(path, revision, selected)
+            if not PendingWithdrawal(self, selected, prepared.pending_visits).result:
+                return
+            chosen = filedialog.asksaveasfilename(
+                parent=self, title="Save a new project beside the current study",
+                initialdir=path.parent, initialfile=f"{path.stem}-revised.tfproj",
+                defaultextension=".tfproj", filetypes=[("ThemeForge project", "*.tfproj")], confirmoverwrite=False)
+            if not chosen:
+                return
+            destination = Path(chosen)
+            if destination.parent.resolve() != path.parent.resolve() or destination.suffix.lower() != ".tfproj":
+                raise ValueError("Choose a new .tfproj filename in the current project's folder.")
+            if self._saved_case_file() != (path, revision):
+                raise ProjectChanged()
+            written = save_project(destination, prepared, new_only=True, input_revisions=guards,
+                                   transcript_inputs=(selected.path,))
+        except (OSError, TypeError, KeyError, ValueError, tk.TclError, zipfile.BadZipFile) as exc:
+            detail = "Choose an unused filename for the new project." if isinstance(exc, FileExistsError) else str(exc)
+            messagebox.showerror("Could not withdraw pending visit", detail, parent=self)
+            return
+        self._use_staged_copy(destination, prepared, written)
+        self.status_text.set(f"Saved {destination.name} without {selected.name}. "
+                             f"Pending visits: {len(prepared.pending_visits)}.")
+
+    def _use_staged_copy(self, destination: Path, staged: ProjectState, revision: bytes) -> None:
+        self.project_path = destination
+        self.pending_visits = staged.pending_visits
+        self._saved_state = replace(self._project_state(), file_revision=revision, is_case_master=True)
+        self._refresh_collection_controls()
 
     def _refresh_collection_controls(self) -> None:
         if self.project_path and self._saved_state.is_case_master:
