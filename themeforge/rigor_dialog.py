@@ -11,6 +11,7 @@ import zipfile
 
 from .analysis_types import AnalysisResult, CodebookEntry, Theme, ThemeQuote, TranscriptDocument
 from .audit import AuditEvent, export_audit_events_csv
+from .case_tab import CaseTab
 from .codebook import SharedCodebook
 from .decision_history import DecisionRow, decision_history_csv, decision_rows
 from .exports import export_quotes_csv
@@ -162,11 +163,15 @@ class RigorDialog(tk.Toplevel):
         context: RigorContext,
         context_source: Callable[[], RigorContext] | None = None,
         locate_match: Callable[[Theme, ThemeQuote], None] | None = None,
+        assign_case: Callable[[TranscriptDocument, str], str] | None = None,
+        saved_case_file: Callable[[], tuple[Path, bytes]] | None = None,
     ) -> None:
         super().__init__(master)
         self.context = context
         self._context_source = context_source
         self._locate_match = locate_match
+        self._assign_case = assign_case
+        self._saved_case_file = saved_case_file
         self._source_review_matches: dict[str, tuple[Theme, ThemeQuote]] = {}
         self.source_review_hint = tk.StringVar(self)
         self.my_manual_assignments = tk.BooleanVar(self, value=False)
@@ -198,7 +203,33 @@ class RigorDialog(tk.Toplevel):
         self.speaker_matrix_tree = self._add_matrix_tab(notebook, "By speaker", "speaker")
         self._add_intercoder_tab(notebook)
         self._add_audit_tab(notebook)
+        self.case_tab = CaseTab(notebook, self._save_case if self._assign_case else None,
+                                self._locate_case, self._saved_case_file)
+        notebook.add(self.case_tab, text="By case")
+        notebook.bind("<<NotebookTabChanged>>", self._case_tab_selected)
         self._render_current_state()
+
+    def _case_tab_selected(self, _event=None) -> None:
+        if self.case_tab.master.select() == str(self.case_tab):
+            self.case_tab.render(self.context)
+
+    def _check_case_context(self) -> None:
+        if self._context_source and self._context_source() != self.context:
+            self.refresh_current_state()
+            raise ValueError("The study or coder changed. Check the current selection and try again.")
+
+    def _save_case(self, document: TranscriptDocument, label: str) -> str:
+        self._check_case_context()
+        message = self._assign_case(document, label)
+        self.refresh_current_state()
+        return message
+
+    def _locate_case(self, theme: Theme, quote: ThemeQuote) -> None:
+        self._check_case_context()
+        if self._locate_match is None:
+            raise ValueError("Open Rigor tools from the workspace to locate the selected passage.")
+        self._locate_match(theme, quote)
+        self.withdraw()
 
     def _add_matrix_tab(
         self,
@@ -234,7 +265,7 @@ class RigorDialog(tk.Toplevel):
             self._configure_tree(tree, ("Theme", "Speaker label", "Stored quotes", "Unique coded chars", "Coverage %"))
             ttk.Label(tab, wraplength=800, text=(
                 "Matching speaker labels are pooled across transcripts. Different people can share a label. "
-                "Stored quotes include suggestions. Use By source to trace reviewed passages to the cases you defined."
+                "Stored quotes include suggestions. Use By case to group transcripts explicitly."
             )).grid(row=2, column=0, sticky="w")
         self._grid_tree(tab, tree, 1)
         notebook.add(tab, text=title)
@@ -373,6 +404,14 @@ class RigorDialog(tk.Toplevel):
         self._render_source_matrix()
         self._render_matrix(self.speaker_matrix_tree, self.matrix_report.speaker_rows)
         self._render_audit()
+        if self._assign_case:
+            notebook = self.case_tab.master
+            state = "disabled" if self.context.result is None else "normal"
+            for tab in notebook.tabs()[:-1]:
+                notebook.tab(tab, state=state)
+            if self.context.result is None:
+                notebook.select(self.case_tab)
+        self._case_tab_selected()
 
     def _render_source_matrix(self) -> None:
         tree = self.source_matrix_tree
@@ -393,7 +432,7 @@ class RigorDialog(tk.Toplevel):
                 "Enter a coder name in the main window to see that reader’s match reviews.")
         self.source_review_hint.set(f"One summary row per theme and transcript. {hint} Counts of stored quotes and "
                                     "coverage include suggestions. A decline can record a counterexample or an irrelevant "
-                                    "match. For repeat visits, check your case mapping in Document memo after opening the passage.")
+                                    "match. Use By case for repeat visits; a case mapping in Document memo stays a memo.")
         result = self.context.result
         if result is None:
             return

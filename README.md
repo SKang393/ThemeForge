@@ -67,6 +67,22 @@ In the supported CSV, find `source_file` and `source_line`. The example quotatio
 
 Use the transcript text saved in the project when checking offsets. For Word or PDF input, use the extracted text. Its SHA-256 digest, computed over the UTF-8 text, should match `source_sha256`. The supported CSV already records who confirmed the quotation, when, and why in `match_review_actor`, `match_review_time_utc` and `match_review_reason`.
 
+## Compare repeat visits by case
+
+In **Rigor tools → By case**, select a transcript, enter or choose a case label, and choose **Assign case**. Assign the same label to each visit that belongs to that case. To move a visit, assign its transcript a different label. **Clear assignment** returns it to the unassigned sources. Use this workflow for transcripts that each belong to a single case. A shared speaker name or a case mentioned in a memo does not establish membership.
+
+Enter your **Coder name** to see your current reviews. Expand a theme and case to inspect the source, line and character range for each passage. Open a reviewed passage to see it in context with its decision reason. A stored passage without a current review still needs interpretation. An empty cell does not establish that the theme was absent, and a declined match records a review decision without classifying it as a counterexample.
+
+Save a grouped study as a **protected master**. Earlier versions of ThemeForge cannot open this format. When you first save case assignments in an older project, choose an unused filename for the master. The existing source, speaker and supported-evidence reports are available in either workflow.
+
+### Review a grouped study with an older version
+
+1. Open the saved master. Under **Rigor tools → By case**, choose **Save older-version copy…** and give the working copy a new name. Keep the master for recovery. The working copy includes the study and review history, with case assignments omitted.
+2. In the older version, open the working copy. You can add review decisions on existing passages and use **Save as…** in another folder. To retain the association with the original study, keep its transcripts, memos, codebook, analysis, settings and earlier audit history intact.
+3. Open the returned copy in this version. Under **By case**, choose **Recover case assignments…** and select the master used for that copy. Check the displayed source-to-case assignments and confirm before choosing an unused output filename. Open the recovered project to continue working.
+
+Recovery checks the complete saved study and original audit history and carries forward verified additional passage reviews and the returned copy’s active coder. The selected master supplies the case assignments. Two masters may contain identical evidence and different assignments, so check the mapping even when the evidence matches. If an earlier save already stripped the labels, a retained grouped project from the earlier case-aware version can also supply them. Without a retained mapping, assign cases manually using your study records.
+
 ## Compare two readers' decisions
 
 Save each first pass as a separate project. Open one and use **Save as…** to create a discussion copy before changing a decision. In **Rigor tools → Intercoder**, choose the other analyst's project, select the two reviewers and click **Next review disagreement**. Read both reasons and the highlighted passage. Close Rigor tools, record the revised decision and its reason in the discussion copy, then reopen it to check the result.

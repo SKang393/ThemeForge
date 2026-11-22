@@ -51,6 +51,7 @@ class TranscriptDocument:
     name: str
     text: str
     memo: str = ""
+    case_label: str = ""
 
 
 @dataclass(frozen=True, slots=True)

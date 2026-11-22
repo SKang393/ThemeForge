@@ -1649,13 +1649,13 @@ class ThemeForgeApp(tk.Tk):
                 updating = self.project_path is not None and not save_as
                 revision = save_project(
                     path, state,
-                    new_only=save_as or (self.project_path is None and state.needs_nullable_profile),
+                    new_only=save_as or (self.project_path is None and (state.needs_case_master or state.needs_nullable_profile)),
                     expected_revision=self._saved_state.file_revision if updating else None,
                 )
-            except ProjectCopyRequired:
+            except ProjectCopyRequired as exc:
                 chosen = filedialog.asksaveasfilename(
-                    title="Save a separate nullable-score project (original stays unchanged)",
-                    initialdir=path.parent, initialfile=f"{path.stem}-unscored.tfproj",
+                    title=exc.title,
+                    initialdir=path.parent, initialfile=f"{path.stem}{exc.suffix}.tfproj",
                     defaultextension=".tfproj", filetypes=[("ThemeForge project", "*.tfproj")])
                 if not chosen:
                     self.status_text.set("Copy not saved. Changes remain open; the original project is unchanged.")
@@ -1675,7 +1675,7 @@ class ThemeForgeApp(tk.Tk):
             messagebox.showerror("Save project failed", detail, parent=self)
             return False
         self.project_path = path
-        self._saved_state = replace(state, file_revision=revision)
+        self._saved_state = replace(state, file_revision=revision, is_case_master=state.needs_case_master)
         summary = f"Saved project {path.name}"
         if self._has_pending_source_edits(all_documents=True):
             summary += ". " + (self._other_memo_notice() or "Apply the unfinished editor changes to include them.")
@@ -1717,7 +1717,7 @@ class ThemeForgeApp(tk.Tk):
             return f"autosave failed. Use Save as… to choose a writable folder. {exc}"
         except (ValueError, tk.TclError) as exc:
             return f"autosave failed: {exc}"
-        self._saved_state = replace(state, file_revision=revision)
+        self._saved_state = replace(state, file_revision=revision, is_case_master=state.needs_case_master)
         return f"autosaved {self.project_path.name}"
 
     def _project_state(self) -> ProjectState:
@@ -1729,6 +1729,7 @@ class ThemeForgeApp(tk.Tk):
             result=self.result,
             researcher_name=self.researcher_name.get(),
             audit_events=tuple(self.audit_events),
+            is_case_master=self.project_path is not None and self._saved_state.is_case_master,
         )
 
     def _restore_project(self, state: ProjectState, path: Path | None) -> None:
@@ -1784,7 +1785,8 @@ class ThemeForgeApp(tk.Tk):
             if isinstance(child, RigorDialog):
                 child.destroy()  # The open comparison and audit belong to the outgoing study.
         self.researcher_name.set(state.researcher_name)
-        self._saved_state = replace(self._project_state(), file_revision=state.file_revision) if path else self._empty_state
+        self._saved_state = (replace(self._project_state(), file_revision=state.file_revision,
+                                     is_case_master=state.is_case_master) if path else self._empty_state)
         self.status_text.set(f"Opened {path.name} using the project's saved transcripts and codebook."
                              if path else "New unsaved project")
 
@@ -2589,8 +2591,29 @@ class ThemeForgeApp(tk.Tk):
         else:
             HandoffDialog(self)
 
+    def _assign_document_case(self, document: TranscriptDocument, label: str) -> str:
+        for index, current in enumerate(self.documents):
+            if current is document:
+                break
+        else:
+            raise ValueError("The transcript changed. Select it again before assigning a case.")
+        message = (f"{current.name} is assigned to case {label}." if label else
+                   f"{current.name} is unassigned.")
+        if current.case_label == label:
+            return message
+        self.documents[index] = replace(current, case_label=label)
+        save_status = self._autosave_project()
+        return f"{message} {save_status}" if save_status else f"{message} Save the project to keep this assignment."
+
+    def _saved_case_file(self) -> tuple[Path, bytes]:
+        if self.project_path is None or self._saved_state.file_revision is None:
+            raise ValueError("Save the active study before making a project copy.")
+        if self._has_unsaved_work() or (self._current_theme() is None and self.theme_name.get().strip()):
+            raise ValueError("Apply or undo pending edits and save the active study before making a project copy.")
+        return self.project_path, self._saved_state.file_revision
+
     def open_rigor_tools(self, *, supported_evidence: bool = False) -> None:
-        if not self.documents or self.result is None:
+        if not self.documents or (supported_evidence and self.result is None):
             messagebox.showinfo("Rigor tools", "Open transcripts and run analysis before using rigor tools.")
             return
         context = self._rigor_context()
@@ -2600,10 +2623,14 @@ class ThemeForgeApp(tk.Tk):
                     dialog.refresh_current_state()
                 dialog.deiconify()
                 dialog.lift()
-                dialog.source_matrix_tree.focus_set()
+                if dialog.case_tab.master.select() == str(dialog.case_tab):
+                    dialog.case_tab.tree.focus_set()
+                else:
+                    dialog.source_matrix_tree.focus_set()
                 break
         else:
-            dialog = RigorDialog(self, context, self._rigor_context, self._locate_review_match)
+            dialog = RigorDialog(self, context, self._rigor_context, self._locate_review_match,
+                                 self._assign_document_case, self._saved_case_file)
         if supported_evidence:
             dialog.choose_supported_sources(self._current_theme())
 

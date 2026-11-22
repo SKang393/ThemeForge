@@ -27,10 +27,19 @@ PROJECT_FORMAT_VERSION = 2
 PROJECT_JSON = "project.json"
 NULLABLE_PROFILE = "2-nullable-scores"
 NULLABLE_MEMBER = "project-nullable-scores.json"
+CASE_MEMBER = "project-case-master.json"
+CASE_PROFILE = "3-case-master"
+CASE_NULLABLE_PROFILE = "3-case-master-nullable-scores"
 
 
 class ProjectCopyRequired(ValueError):
     """An older project must not be replaced with one its reader cannot open."""
+
+    def __init__(self, message: str, *, suffix: str = "-unscored",
+                 title: str = "Save a separate nullable-score project (original stays unchanged)"):
+        super().__init__(message)
+        self.suffix = suffix
+        self.title = title
 
 
 class ProjectChanged(ValueError):
@@ -40,7 +49,7 @@ class ProjectChanged(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
-class UnsupportedProjectFormatError(Exception):
+class UnsupportedProjectFormatError(ValueError):
     format_version: int | str
     supported_version: int
 
@@ -59,6 +68,11 @@ class ProjectState:
     audit_events: tuple[AuditEvent, ...] = ()
     # Identifies the disk snapshot. It is neither study content nor part of the project format.
     file_revision: bytes | None = field(default=None, compare=False, repr=False)
+    is_case_master: bool = field(default=False, compare=False)
+
+    @property
+    def needs_case_master(self) -> bool:
+        return self.is_case_master or any(doc.case_label.strip() for doc in self.documents)
 
     @property
     def needs_nullable_profile(self) -> bool:
@@ -69,10 +83,24 @@ class ProjectState:
 
 
 def _data_member(archive: zipfile.ZipFile) -> str:
-    members = [n for n in archive.namelist() if n in (PROJECT_JSON, NULLABLE_MEMBER)]
+    members = [n for n in archive.namelist() if n in (PROJECT_JSON, NULLABLE_MEMBER, CASE_MEMBER)]
     if len(members) != 1:
         raise ValueError("Expected one recognizable project data member; the archive is ambiguous or unsupported.")
     return members[0]
+
+
+def _project_profile(member: str, payload: dict) -> tuple[bool, bool]:
+    """Return whether this is a case master and whether it stores nullable scores."""
+    if not isinstance(payload, dict):
+        raise ValueError("Expected a project data object.")
+    version = payload.get("format_version", 1)
+    if member == CASE_MEMBER and version in (CASE_PROFILE, CASE_NULLABLE_PROFILE):
+        return True, version == CASE_NULLABLE_PROFILE
+    if member == NULLABLE_MEMBER and version == NULLABLE_PROFILE:
+        return False, True
+    if member == PROJECT_JSON and isinstance(version, (int, str)) and str(version) in ("1", "2"):
+        return False, False
+    raise UnsupportedProjectFormatError(str(version), PROJECT_FORMAT_VERSION)
 
 
 def _revision(stream: BinaryIO) -> bytes:
@@ -89,6 +117,12 @@ def _disk_revision(path: Path) -> bytes | None:
             return _revision(stream)
     except FileNotFoundError:
         return None
+
+
+def ensure_project_revision(path: Path, expected_bytes: bytes) -> None:
+    """Require the same complete archive bytes that were checked when the project was opened."""
+    if expected_bytes is None or _disk_revision(Path(path)) != expected_bytes:
+        raise ProjectChanged()
 
 
 @contextmanager
@@ -113,8 +147,9 @@ def _publish_guard(path: Path):
 
 
 def save_project(path: Path, state: ProjectState, *, new_only: bool = False,
-                 expected_revision: bytes | None = None) -> bytes:
+                 expected_revision: bytes | None = None, input_revisions: tuple[tuple[Path, bytes], ...] = ()) -> bytes:
     path = Path(path)
+    case_master = state.needs_case_master
     nullable = state.needs_nullable_profile
     previous = None
     if not new_only:
@@ -125,21 +160,37 @@ def save_project(path: Path, state: ProjectState, *, new_only: bool = False,
                     raise ProjectChanged()
                 with zipfile.ZipFile(stream) as existing:
                     old_member = _data_member(existing)
-                if nullable and old_member != NULLABLE_MEMBER:
+                    old_case, old_nullable = _project_profile(old_member, json.loads(existing.read(old_member)))
+                if old_case and expected_revision is None:
+                    if state.file_revision is None:
+                        raise ProjectCopyRequired("That filename belongs to a case master. Choose a new filename for this study.",
+                                                  suffix="-copy", title="Save this study to a new file")
+                    if state.file_revision != previous:
+                        raise ProjectChanged()
+                if case_master and not old_case:
+                    raise ProjectCopyRequired("Older project unchanged. Use Save project to create a separate case master.",
+                                              suffix="-case-master", title="Save a separate case master (original stays unchanged)")
+                if nullable and not old_nullable and not old_case:
                     raise ProjectCopyRequired("Older project unchanged. Use Save project to create a separate nullable-score copy.")
-                nullable = nullable or old_member == NULLABLE_MEMBER
+                case_master = case_master or old_case
+                nullable = nullable or old_nullable
         except FileNotFoundError:
             if expected_revision is not None:
                 raise ProjectChanged() from None
-            new_only = nullable
+            new_only = case_master or nullable
         except zipfile.BadZipFile as exc:
             raise ValueError("The existing project is unreadable; choose a new file instead.") from exc
-    member = NULLABLE_MEMBER if nullable else PROJECT_JSON
+    if case_master:
+        member = CASE_MEMBER
+        format_version = CASE_NULLABLE_PROFILE if nullable else CASE_PROFILE
+    else:
+        member = NULLABLE_MEMBER if nullable else PROJECT_JSON
+        format_version = NULLABLE_PROFILE if nullable else PROJECT_FORMAT_VERSION
     payload = {
-        "format_version": NULLABLE_PROFILE if nullable else PROJECT_FORMAT_VERSION,
+        "format_version": format_version,
         "transcript_paths": [str(item) for item in state.transcript_paths],
         "codebook_path": str(state.codebook_path) if state.codebook_path is not None else None,
-        "documents": [asdict(document) for document in state.documents],
+        "documents": [_document_to_json(document) for document in state.documents],
         "settings": _settings_to_json(state.settings),
         "result": _result_to_json(state.result),
         "researcher_name": state.researcher_name,
@@ -157,6 +208,8 @@ def save_project(path: Path, state: ProjectState, *, new_only: bool = False,
             os.fsync(stream.fileno())
             written = _revision(stream)
         with _publish_guard(path):
+            for source, revision in input_revisions:
+                ensure_project_revision(source, revision)
             if not new_only:
                 if _disk_revision(path) != previous:
                     raise ProjectChanged()
@@ -177,13 +230,7 @@ def load_project(path: Path) -> ProjectState:
         payload = json.loads(archive.read(member).decode("utf-8"))
         revision = _revision(stream)
 
-    raw_format_version = payload.get("format_version", 1)
-    nullable = member == NULLABLE_MEMBER
-    if nullable:
-        if raw_format_version != NULLABLE_PROFILE:
-            raise UnsupportedProjectFormatError(str(raw_format_version), PROJECT_FORMAT_VERSION)
-    elif not isinstance(raw_format_version, (int, str)) or str(raw_format_version) not in ("1", "2"):
-        raise UnsupportedProjectFormatError(str(raw_format_version), PROJECT_FORMAT_VERSION)
+    case_master, nullable = _project_profile(member, payload)
     return ProjectState(
         transcript_paths=tuple(Path(item) for item in payload.get("transcript_paths", [])),
         codebook_path=_optional_path(payload.get("codebook_path")),
@@ -193,6 +240,7 @@ def load_project(path: Path) -> ProjectState:
         researcher_name=str(payload.get("researcher_name", "")),
         audit_events=tuple(_audit_event_from_json(item) for item in payload.get("audit_events", []) if isinstance(item, dict)),
         file_revision=revision,
+        is_case_master=case_master,
     )
 
 
@@ -269,11 +317,22 @@ def _codebook_entry_from_json(payload: dict[str, str | list[str]]) -> CodebookEn
     )
 
 
+def _document_to_json(document: TranscriptDocument) -> dict[str, str]:
+    row = {"name": document.name, "text": document.text, "memo": document.memo}
+    if label := document.case_label.strip():
+        row["case_label"] = label
+    return row
+
+
 def _document_from_json(payload: dict[str, object]) -> TranscriptDocument:  # noqa: OBJECT_OK - JSON boundary.
+    label = payload.get("case_label", "")
+    if not isinstance(label, str):
+        raise ValueError("Expected a text case label on the transcript.")
     return TranscriptDocument(
         name=str(payload.get("name", "")),
         text=str(payload.get("text", "")),
         memo=str(payload.get("memo", "")),
+        case_label=label.strip(),
     )
 
 
